@@ -16,7 +16,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, debugModifyBank, debugAddAge, debugMaxStats, studyHard } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, isAging, relationships, modifyRelationship, modifyProperty, performGig, startStartup, surrender, addRelationship, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -93,6 +93,7 @@ export default function MainGame({ engine }) {
   };
 
   const handleAskOut = () => {
+    // eslint-disable-next-line react-hooks/purity
     const success = Math.random() < ((datingMatch.looks / 150) + (stats.looks / 150));
     if (success) {
        addRelationship(datingMatch);
@@ -134,11 +135,6 @@ export default function MainGame({ engine }) {
 
   const handleChooseJob = (id) => {
     chooseCareer(id);
-    setActiveSheet(null);
-  };
-
-  const handleActivity = (id, name, effects) => {
-    performActivity(id, name, effects);
     setActiveSheet(null);
   };
 
