@@ -1,0 +1,78 @@
+[
+  {
+    "id": "e_toddler_walk",
+    "minAge": 1,
+    "maxAge": 3,
+    "description": "You are trying to take your first steps.",
+    "choices": [
+      { "text": "Walk to mommy", "effects": { "happiness": 5 } },
+      { "text": "Stay crawling", "effects": { "happiness": 2 } },
+      { "text": "Try to run and fall", "effects": { "health": -5, "happiness": -5, "smarts": 2 } }
+    ]
+  },
+  {
+    "id": "e_child_bully",
+    "minAge": 6,
+    "maxAge": 12,
+    "description": "A bully is picking on you at the playground.",
+    "choices": [
+      { "text": "Fight back", "effects": { "health": -10, "happiness": 10, "looks": -2 } },
+      { "text": "Tell a teacher", "effects": { "smarts": 5, "happiness": -5 } },
+      { "text": "Run away", "effects": { "health": 5, "happiness": -2 } }
+    ]
+  },
+  {
+    "id": "e_teen_pimple",
+    "minAge": 13,
+    "maxAge": 17,
+    "description": "You woke up with a massive pimple on your nose right before school.",
+    "choices": [
+      { "text": "Pop it", "effects": { "looks": -10, "health": -2 } },
+      { "text": "Use concealer", "effects": { "looks": 2, "smarts": 2 } },
+      { "text": "Ignore it", "effects": { "happiness": -5 } }
+    ]
+  },
+  {
+    "id": "e_teen_party",
+    "minAge": 15,
+    "maxAge": 18,
+    "description": "You are invited to a wild house party.",
+    "choices": [
+      { "text": "Go and drink", "effects": { "health": -10, "happiness": 15, "smarts": -5 } },
+      { "text": "Go but stay sober", "effects": { "happiness": 5, "smarts": 2 } },
+      { "text": "Stay home and study", "effects": { "smarts": 8, "happiness": -10 } }
+    ]
+  },
+  {
+    "id": "e_adult_crypto",
+    "minAge": 18,
+    "maxAge": 50,
+    "description": "Your friend tells you about a new cryptocurrency called 'DogeMoon'.",
+    "choices": [
+      { "text": "Invest life savings", "effects": { "happiness": -20, "health": -5, "smarts": -10, "flags": ["broke"] } },
+      { "text": "Put $100 in", "effects": { "happiness": 10, "smarts": 2 } },
+      { "text": "Ignore them", "effects": { "smarts": 5 } }
+    ]
+  },
+  {
+    "id": "e_adult_promotion",
+    "minAge": 22,
+    "maxAge": 60,
+    "description": "Your boss offers you a promotion that requires 60 hour weeks.",
+    "choices": [
+      { "text": "Accept it", "effects": { "health": -15, "happiness": -10, "smarts": 5, "flags": ["promoted"] } },
+      { "text": "Decline it", "effects": { "happiness": 10, "health": 5 } }
+    ]
+  },
+  {
+    "id": "e_senior_aches",
+    "minAge": 60,
+    "maxAge": 100,
+    "description": "Your back has been hurting constantly lately.",
+    "choices": [
+      { "text": "See a doctor", "effects": { "health": 15, "happiness": -5 } },
+      { "text": "Take painkillers", "effects": { "health": -5, "happiness": 10 } },
+      { "text": "Ignore it", "effects": { "health": -15 } }
+    ]
+  }
+]

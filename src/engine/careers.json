@@ -1,0 +1,92 @@
+[
+  {
+    "id": "fast_food",
+    "title": "Fast Food Worker",
+    "salary": 12000,
+    "happinessEffect": -5,
+    "healthEffect": -2,
+    "minAge": 16,
+    "type": "part_time"
+  },
+  {
+    "id": "barista",
+    "title": "Barista",
+    "salary": 15000,
+    "happinessEffect": 0,
+    "healthEffect": 0,
+    "minAge": 16,
+    "type": "part_time"
+  },
+  {
+    "id": "cashier",
+    "title": "Retail Cashier",
+    "salary": 18000,
+    "happinessEffect": -2,
+    "healthEffect": -1,
+    "minAge": 16,
+    "type": "part_time"
+  },
+  {
+    "id": "junior_dev",
+    "title": "Junior Developer",
+    "salary": 65000,
+    "happinessEffect": -5,
+    "healthEffect": -5,
+    "minAge": 18,
+    "type": "full_time"
+  },
+  {
+    "id": "plumber",
+    "title": "Apprentice Plumber",
+    "salary": 45000,
+    "happinessEffect": 2,
+    "healthEffect": -5,
+    "minAge": 18,
+    "type": "full_time"
+  },
+  {
+    "id": "sw_eng",
+    "title": "Software Engineer",
+    "salary": 125000,
+    "happinessEffect": -10,
+    "healthEffect": -15,
+    "minAge": 22,
+    "type": "full_time"
+  },
+  {
+    "id": "nurse",
+    "title": "Registered Nurse",
+    "salary": 80000,
+    "happinessEffect": -5,
+    "healthEffect": -10,
+    "minAge": 22,
+    "type": "full_time"
+  },
+  {
+    "id": "doctor",
+    "title": "Family Doctor",
+    "salary": 180000,
+    "happinessEffect": -15,
+    "healthEffect": -15,
+    "minAge": 26,
+    "type": "full_time"
+  },
+  {
+    "id": "lawyer",
+    "title": "Corporate Lawyer",
+    "salary": 200000,
+    "happinessEffect": -25,
+    "healthEffect": -15,
+    "minAge": 26,
+    "type": "full_time"
+  },
+  {
+    "id": "ceo",
+    "title": "Corporate Executive",
+    "salary": 350000,
+    "happinessEffect": -30,
+    "healthEffect": -20,
+    "minAge": 35,
+    "type": "full_time"
+  }
+]
