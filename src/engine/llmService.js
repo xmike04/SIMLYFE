@@ -69,6 +69,9 @@ ${historyLog}`;
         throw new Error(`API Error ${response.status}: ${JSON.stringify(data.error || data)}`);
     }
 
+    if (!data.choices?.[0]?.message?.content) {
+      throw new Error("Unexpected API response structure");
+    }
     let textResult = data.choices[0].message.content.trim();
     if (textResult.startsWith('```')) {
       textResult = textResult.replace(/^```json\n?/i, '').replace(/^```\n?/, '').replace(/\n?```$/, '');

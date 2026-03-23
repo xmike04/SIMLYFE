@@ -18,7 +18,7 @@ export function useGameState() {
   const [character, setCharacter] = useState(null);
   const [age, setAge] = useState(0);
   const [stats, setStats] = useState(INITIAL_STATS);
-  const [flags, setFlags] = useState([]);
+  const [flags, setFlags] = useState({});
   const [isDead, setIsDead] = useState(false);
   const [career, setCareer] = useState(null);
   const [bank, setBank] = useState(0);
@@ -98,7 +98,7 @@ export function useGameState() {
     setCharacter(newChar);
     setAge(0);
     setStats(initialStats);
-    setFlags([]);
+    setFlags({});
     setIsDead(false);
     setCareer(null);
     setBank(0);
@@ -136,16 +136,27 @@ export function useGameState() {
   const applyEffects = (effects) => {
     setStats((prevStats) => {
       const newStats = { ...prevStats };
-      if (effects.health) newStats.health = Math.min(100, Math.max(0, newStats.health + effects.health));
-      if (effects.happiness) newStats.happiness = Math.min(100, Math.max(0, newStats.happiness + effects.happiness));
-      if (effects.smarts) newStats.smarts = Math.min(100, Math.max(0, newStats.smarts + effects.smarts));
-      if (effects.looks) newStats.looks = Math.min(100, Math.max(0, newStats.looks + effects.looks));
+      const clamp = (v) => Math.min(100, Math.max(0, v));
+      if (effects.health) newStats.health = clamp(newStats.health + effects.health);
+      if (effects.happiness) newStats.happiness = clamp(newStats.happiness + effects.happiness);
+      if (effects.smarts) newStats.smarts = clamp(newStats.smarts + effects.smarts);
+      if (effects.looks) newStats.looks = clamp(newStats.looks + effects.looks);
+      if (effects.grades) newStats.grades = clamp(newStats.grades + effects.grades);
+      if (effects.athleticism) newStats.athleticism = clamp(newStats.athleticism + effects.athleticism);
+      if (effects.karma) newStats.karma = clamp(newStats.karma + effects.karma);
+      if (effects.acting) newStats.acting = clamp(newStats.acting + effects.acting);
+      if (effects.voice) newStats.voice = clamp(newStats.voice + effects.voice);
+      if (effects.modeling) newStats.modeling = clamp(newStats.modeling + effects.modeling);
       if (effects.bank) setBank(prev => prev + effects.bank);
       return newStats;
     });
 
     if (effects.flags) {
-      setFlags((prev) => [...new Set([...prev, ...effects.flags])]);
+      setFlags((prev) => {
+        const next = { ...prev };
+        effects.flags.forEach(f => { next[f] = true; });
+        return next;
+      });
     }
   };
 
@@ -187,10 +198,10 @@ export function useGameState() {
     let nextCareer = career;
     let businessHistory = null;
     
-    if (nextAge > 30) nextStats.health -= 1;
+    if (nextAge > 30) nextStats.health = Math.max(0, nextStats.health - 1);
     if (nextAge > 50) {
-      nextStats.health -= 2;
-      nextStats.looks -= 1;
+      nextStats.health = Math.max(0, nextStats.health - 2);
+      nextStats.looks = Math.max(0, nextStats.looks - 1);
     }
 
     if (nextCareer) {
@@ -223,6 +234,7 @@ export function useGameState() {
       } else {
         nextBank += nextCareer.salary;
         nextStats.happiness = Math.min(100, Math.max(0, nextStats.happiness + nextCareer.happinessEffect));
+        nextStats.health = Math.min(100, Math.max(0, nextStats.health + (nextCareer.healthEffect || 0)));
       }
     }
 
@@ -384,10 +396,11 @@ export function useGameState() {
   };
 
   const performGig = (name, payout) => {
-    setBank(prev => prev + payout);
+    const newBank = bank + payout;
+    setBank(newBank);
     setHistory(prev => {
       const updated = [...prev, { age, text: `Gig: You earned $${payout} from ${name}.` }];
-      syncToCloud({ history: updated, bank: bank + payout });
+      syncToCloud({ history: updated, bank: newBank });
       return updated;
     });
   };
@@ -397,7 +410,7 @@ export function useGameState() {
     const wager = Math.floor(bank * (percentage / 100));
     const chance = Math.random();
     let multiplier = 0;
-    
+
     if (chance < 0.4) multiplier = 0;
     else if (chance < 0.6) multiplier = 0.5;
     else if (chance < 0.8) multiplier = 1.5;
@@ -406,42 +419,43 @@ export function useGameState() {
 
     const payout = Math.floor(wager * multiplier);
     const profit = payout - wager;
-    
-    setBank(prev => prev + profit);
+    const newBank = bank + profit;
+
+    setBank(newBank);
     setHistory(prev => {
       let msg = profit > 0 ? `Day Trade: Risked $${wager}, walked away with $${payout} (+$${profit}).` : `Day Trade: Risked $${wager} and lost $${Math.abs(profit)}.`;
       if (multiplier === 0) msg = `Day Trade: You risked $${wager} and got wiped out completely!`;
 
       const updated = [...prev, { age, text: msg }];
-      syncToCloud({ history: updated, bank: bank + profit });
+      syncToCloud({ history: updated, bank: newBank });
       return updated;
     });
   };
 
   const startStartup = () => {
     if (bank < 500) return;
-    setBank(prev => prev - 500);
+    const newBank = bank - 500;
+    setBank(newBank);
     const founderCareer = { id: 'founder', title: 'Startup Founder', salary: 0, happinessEffect: -15, type: 'business', equity: 500 };
     setCareer(founderCareer);
     setHistory(prev => {
       const updated = [...prev, { age, text: `You invested $500 and launched your own startup.` }];
-      syncToCloud({ history: updated, bank: bank - 500, career: founderCareer });
+      syncToCloud({ history: updated, bank: newBank, career: founderCareer });
       return updated;
     });
   };
 
   const playLottery = () => {
     if (bank < 5) return;
-    setBank(prev => prev - 5);
     const won = Math.random() < 0.00001;
-    let msg = `Lottery: You bought a $5 ticket and lost.`;
-    if (won) {
-      setBank(prev => prev + 10000000);
-      msg = `Lottery: HOLY MOLY! You bought a $5 ticket and WON $10,000,000!`;
-    }
+    const newBank = won ? bank - 5 + 10000000 : bank - 5;
+    setBank(newBank);
+    const msg = won
+      ? `Lottery: HOLY MOLY! You bought a $5 ticket and WON $10,000,000!`
+      : `Lottery: You bought a $5 ticket and lost.`;
     setHistory(prev => {
       const updated = [...prev, { age, text: msg }];
-      syncToCloud({ history: updated, bank: won ? bank + 10000000 : bank - 5 });
+      syncToCloud({ history: updated, bank: newBank });
       return updated;
     });
   };
@@ -463,27 +477,27 @@ export function useGameState() {
 
   const goGamble = (amount) => {
     if (bank < amount || amount <= 0) return;
-    setBank(prev => prev - amount);
     const win = Math.random() < 0.45;
-    let msg = `Casino: You gambled $${amount} and lost it all.`;
-    if (win) {
-      setBank(prev => prev + amount * 2);
-      msg = `Casino: You gambled $${amount} and WON $${amount * 2}!`;
-    }
+    const newBank = win ? bank + amount : bank - amount;
+    setBank(newBank);
+    const msg = win
+      ? `Casino: You gambled $${amount} and WON $${amount * 2}!`
+      : `Casino: You gambled $${amount} and lost it all.`;
     setHistory(prev => {
       const updated = [...prev, { age, text: msg }];
-      syncToCloud({ history: updated, bank: win ? bank + amount : bank - amount });
+      syncToCloud({ history: updated, bank: newBank });
       return updated;
     });
   };
 
   const visitDoctor = () => {
     if (bank < 100) return;
-    setBank(prev => prev - 100);
+    const newBank = bank - 100;
+    setBank(newBank);
     setStats(prev => ({ ...prev, health: Math.min(100, prev.health + 20), happiness: Math.min(100, prev.happiness + 5) }));
     setHistory(prev => {
       const updated = [...prev, { age, text: `Doctor: You paid $100 for a checkup. You feel healthier.` }];
-      syncToCloud({ history: updated, bank: bank - 100 });
+      syncToCloud({ history: updated, bank: newBank });
       return updated;
     });
   };
@@ -533,8 +547,9 @@ export function useGameState() {
 
   const buyAsset = (category, item) => {
     if (bank < item.cost) return;
-    setBank(prev => prev - item.cost);
-    
+    const newBank = bank - item.cost;
+    setBank(newBank);
+
     const newAsset = {
       ...item,
       id: `${category}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -546,14 +561,14 @@ export function useGameState() {
     if (category === 'property') {
       setProperties(prev => {
         const next = [...prev, newAsset];
-        syncToCloud({ properties: next, bank: bank - item.cost });
+        syncToCloud({ properties: next, bank: newBank });
         return next;
       });
       setHistory(prev => [...prev, { age, text: `Real Estate: Purchased a ${item.name} for $${item.cost.toLocaleString()}.` }]);
     } else {
       setBelongings(prev => {
         const next = [...prev, newAsset];
-        syncToCloud({ belongings: next, bank: bank - item.cost });
+        syncToCloud({ belongings: next, bank: newBank });
         return next;
       });
       setHistory(prev => [...prev, { age, text: `Shopping: Bought a ${item.name} for $${item.cost.toLocaleString()}.` }]);
@@ -564,20 +579,22 @@ export function useGameState() {
     if (category === 'property') {
       const asset = properties.find(p => p.id === id);
       if (!asset) return;
-      setBank(prev => prev + asset.currentValue);
+      const newBank = bank + asset.currentValue;
+      setBank(newBank);
       setProperties(prev => {
         const next = prev.filter(p => p.id !== id);
-        syncToCloud({ properties: next, bank: bank + asset.currentValue });
+        syncToCloud({ properties: next, bank: newBank });
         return next;
       });
       setHistory(prev => [...prev, { age, text: `Real Estate: Sold your ${asset.name} for $${Math.floor(asset.currentValue).toLocaleString()}.` }]);
     } else {
       const asset = belongings.find(b => b.id === id);
       if (!asset) return;
-      setBank(prev => prev + asset.currentValue);
+      const newBank = bank + asset.currentValue;
+      setBank(newBank);
       setBelongings(prev => {
         const next = prev.filter(b => b.id !== id);
-        syncToCloud({ belongings: next, bank: bank + asset.currentValue });
+        syncToCloud({ belongings: next, bank: newBank });
         return next;
       });
       setHistory(prev => [...prev, { age, text: `Belongings: Sold your ${asset.name} for $${Math.floor(asset.currentValue).toLocaleString()}.` }]);
@@ -598,7 +615,7 @@ export function useGameState() {
   };
 
   const debugMaxStats = () => {
-    const max = { health: 100, happiness: 100, smarts: 100, looks: 100 };
+    const max = { health: 100, happiness: 100, smarts: 100, looks: 100, grades: 100, athleticism: 100, karma: 100, acting: 100, voice: 100, modeling: 100 };
     setStats(max);
     syncToCloud({ stats: max });
   };
