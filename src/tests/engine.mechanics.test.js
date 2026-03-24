@@ -1460,3 +1460,520 @@ describe('activity cost + guard integration', () => {
     expect(next.health).toBe(60);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 10. Relationship mechanics
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Pure-function mirrors ────────────────────────────────────────────────────
+
+/**
+ * getMood — derive mood label from relation score.
+ * 75–100 → 'happy', 50–74 → 'neutral', 25–49 → 'upset', 0–24 → 'hostile'
+ */
+function getMood(relation) {
+  if (relation >= 75) return 'happy';
+  if (relation >= 50) return 'neutral';
+  if (relation >= 25) return 'upset';
+  return 'hostile';
+}
+
+/**
+ * shouldAutoBreakup — true when the relationship should dissolve passively.
+ * Triggers when status is 'dating' or 'married' AND relation < 20.
+ */
+function shouldAutoBreakup(rel) {
+  return (rel.status === 'dating' || rel.status === 'married') && rel.relation < 20;
+}
+
+/**
+ * passiveRelationDecay — amount relation drops per year if not interacted with.
+ * family → −1, dating → −3, married → −2, friend → −2, ex/estranged → 0
+ */
+function passiveRelationDecay(rel) {
+  if (rel.status === 'family') return 1;
+  if (rel.status === 'dating') return 3;
+  if (rel.status === 'married') return 2;
+  if (rel.status === 'friend') return 2;
+  return 0;
+}
+
+/**
+ * parentDeathChance — probability (0–1) that a parent/elder relative dies this year.
+ * 0 below age 70, then (age - 70) / 60, capped at 1.
+ */
+function parentDeathChance(age) {
+  if (age < 70) return 0;
+  return Math.min(1, (age - 70) / 60);
+}
+
+/**
+ * marriageEligibility — checks whether the player can propose to a relationship.
+ * Requires: status === 'dating', relation >= 80, playerAge >= 18.
+ * Returns { eligible: bool, reason: string }
+ */
+function marriageEligibility(rel, playerAge) {
+  if (rel.status !== 'dating') return { eligible: false, reason: 'Not currently dating' };
+  if (playerAge < 18) return { eligible: false, reason: 'Must be 18+ to marry' };
+  if (rel.relation < 80) return { eligible: false, reason: `Relation must be 80+ (currently ${rel.relation})` };
+  return { eligible: true, reason: '' };
+}
+
+/**
+ * divorceCost — calculates how much a divorce costs.
+ * 15% of bank, minimum $5,000, maximum $50,000.
+ */
+function divorceCost(bank) {
+  return Math.min(50000, Math.max(5000, Math.floor(bank * 0.15)));
+}
+
+/**
+ * countJealousyTriggers — returns number of concurrent active lovers (dating/married).
+ * Jealousy fires when this count > 1.
+ */
+function countJealousyTriggers(relationships) {
+  return relationships.filter(r => r.status === 'dating' || r.status === 'married').length;
+}
+
+// ─── Test fixtures ────────────────────────────────────────────────────────────
+
+const makeRel = (overrides = {}) => ({
+  id: 'rel_test',
+  name: 'Alex',
+  age: 30,
+  relation: 60,
+  status: 'dating',
+  mood: 'neutral',
+  isAlive: true,
+  ...overrides,
+});
+
+// ─── getMood ─────────────────────────────────────────────────────────────────
+
+describe('getMood', () => {
+  it('relation 100 → happy', () => expect(getMood(100)).toBe('happy'));
+  it('relation 75 → happy', ()  => expect(getMood(75)).toBe('happy'));
+  it('relation 74 → neutral', () => expect(getMood(74)).toBe('neutral'));
+  it('relation 50 → neutral', () => expect(getMood(50)).toBe('neutral'));
+  it('relation 49 → upset', ()  => expect(getMood(49)).toBe('upset'));
+  it('relation 25 → upset', ()  => expect(getMood(25)).toBe('upset'));
+  it('relation 24 → hostile', () => expect(getMood(24)).toBe('hostile'));
+  it('relation 0 → hostile', ()  => expect(getMood(0)).toBe('hostile'));
+});
+
+// ─── shouldAutoBreakup ────────────────────────────────────────────────────────
+
+describe('shouldAutoBreakup', () => {
+  it('dating + relation 19 → true', () => {
+    expect(shouldAutoBreakup(makeRel({ status: 'dating', relation: 19 }))).toBe(true);
+  });
+
+  it('married + relation 5 → true', () => {
+    expect(shouldAutoBreakup(makeRel({ status: 'married', relation: 5 }))).toBe(true);
+  });
+
+  it('dating + relation 20 → false (threshold is exclusive)', () => {
+    expect(shouldAutoBreakup(makeRel({ status: 'dating', relation: 20 }))).toBe(false);
+  });
+
+  it('family + relation 5 → false (family never auto-breaks)', () => {
+    expect(shouldAutoBreakup(makeRel({ status: 'family', relation: 5 }))).toBe(false);
+  });
+
+  it('friend + relation 0 → false', () => {
+    expect(shouldAutoBreakup(makeRel({ status: 'friend', relation: 0 }))).toBe(false);
+  });
+
+  it('ex + relation 0 → false', () => {
+    expect(shouldAutoBreakup(makeRel({ status: 'ex', relation: 0 }))).toBe(false);
+  });
+});
+
+// ─── passiveRelationDecay ─────────────────────────────────────────────────────
+
+describe('passiveRelationDecay', () => {
+  it('family decays by 1 per year', () => {
+    expect(passiveRelationDecay(makeRel({ status: 'family' }))).toBe(1);
+  });
+
+  it('dating decays by 3 per year', () => {
+    expect(passiveRelationDecay(makeRel({ status: 'dating' }))).toBe(3);
+  });
+
+  it('married decays by 2 per year', () => {
+    expect(passiveRelationDecay(makeRel({ status: 'married' }))).toBe(2);
+  });
+
+  it('friend decays by 2 per year', () => {
+    expect(passiveRelationDecay(makeRel({ status: 'friend' }))).toBe(2);
+  });
+
+  it('ex decays by 0 (no obligation)', () => {
+    expect(passiveRelationDecay(makeRel({ status: 'ex' }))).toBe(0);
+  });
+
+  it('estranged decays by 0', () => {
+    expect(passiveRelationDecay(makeRel({ status: 'estranged' }))).toBe(0);
+  });
+});
+
+// ─── parentDeathChance ────────────────────────────────────────────────────────
+
+describe('parentDeathChance', () => {
+  it('age 69 → 0 chance', () => {
+    expect(parentDeathChance(69)).toBe(0);
+  });
+
+  it('age 70 → 0 chance (threshold start, exclusive)', () => {
+    expect(parentDeathChance(70)).toBe(0);
+  });
+
+  it('age 100 → ~0.5 chance', () => {
+    expect(parentDeathChance(100)).toBeCloseTo(0.5);
+  });
+
+  it('age 130 → capped at 1', () => {
+    expect(parentDeathChance(130)).toBe(1);
+  });
+
+  it('chance increases monotonically with age', () => {
+    expect(parentDeathChance(90)).toBeGreaterThan(parentDeathChance(80));
+    expect(parentDeathChance(110)).toBeGreaterThan(parentDeathChance(90));
+  });
+});
+
+// ─── marriageEligibility ──────────────────────────────────────────────────────
+
+describe('marriageEligibility', () => {
+  it('valid: dating, relation 80+, age 18+ → eligible', () => {
+    const result = marriageEligibility(makeRel({ status: 'dating', relation: 85 }), 25);
+    expect(result.eligible).toBe(true);
+    expect(result.reason).toBe('');
+  });
+
+  it('blocked when not dating (status married)', () => {
+    const result = marriageEligibility(makeRel({ status: 'married', relation: 90 }), 30);
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toMatch(/not currently dating/i);
+  });
+
+  it('blocked when not dating (status friend)', () => {
+    const result = marriageEligibility(makeRel({ status: 'friend', relation: 95 }), 30);
+    expect(result.eligible).toBe(false);
+  });
+
+  it('blocked when player under 18', () => {
+    const result = marriageEligibility(makeRel({ status: 'dating', relation: 90 }), 17);
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toMatch(/18/);
+  });
+
+  it('blocked when relation < 80', () => {
+    const result = marriageEligibility(makeRel({ status: 'dating', relation: 79 }), 25);
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toMatch(/80/);
+  });
+
+  it('exact edge: relation exactly 80 → eligible', () => {
+    const result = marriageEligibility(makeRel({ status: 'dating', relation: 80 }), 18);
+    expect(result.eligible).toBe(true);
+  });
+});
+
+// ─── divorceCost ─────────────────────────────────────────────────────────────
+
+describe('divorceCost', () => {
+  it('15% of bank, floored', () => {
+    expect(divorceCost(100000)).toBe(15000);
+  });
+
+  it('minimum cost is $5,000', () => {
+    expect(divorceCost(0)).toBe(5000);
+    expect(divorceCost(10000)).toBe(5000); // 15% = 1500, floored to 5000
+  });
+
+  it('maximum cost is $50,000', () => {
+    expect(divorceCost(1000000)).toBe(50000);
+  });
+
+  it('moderate bank: 15% applied', () => {
+    expect(divorceCost(200000)).toBe(30000);
+  });
+});
+
+// ─── countJealousyTriggers ────────────────────────────────────────────────────
+
+describe('countJealousyTriggers', () => {
+  it('returns 0 with no relationships', () => {
+    expect(countJealousyTriggers([])).toBe(0);
+  });
+
+  it('returns 0 with only family', () => {
+    const rels = [makeRel({ status: 'family' }), makeRel({ status: 'family', id: 'rel_2' })];
+    expect(countJealousyTriggers(rels)).toBe(0);
+  });
+
+  it('returns 1 with one lover (no jealousy)', () => {
+    expect(countJealousyTriggers([makeRel({ status: 'dating' })])).toBe(1);
+  });
+
+  it('returns 2 with two simultaneous lovers (jealousy fires)', () => {
+    const rels = [
+      makeRel({ id: 'rel_1', status: 'dating' }),
+      makeRel({ id: 'rel_2', status: 'dating' }),
+    ];
+    expect(countJealousyTriggers(rels)).toBe(2);
+  });
+
+  it('counts married partner as active lover', () => {
+    const rels = [
+      makeRel({ id: 'rel_1', status: 'married' }),
+      makeRel({ id: 'rel_2', status: 'dating' }),
+    ];
+    expect(countJealousyTriggers(rels)).toBe(2);
+  });
+
+  it('ex and estranged do not count', () => {
+    const rels = [
+      makeRel({ id: 'rel_1', status: 'ex' }),
+      makeRel({ id: 'rel_2', status: 'estranged' }),
+      makeRel({ id: 'rel_3', status: 'dating' }),
+    ];
+    expect(countJealousyTriggers(rels)).toBe(1);
+  });
+});
+
+// ─── Integration: auto-breakup + decay scenario ───────────────────────────────
+
+describe('relationship decay + auto-breakup integration', () => {
+  it('lover relation decays to 0 → shouldAutoBreakup fires', () => {
+    let rel = makeRel({ status: 'dating', relation: 22 });
+    // Simulate 2 years of neglect (no interaction each year)
+    rel = { ...rel, relation: Math.max(0, rel.relation - passiveRelationDecay(rel)) }; // yr 1: 19
+    expect(rel.relation).toBe(19);
+    expect(shouldAutoBreakup(rel)).toBe(true);
+  });
+
+  it('spouse with regular interaction avoids auto-breakup', () => {
+    let rel = makeRel({ status: 'married', relation: 50 });
+    // Simulate interaction: +10, then decay: -2 → net +8
+    rel = { ...rel, relation: clamp(rel.relation + 10 - passiveRelationDecay(rel)) };
+    expect(rel.relation).toBe(58);
+    expect(shouldAutoBreakup(rel)).toBe(false);
+  });
+
+  it('jealousy: two simultaneous lovers triggers jealousy', () => {
+    const rels = [
+      makeRel({ id: 'rel_a', status: 'dating', relation: 80 }),
+      makeRel({ id: 'rel_b', status: 'dating', relation: 75 }),
+    ];
+    expect(countJealousyTriggers(rels)).toBeGreaterThan(1);
+  });
+
+  it('parent at age 85 has meaningful death chance (>=25%)', () => {
+    expect(parentDeathChance(85)).toBeGreaterThanOrEqual(0.25);
+  });
+
+  it('full marriage pipeline: date → eligible → propose → married', () => {
+    const rel = makeRel({ status: 'dating', relation: 90 });
+    const eligibility = marriageEligibility(rel, 28);
+    expect(eligibility.eligible).toBe(true);
+    // After proposing, status changes to 'married'
+    const married = { ...rel, status: 'married' };
+    expect(married.status).toBe('married');
+    expect(shouldAutoBreakup(married)).toBe(false); // 90 relation, won't auto-break
+  });
+
+  it('divorce pipeline: married → cost calculated → becomes ex', () => {
+    const rel = makeRel({ status: 'married', relation: 15 });
+    // relation < 20 → would auto-breakup if married, triggering divorce
+    expect(shouldAutoBreakup(rel)).toBe(true);
+    const cost = divorceCost(80000);
+    expect(cost).toBe(12000);
+    const afterDivorce = { ...rel, status: 'ex' };
+    expect(shouldAutoBreakup(afterDivorce)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 11. Wealth tier mechanics
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { getWealthTier, calculateIncomeTax, WEALTH_TIERS } from '../config/wealthTiers';
+
+describe('getWealthTier', () => {
+  it('returns broke tier for negative balance', () => {
+    expect(getWealthTier(-5000).id).toBe('broke');
+  });
+
+  it('returns broke tier for $0', () => {
+    expect(getWealthTier(0).id).toBe('broke');
+  });
+
+  it('returns broke tier for $999', () => {
+    expect(getWealthTier(999).id).toBe('broke');
+  });
+
+  it('returns struggling at $1,000', () => {
+    expect(getWealthTier(1000).id).toBe('struggling');
+  });
+
+  it('returns working class at $10,000', () => {
+    expect(getWealthTier(10000).id).toBe('working');
+  });
+
+  it('returns middle class at $50,000', () => {
+    expect(getWealthTier(50000).id).toBe('middle');
+  });
+
+  it('returns upper middle at $250,000', () => {
+    expect(getWealthTier(250000).id).toBe('upper_middle');
+  });
+
+  it('returns wealthy at $1,000,000', () => {
+    expect(getWealthTier(1_000_000).id).toBe('wealthy');
+  });
+
+  it('returns rich at $10,000,000', () => {
+    expect(getWealthTier(10_000_000).id).toBe('rich');
+  });
+
+  it('returns ultra-wealthy at $100,000,000', () => {
+    expect(getWealthTier(100_000_000).id).toBe('ultra');
+  });
+
+  it('tiers are strictly ordered by minBank', () => {
+    const finite = WEALTH_TIERS.filter(t => isFinite(t.minBank));
+    for (let i = 1; i < finite.length; i++) {
+      expect(finite[i].minBank).toBeGreaterThan(finite[i - 1].minBank);
+    }
+  });
+});
+
+describe('calculateIncomeTax', () => {
+  it('no tax when salary is 0', () => {
+    expect(calculateIncomeTax(0, 50000)).toBe(0);
+  });
+
+  it('no tax for broke player (0% rate)', () => {
+    expect(calculateIncomeTax(30000, 500)).toBe(0);
+  });
+
+  it('10% tax for struggling player', () => {
+    // bank=5000 → struggling (10% rate)
+    expect(calculateIncomeTax(20000, 5000)).toBe(2000);
+  });
+
+  it('15% tax for working class player', () => {
+    // bank=30000 → working (15% rate)
+    expect(calculateIncomeTax(40000, 30000)).toBe(6000);
+  });
+
+  it('22% tax for middle class player', () => {
+    expect(calculateIncomeTax(80000, 100000)).toBe(17600);
+  });
+
+  it('35% tax for wealthy player', () => {
+    expect(calculateIncomeTax(500000, 2_000_000)).toBe(175000);
+  });
+
+  it('result is always a floored integer', () => {
+    const tax = calculateIncomeTax(33333, 30000); // 15% of 33333 = 4999.95
+    expect(Number.isInteger(tax)).toBe(true);
+    expect(tax).toBe(4999);
+  });
+});
+
+describe('wealth tier schema', () => {
+  it('every tier has required fields', () => {
+    for (const tier of WEALTH_TIERS) {
+      expect(tier).toHaveProperty('id');
+      expect(tier).toHaveProperty('label');
+      expect(tier).toHaveProperty('icon');
+      expect(tier).toHaveProperty('incomeTaxRate');
+      expect(tier).toHaveProperty('lifestyleCost');
+      expect(tier).toHaveProperty('giftAmounts');
+      expect(tier).toHaveProperty('dateCost');
+      expect(tier).toHaveProperty('relationDecayMult');
+      expect(tier).toHaveProperty('happinessPenalty');
+    }
+  });
+
+  it('incomeTaxRate is between 0 and 1', () => {
+    for (const tier of WEALTH_TIERS) {
+      expect(tier.incomeTaxRate).toBeGreaterThanOrEqual(0);
+      expect(tier.incomeTaxRate).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('giftAmounts is an array of 3 ascending positive numbers', () => {
+    for (const tier of WEALTH_TIERS) {
+      expect(Array.isArray(tier.giftAmounts)).toBe(true);
+      expect(tier.giftAmounts.length).toBe(3);
+      expect(tier.giftAmounts[0]).toBeGreaterThan(0);
+      expect(tier.giftAmounts[1]).toBeGreaterThan(tier.giftAmounts[0]);
+      expect(tier.giftAmounts[2]).toBeGreaterThan(tier.giftAmounts[1]);
+    }
+  });
+
+  it('relationDecayMult is >= 1.0 for all tiers', () => {
+    for (const tier of WEALTH_TIERS) {
+      expect(tier.relationDecayMult).toBeGreaterThanOrEqual(1.0);
+    }
+  });
+
+  it('lifestyleCost and happinessPenalty are non-negative', () => {
+    for (const tier of WEALTH_TIERS) {
+      expect(tier.lifestyleCost).toBeGreaterThanOrEqual(0);
+      expect(tier.happinessPenalty).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('higher tiers have higher or equal tax rates', () => {
+    for (let i = 1; i < WEALTH_TIERS.length; i++) {
+      expect(WEALTH_TIERS[i].incomeTaxRate).toBeGreaterThanOrEqual(WEALTH_TIERS[i - 1].incomeTaxRate);
+    }
+  });
+
+  it('higher tiers have higher or equal lifestyle costs', () => {
+    for (let i = 1; i < WEALTH_TIERS.length; i++) {
+      expect(WEALTH_TIERS[i].lifestyleCost).toBeGreaterThanOrEqual(WEALTH_TIERS[i - 1].lifestyleCost);
+    }
+  });
+
+  it('higher tiers have higher or equal relation decay multipliers', () => {
+    for (let i = 1; i < WEALTH_TIERS.length; i++) {
+      expect(WEALTH_TIERS[i].relationDecayMult).toBeGreaterThanOrEqual(WEALTH_TIERS[i - 1].relationDecayMult);
+    }
+  });
+});
+
+describe('wealth tier integration', () => {
+  it('ultra-wealthy player pays 45% tax on salary', () => {
+    const tax = calculateIncomeTax(1_000_000, 200_000_000);
+    expect(tax).toBe(450_000);
+  });
+
+  it('broke player takes home full salary', () => {
+    const salary = 25000;
+    const tax = calculateIncomeTax(salary, 0);
+    expect(tax).toBe(0);
+    expect(salary - tax).toBe(salary);
+  });
+
+  it('middle class player keeps 78% of salary', () => {
+    const salary = 100_000;
+    const tax = calculateIncomeTax(salary, 100_000); // middle class = 22%
+    expect(salary - tax).toBe(78_000);
+  });
+
+  it('wealthy tier has gift amounts scaled for luxury spending', () => {
+    const tier = getWealthTier(5_000_000);
+    expect(tier.giftAmounts[2]).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it('broke tier has affordable gift amounts', () => {
+    const tier = getWealthTier(0);
+    expect(tier.giftAmounts[0]).toBeLessThanOrEqual(20);
+  });
+});

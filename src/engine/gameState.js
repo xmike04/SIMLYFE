@@ -3,6 +3,7 @@ import { signInAnonymously } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import { generateDynamicEvent } from './llmService';
+import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
 
 import staticEvents from './events.json';
 import staticCareers from './careers.json';
@@ -140,12 +141,12 @@ export function useGameState() {
     
     const lastName = name.split(' ').pop();
     const initialFamily = [
-      { id: `rel_${Date.now()}_m`, type: "Mother", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: 20 + Math.floor(Math.random() * 15), relation: 70 + Math.floor(Math.random() * 30) },
-      { id: `rel_${Date.now()}_f`, type: "Father", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: 20 + Math.floor(Math.random() * 15), relation: 60 + Math.floor(Math.random() * 40) }
+      { id: `rel_${Date.now()}_m`, type: "Mother", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: 20 + Math.floor(Math.random() * 15), relation: 70 + Math.floor(Math.random() * 30), status: 'family', isAlive: true },
+      { id: `rel_${Date.now()}_f`, type: "Father", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: 20 + Math.floor(Math.random() * 15), relation: 60 + Math.floor(Math.random() * 40), status: 'family', isAlive: true }
     ];
     const numSiblings = Math.floor(Math.random() * 4);
     for (let i=0; i<numSiblings; i++) {
-       initialFamily.push({ id: `rel_${Date.now()}_s${i}_${Math.floor(Math.random() * 1000000)}`, type: "Sibling", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: Math.floor(Math.random() * 15), relation: 40 + Math.floor(Math.random() * 60) });
+       initialFamily.push({ id: `rel_${Date.now()}_s${i}_${Math.floor(Math.random() * 1000000)}`, type: "Sibling", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: Math.floor(Math.random() * 15), relation: 40 + Math.floor(Math.random() * 60), status: 'family', isAlive: true });
     }
     setRelationships(initialFamily);
     
@@ -291,11 +292,27 @@ export function useGameState() {
           businessHistory += ` Valuation: $${newEquity}. Dividend: $${Math.floor(newEquity * 0.1)}.`;
         }
       } else {
-        nextBank += nextCareer.salary;
+        const grossSalary = nextCareer.salary;
+        const tax = calculateIncomeTax(grossSalary, nextBank);
+        const netSalary = grossSalary - tax;
+        nextBank += netSalary;
         nextStats.happiness = Math.min(100, Math.max(0, nextStats.happiness + (nextCareer.happinessEffect ?? 0)));
         nextStats.health = Math.min(100, Math.max(0, nextStats.health + (nextCareer.healthEffect ?? 0)));
-        // Apply annual skill gains from job
-        if (nextCareer.smarts_gain)    nextStats.smarts    = Math.min(100, nextStats.smarts + nextCareer.smarts_gain);
+        if (nextCareer.smarts_gain) nextStats.smarts = Math.min(100, nextStats.smarts + nextCareer.smarts_gain);
+        if (tax > 0) businessHistory = (businessHistory ? businessHistory + ' ' : '') + `Paid $${tax.toLocaleString()} in income tax (${Math.round(tax / grossSalary * 100)}% bracket).`;
+      }
+    }
+
+    // ── Lifestyle cost (wealth tier expectation) ──────────────────────────────
+    const currentTier = getWealthTier(nextBank);
+    let lifestyleHistoryStr = null;
+    if (currentTier.lifestyleCost > 0) {
+      nextBank -= currentTier.lifestyleCost;
+      if (nextBank < 0) {
+        nextStats.happiness = Math.max(0, nextStats.happiness - currentTier.happinessPenalty);
+        lifestyleHistoryStr = `Lifestyle: You can't maintain your ${currentTier.label} status. Went into debt paying $${currentTier.lifestyleCost.toLocaleString()} in lifestyle costs. −${currentTier.happinessPenalty} Happiness.`;
+      } else {
+        lifestyleHistoryStr = `Lifestyle: Spent $${currentTier.lifestyleCost.toLocaleString()} maintaining your ${currentTier.label} lifestyle.`;
       }
     }
 
@@ -392,7 +409,67 @@ export function useGameState() {
     setProperties(nextProperties);
     setBelongings(nextBelongings);
     
-    const nextRelationships = relationships.map(rel => ({ ...rel, age: rel.age + 1 }));
+    // ── Relationship passive decay, auto-breakup, parent death, jealousy ────────
+    const getRelDecay = (rel) => {
+      if (rel.status === 'family')   return 1;
+      if (rel.status === 'dating')   return 3;
+      if (rel.status === 'married')  return 2;
+      if (rel.status === 'friend')   return 2;
+      return 0;
+    };
+
+    // Age every living relationship and apply passive decay if not interacted with
+    const wealthTier = getWealthTier(nextBank);
+    let nextRelationships = relationships.map(rel => {
+      if (!rel.isAlive) return rel;
+      const nextRel = { ...rel, age: rel.age + 1 };
+      const interacted = !!activitiesThisYear[`rel_interact__${rel.id}`];
+      const baseDecay = getRelDecay(rel);
+      if (!interacted && baseDecay > 0) {
+        // Romantic partners decay faster as wealth increases (they expect more attention/spending)
+        const mult = (rel.status === 'dating' || rel.status === 'married') ? wealthTier.relationDecayMult : 1.0;
+        const totalDecay = Math.ceil(baseDecay * mult);
+        return { ...nextRel, relation: Math.max(0, nextRel.relation - totalDecay) };
+      }
+      return nextRel;
+    });
+
+    // Auto-breakup: romantic relationships that hit rock bottom dissolve
+    const relationshipEvents = [];
+    nextRelationships = nextRelationships.map(rel => {
+      if (!rel.isAlive) return rel;
+      if ((rel.status === 'dating' || rel.status === 'married') && rel.relation < 20) {
+        const wasMarried = rel.status === 'married';
+        relationshipEvents.push(wasMarried
+          ? `Relationships: Your marriage with ${rel.name} fell apart and ended in divorce.`
+          : `Relationships: Things fell apart with ${rel.name}. You broke up.`
+        );
+        return { ...rel, status: 'ex' };
+      }
+      return rel;
+    });
+
+    // Parent/elder death chance
+    nextRelationships = nextRelationships.map(rel => {
+      if (!rel.isAlive) return rel;
+      if (rel.status === 'family' && rel.age >= 70) {
+        const deathChance = Math.min(1, (rel.age - 70) / 60);
+        if (Math.random() < deathChance) {
+          relationshipEvents.push(`Life Event: Your ${rel.type}, ${rel.name}, passed away at age ${rel.age}.`);
+          nextStats.happiness = Math.max(0, nextStats.happiness - 10);
+          return { ...rel, isAlive: false };
+        }
+      }
+      return rel;
+    });
+
+    // Jealousy: multiple simultaneous lovers drain happiness
+    const activeLovers = nextRelationships.filter(r => r.isAlive && (r.status === 'dating' || r.status === 'married'));
+    if (activeLovers.length > 1) {
+      nextStats.happiness = Math.max(0, nextStats.happiness - 5);
+      relationshipEvents.push(`Relationships: The jealousy of maintaining ${activeLovers.length} simultaneous partners is taking a toll.`);
+    }
+
     setRelationships(nextRelationships);
 
     const died = checkDeath(nextStats, nextAge);
@@ -432,10 +509,14 @@ export function useGameState() {
     }
     
     if (businessHistory) updatedHistory.push({ age: nextAge, text: `Business: ${businessHistory}` });
+    if (lifestyleHistoryStr) updatedHistory.push({ age: nextAge, text: lifestyleHistoryStr });
     if (educationHistory) updatedHistory.push({ age: nextAge, text: educationHistory });
     if (reviewHistory)   updatedHistory.push({ age: nextAge, text: reviewHistory });
     if (upkeepHistoryStr) updatedHistory.push({ age: nextAge, text: upkeepHistoryStr });
     if (marketHistoryStr) updatedHistory.push({ age: nextAge, text: marketHistoryStr });
+    for (const relEvent of relationshipEvents) {
+      updatedHistory.push({ age: nextAge, text: relEvent });
+    }
 
     setHistory(updatedHistory);
 
@@ -626,6 +707,7 @@ export function useGameState() {
       syncToCloud({ relationships: next });
       return next;
     });
+    if (delta > 0) setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${id}`]: 1 }));
   };
 
   const modifyProperty = (id, valueDelta) => {
@@ -780,6 +862,130 @@ export function useGameState() {
     });
     setHistory(prev => {
       const updated = [...prev, { age, text: `Relationships: You are now dating ${npc.name}.` }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
+  };
+
+  // ─── Relationship engine functions ───────────────────────────────────────────
+
+  const markRelInteraction = (id) => {
+    setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${id}`]: 1 }));
+  };
+
+  const proposeMarriage = (id) => {
+    const rel = relationships.find(r => r.id === id);
+    if (!rel || rel.status !== 'dating' || rel.relation < 80 || age < 18) return 'blocked';
+    setRelationships(prev => {
+      const next = prev.map(r => r.id === id ? { ...r, status: 'married', type: 'Spouse' } : r);
+      syncToCloud({ relationships: next });
+      return next;
+    });
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Relationships: You proposed to ${rel.name} and got married! 💍` }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
+    return 'ok';
+  };
+
+  const breakUp = (id) => {
+    const rel = relationships.find(r => r.id === id);
+    if (!rel || (rel.status !== 'dating' && rel.status !== 'married')) return 'blocked';
+    const wasMarried = rel.status === 'married';
+    let divorceCostAmount = 0;
+    if (wasMarried) {
+      divorceCostAmount = Math.min(50000, Math.max(5000, Math.floor(bank * 0.15)));
+      setBank(prev => prev - divorceCostAmount);
+    }
+    setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
+    setRelationships(prev => {
+      const next = prev.map(r => r.id === id ? { ...r, status: 'ex' } : r);
+      syncToCloud({ relationships: next });
+      return next;
+    });
+    setHistory(prev => {
+      const msg = wasMarried
+        ? `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.`
+        : `Relationships: You broke up with ${rel.name}. -15 Happiness.`;
+      const updated = [...prev, { age, text: msg }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
+    return 'ok';
+  };
+
+  const haveChild = (partnerId) => {
+    const partner = relationships.find(r => r.id === partnerId);
+    if (!partner || (partner.status !== 'married' && partner.status !== 'dating')) return 'blocked_partner';
+    if (age < 18 || age > 55) return 'blocked_age';
+    const childNames = ['Ava', 'Liam', 'Mia', 'Noah', 'Zoe', 'Ethan', 'Luna', 'Leo', 'Isla', 'Owen'];
+    const childName = childNames[Math.floor(Math.random() * childNames.length)];
+    const child = {
+      id: `rel_${Date.now()}_child`,
+      type: 'Child',
+      name: childName,
+      age: 0,
+      relation: 90 + Math.floor(Math.random() * 10),
+      status: 'family',
+      isAlive: true,
+    };
+    setRelationships(prev => {
+      const next = [...prev, child];
+      syncToCloud({ relationships: next });
+      return next;
+    });
+    setStats(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 20) }));
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Relationships: You and ${partner.name} welcomed a child, ${childName}! +20 Happiness. 👶` }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
+    return 'ok';
+  };
+
+  const giftRelationship = (id, amount) => {
+    const rel = relationships.find(r => r.id === id);
+    if (!rel || bank < amount) return 'blocked';
+    const relationGain = amount >= 1000 ? 20 : amount >= 200 ? 10 : 5;
+    setBank(prev => prev - amount);
+    setRelationships(prev => {
+      const next = prev.map(r => r.id === id
+        ? { ...r, relation: Math.min(100, r.relation + relationGain) }
+        : r
+      );
+      syncToCloud({ relationships: next });
+      return next;
+    });
+    markRelInteraction(id);
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Relationships: You gifted ${rel.name} $${amount.toLocaleString()}. +${relationGain} Relation.` }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
+    return 'ok';
+  };
+
+  const meetFriend = () => {
+    const friendNames = ['Jordan', 'Casey', 'Morgan', 'Alex', 'Riley', 'Taylor', 'Sam', 'Drew', 'Quinn', 'Blake'];
+    const friendName = friendNames[Math.floor(Math.random() * friendNames.length)];
+    const friend = {
+      id: `rel_${Date.now()}_friend`,
+      type: 'Friend',
+      name: friendName,
+      age: age + Math.floor(Math.random() * 10) - 5,
+      relation: 40 + Math.floor(Math.random() * 30),
+      status: 'friend',
+      isAlive: true,
+    };
+    setRelationships(prev => {
+      const next = [...prev, friend];
+      syncToCloud({ relationships: next });
+      return next;
+    });
+    setStats(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 5) }));
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Relationships: You met a new friend, ${friendName}. +5 Happiness.` }];
       syncToCloud({ history: updated });
       return updated;
     });
@@ -971,6 +1177,11 @@ export function useGameState() {
     visitDoctor,
     surrender,
     addRelationship,
+    proposeMarriage,
+    breakUp,
+    haveChild,
+    giftRelationship,
+    meetFriend,
     triggerActivityEvent
   };
 }
