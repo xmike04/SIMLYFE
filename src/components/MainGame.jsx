@@ -4,6 +4,8 @@ import { ACTIVITY_CATEGORIES, ACTIVITY_MENUS } from '../config/activities';
 import { SPECIAL_CAREERS } from '../config/specialCareers';
 import { DEGREE_CONFIG, DEGREE_LABELS } from '../engine/gameState';
 import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
+import { ASSET_CATALOG, getAllAssets, calculateCapitalGainsTax } from '../config/assetCatalog';
+import { STORE_CATALOG, getStoresByCategory } from '../config/storeCatalog';
 
 const SECTOR_META = {
   tech:          { icon: '💻', label: 'Tech' },
@@ -77,8 +79,9 @@ export default function MainGame({ engine }) {
   const [jobSector, setJobSector] = useState(null);
 
   const [willDistribution, setWillDistribution] = useState({});
+  const [shopStore, setShopStore] = useState(null);
 
-  const closeSheet = () => { setActiveSheet(null); setSelectedRel(null); setSelectedProp(null); setAssetMenu(null); setActivityMenu(null); setDatingMatch(null); setJobMenu(null); setJobSector(null); };
+  const closeSheet = () => { setActiveSheet(null); setSelectedRel(null); setSelectedProp(null); setAssetMenu(null); setActivityMenu(null); setDatingMatch(null); setJobMenu(null); setJobSector(null); setShopStore(null); };
 
   const handleSearchMatch = () => {
     if (bank < 20) return;
@@ -796,162 +799,364 @@ export default function MainGame({ engine }) {
         </ActionSheet>
       )}
 
-      {activeSheet === 'assets' && (
-        <ActionSheet title={assetMenu ? (assetMenu.charAt(0).toUpperCase() + assetMenu.slice(1)) : "Assets"} onClose={() => { setAssetMenu(null); setActiveSheet(null); }}>
-          {!assetMenu && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button className="glass-panel" onClick={() => setAssetMenu('finances')} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(59, 130, 246, 0.1)' }}>
-                <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>📈 Finances</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>View your net worth, cash flow & equity</div>
-              </button>
-              <button className="glass-panel" onClick={() => setAssetMenu('properties')} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16, 185, 129, 0.1)' }}>
-                <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>🏡 Properties</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Manage {properties.length} real estate assets</div>
-              </button>
-              <button className="glass-panel" onClick={() => setAssetMenu('belongings')} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(139, 92, 246, 0.1)' }}>
-                <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>💎 Belongings</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>View {belongings.length} personal items</div>
-              </button>
-              <button className="glass-panel" onClick={() => setAssetMenu('shopping')} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(236, 72, 153, 0.1)', marginTop: '10px' }}>
-                <div style={{ fontSize: '1.2rem', marginBottom: '4px' }}>🛍️ Go Shopping</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Buy Vehicles, Real Estate & Luxuries</div>
-              </button>
-            </div>
-          )}
+      {activeSheet === 'assets' && (() => {
+        const tier = getWealthTier(bank);
+        const propVal = properties.reduce((acc, p) => acc + p.currentValue, 0);
+        const belVal  = belongings.reduce((acc, b) => acc + b.currentValue, 0);
+        const equity  = career?.equity ?? 0;
+        const netWorth = Math.floor(bank + propVal + belVal + equity);
+        const annualSalary = career?.salary ?? 0;
+        const annualIncomeTax = calculateIncomeTax(annualSalary, bank);
+        const annualUpkeep = properties.reduce((a, p) => a + (p.upkeep || 0), 0) + belongings.reduce((a, b) => a + (b.upkeep || 0), 0);
+        const cashflow = annualSalary - annualIncomeTax - annualUpkeep - tier.lifestyleCost;
 
-          {assetMenu === 'finances' && (() => {
-            const propVal = properties.reduce((acc, p) => acc + p.currentValue, 0);
-            const belVal = belongings.reduce((acc, p) => acc + p.currentValue, 0);
-            const netWorth = bank + propVal + belVal + (career && career.equity ? career.equity : 0);
-            const inflow = career ? (career.salary || 0) : 0;
-            const outflow = properties.reduce((acc, p) => acc + (p.upkeep || 0), 0) + belongings.reduce((acc, b) => acc + (b.upkeep || 0), 0);
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#fff' }}>
-                <div className="glass-panel" style={{ padding: '1.5rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.05)' }}>
-                  <div style={{ color: 'var(--text-secondary)' }}>Total Net Worth</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#34d399' }}>${netWorth.toLocaleString()}</div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <div className="glass-panel" style={{ padding: '1rem' }}><span style={{color:'var(--text-secondary)', fontSize:'0.8rem'}}>Liquid Cash</span><br/>${Math.floor(bank).toLocaleString()}</div>
-                  <div className="glass-panel" style={{ padding: '1rem' }}><span style={{color:'var(--text-secondary)', fontSize:'0.8rem'}}>Properties</span><br/>${Math.floor(propVal).toLocaleString()}</div>
-                  <div className="glass-panel" style={{ padding: '1rem' }}><span style={{color:'var(--text-secondary)', fontSize:'0.8rem'}}>Belongings</span><br/>${Math.floor(belVal).toLocaleString()}</div>
-                  <div className="glass-panel" style={{ padding: '1rem' }}><span style={{color:'var(--text-secondary)', fontSize:'0.8rem'}}>Active Equity</span><br/>${(career && career.equity) ? career.equity.toLocaleString() : '0'}</div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '10px' }}>
-                  <div className="glass-panel" style={{ padding: '1rem', borderLeft: '4px solid #34d399' }}><span style={{color:'var(--text-secondary)'}}>Annual Inflow</span><br/>+${inflow.toLocaleString()}</div>
-                  <div className="glass-panel" style={{ padding: '1rem', borderLeft: '4px solid #ef4444' }}><span style={{color:'var(--text-secondary)'}}>Annual Outflow</span><br/>-${outflow.toLocaleString()}</div>
-                </div>
-                <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '10px' }}>Back</button>
-              </div>
-            );
-          })()}
+        // Shopping state
+        const [shopTab, setShopTab] = useState('realEstate');
+        const SHOP_TABS = [
+          { id: 'realEstate', label: 'Real Estate', icon: '🏡' },
+          { id: 'vehicles',   label: 'Vehicles',    icon: '🚗' },
+          { id: 'luxury',     label: 'Luxury',      icon: '💎' },
+          { id: 'investments',label: 'Invest',       icon: '📊' },
+        ];
+        const categoryMap = { realEstate: 'property', vehicles: 'vehicle', luxury: 'luxury', investments: 'investment' };
 
-          {assetMenu === 'properties' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {selectedProp ? (
-                <>
-                  <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center', marginBottom: '10px', background: 'rgba(255,255,255,0.05)' }}>
-                    <strong>{selectedProp.name}</strong>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Current Value: ${Math.floor(selectedProp.currentValue).toLocaleString()}</div>
-                  </div>
-                  <button className="glass-panel" disabled={bank < 10000} onClick={() => { debugModifyBank(-10000); modifyProperty(selectedProp.id, 25000); triggerActivityEvent(`Spent $10,000 to drastically renovate and upgrade my ${selectedProp.name}.`); closeSheet(); }} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(59, 130, 246, 0.1)' }}>
-                    <strong>🔨 Renovate (-$10,000)</strong>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Increase property value.</div>
-                  </button>
-                  <button className="glass-panel" onClick={() => { triggerActivityEvent(`Threw a massive, wild house party at my ${selectedProp.name}.`); closeSheet(); }} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(236, 72, 153, 0.1)' }}>
-                    <strong>🎉 Throw House Party</strong>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Invite friends over.</div>
-                  </button>
-                  <button className="glass-panel" onClick={() => { sellAsset('property', selectedProp.id); closeSheet(); }} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(239, 68, 68, 0.1)' }}>
-                    <strong>💰 Sell Asset</strong>
-                    <div style={{ fontSize: '0.8rem', color: '#ffaaaa' }}>Liquidate for cash.</div>
-                  </button>
-                  <button className="glass-panel" onClick={() => setSelectedProp(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '10px' }}>Back</button>
-                </>
-              ) : (
-                <>
-                  {properties.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>You don't own any real estate.</div>
-                  ) : (
-                    properties.map(p => (
-                      <div key={p.id} className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong>{p.name}</strong>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Value: ${Math.floor(p.currentValue).toLocaleString()}</div>
-                          <div style={{ fontSize: '0.8rem', color: '#ef4444' }}>Tax: -${(p.upkeep || 0).toLocaleString()}/yr</div>
-                        </div>
-                        <button className="btn btn-primary" onClick={() => setSelectedProp(p)}>Manage</button>
-                      </div>
-                    ))
-                  )}
-                  <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '10px' }}>Back</button>
-                </>
-              )}
-            </div>
-          )}
+        // Catalog lookup map: id → entry
+        const catalogLookup = (() => {
+          const map = {};
+          Object.values(ASSET_CATALOG).flat().forEach(item => { map[item.id] = item; });
+          return map;
+        })();
 
-          {assetMenu === 'belongings' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {belongings.length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>You don't own any personal items.</div>
-              ) : (
-                belongings.map(b => (
-                  <div key={b.id} className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <strong>{b.name}</strong>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Value: ${Math.floor(b.currentValue).toLocaleString()}</div>
+        const renderAssetItem = (item) => {
+          const canAfford = bank >= item.cost;
+          const isLocked = item.locked;
+          const gain = item.currentValue ? Math.floor(item.currentValue - (item.purchasePrice ?? item.cost)) : 0;
+          const cgt = gain > 0 ? calculateCapitalGainsTax(item.purchasePrice ?? item.cost ?? 0, item.currentValue, tier.capitalGainsTaxRate ?? 0) : 0;
+
+          return (
+            <div key={item.id} className="glass-panel" style={{ padding: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isLocked ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)', opacity: isLocked ? 0.5 : 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{item.icon} {item.name}</div>
+                {item.currentValue ? (
+                  <>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Value: ${Math.floor(item.currentValue).toLocaleString()}</div>
+                    <div style={{ fontSize: '0.75rem', color: gain >= 0 ? '#4ade80' : '#ef4444' }}>
+                      {gain >= 0 ? `+$${gain.toLocaleString()}` : `-$${Math.abs(gain).toLocaleString()}`} since purchase
+                      {cgt > 0 ? ` · CGT: $${cgt.toLocaleString()}` : ''}
                     </div>
-                    <button className="btn btn-primary" onClick={() => { sellAsset('belonging', b.id); setAssetMenu(null); }}>Sell</button>
+                    {item.upkeep > 0 && <div style={{ fontSize: '0.75rem', color: '#f97316' }}>Upkeep: −${item.upkeep.toLocaleString()}/yr</div>}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '0.75rem', color: isLocked ? '#ef4444' : 'var(--text-secondary)' }}>
+                      {isLocked ? `🔒 Requires ${item.minTier.replace('_', ' ')} tier` : `$${item.cost.toLocaleString()}${item.upkeep > 0 ? ` · $${item.upkeep.toLocaleString()}/yr upkeep` : ''}`}
+                    </div>
+                    {!isLocked && <div style={{ fontSize: '0.7rem', color: '#6b7280', fontStyle: 'italic' }}>{item.description}</div>}
+                  </>
+                )}
+              </div>
+              <div style={{ marginLeft: '10px', flexShrink: 0 }}>
+                {item.currentValue !== undefined ? (
+                  <button className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '4px 10px', background: 'rgba(239,68,68,0.3)' }}
+                    onClick={() => { sellAsset(item.type === 'property' || item.type === 'investment' ? 'property' : 'belonging', item.id); setSelectedProp(null); }}>
+                    Sell
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" disabled={!canAfford || isLocked} style={{ fontSize: '0.75rem', padding: '4px 10px', opacity: (!canAfford || isLocked) ? 0.4 : 1 }}
+                    onClick={() => { buyAsset(categoryMap[shopTab], item); }}>
+                    {isLocked ? '🔒' : canAfford ? 'Buy' : ''}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        return (
+          <ActionSheet title={assetMenu ? { finances: '📈 Finances', properties: '🏡 Properties', belongings: '💎 Belongings', shopping: '🛍️ Shop' }[assetMenu] || 'Assets' : '🏦 Assets'} onClose={() => { setAssetMenu(null); setActiveSheet(null); setSelectedProp(null); }}>
+
+            {/* ── Overview ── */}
+            {!assetMenu && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="glass-panel" style={{ padding: '1.2rem', textAlign: 'center', background: 'rgba(16,185,129,0.06)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Total Net Worth</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#34d399' }}>${netWorth.toLocaleString()}</div>
+                  <div style={{ fontSize: '0.75rem', color: tier.color, marginTop: '4px' }}>{tier.icon} {tier.label}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                  <div className="glass-panel" style={{ padding: '0.8rem' }}><div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Cash</div><div style={{ fontWeight: 'bold' }}>${Math.floor(bank).toLocaleString()}</div></div>
+                  <div className="glass-panel" style={{ padding: '0.8rem' }}><div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Properties</div><div style={{ fontWeight: 'bold' }}>${Math.floor(propVal).toLocaleString()}</div></div>
+                  <div className="glass-panel" style={{ padding: '0.8rem' }}><div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Belongings</div><div style={{ fontWeight: 'bold' }}>${Math.floor(belVal).toLocaleString()}</div></div>
+                  <div className="glass-panel" style={{ padding: '0.8rem' }}><div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Equity</div><div style={{ fontWeight: 'bold' }}>${equity.toLocaleString()}</div></div>
+                </div>
+                <button className="glass-panel" onClick={() => setAssetMenu('finances')} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(59,130,246,0.1)' }}>
+                  <strong>📈 Detailed Finances</strong>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Tax bracket, cashflow, CGT rate</div>
+                </button>
+                <button className="glass-panel" onClick={() => setAssetMenu('portfolio')} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16,185,129,0.1)' }}>
+                  <strong>🗂️ My Portfolio ({properties.length + belongings.length} assets)</strong>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Manage and sell what you own</div>
+                </button>
+                <button className="glass-panel" onClick={() => setAssetMenu('shopping')} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(236,72,153,0.1)' }}>
+                  <strong>🛍️ Go Shopping</strong>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Real estate, vehicles, luxury, investments</div>
+                </button>
+              </div>
+            )}
+
+            {/* ── Finances panel ── */}
+            {assetMenu === 'finances' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="glass-panel" style={{ padding: '1.2rem', textAlign: 'center', background: 'rgba(16,185,129,0.06)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Net Worth</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#34d399' }}>${netWorth.toLocaleString()}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                  <div className="glass-panel" style={{ padding: '0.9rem', borderLeft: '3px solid #34d399' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Gross Salary</div>
+                    <div style={{ fontWeight: 'bold', color: '#34d399' }}>+${annualSalary.toLocaleString()}</div>
                   </div>
-                ))
-              )}
-              <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '10px' }}>Back</button>
-            </div>
-          )}
+                  <div className="glass-panel" style={{ padding: '0.9rem', borderLeft: '3px solid #ef4444' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Income Tax ({Math.round(tier.incomeTaxRate * 100)}%)</div>
+                    <div style={{ fontWeight: 'bold', color: '#ef4444' }}>−${annualIncomeTax.toLocaleString()}</div>
+                  </div>
+                  <div className="glass-panel" style={{ padding: '0.9rem', borderLeft: '3px solid #f97316' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Asset Upkeep</div>
+                    <div style={{ fontWeight: 'bold', color: '#f97316' }}>−${annualUpkeep.toLocaleString()}</div>
+                  </div>
+                  <div className="glass-panel" style={{ padding: '0.9rem', borderLeft: '3px solid #fbbf24' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Lifestyle Cost</div>
+                    <div style={{ fontWeight: 'bold', color: '#fbbf24' }}>−${tier.lifestyleCost.toLocaleString()}</div>
+                  </div>
+                </div>
+                <div className="glass-panel" style={{ padding: '1rem', borderLeft: `4px solid ${cashflow >= 0 ? '#34d399' : '#ef4444'}`, background: cashflow >= 0 ? 'rgba(52,211,153,0.05)' : 'rgba(239,68,68,0.05)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Est. Annual Cashflow</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: cashflow >= 0 ? '#34d399' : '#ef4444' }}>{cashflow >= 0 ? '+' : ''}${cashflow.toLocaleString()}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                  <div className="glass-panel" style={{ padding: '0.9rem' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Capital Gains Tax</div>
+                    <div style={{ fontWeight: 'bold', color: '#a78bfa' }}>{Math.round((tier.capitalGainsTaxRate ?? 0) * 100)}%</div>
+                  </div>
+                  <div className="glass-panel" style={{ padding: '0.9rem' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Decay Mult (partners)</div>
+                    <div style={{ fontWeight: 'bold', color: '#f472b6' }}>{tier.relationDecayMult}×</div>
+                  </div>
+                </div>
+                <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '8px' }}>← Back</button>
+              </div>
+            )}
 
-          {assetMenu === 'shopping' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-               <h3 style={{ margin: '0 0 5px 0', color: 'var(--text-secondary)' }}>Real Estate Market</h3>
-               <button className="glass-panel" disabled={bank < 250000} onClick={() => buyAsset('property', { name: "Suburban Home", cost: 250000, type: "house", upkeep: 2500 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>Suburban Home - $250,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>A starter home ($2,500/yr upkeep)</div>
-               </button>
-               <button className="glass-panel" disabled={bank < 120000} onClick={() => buyAsset('property', { name: "City Condo", cost: 120000, type: "condo", upkeep: 4000 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>City Condo - $120,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Downtown living ($4,000/yr HOA/upkeep)</div>
-               </button>
-               <button className="glass-panel" disabled={bank < 1200000} onClick={() => buyAsset('property', { name: "Modern Penthouse", cost: 1200000, type: "mansion", upkeep: 10000 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>Modern Penthouse - $1,200,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Luxury living ($10,000/yr upkeep)</div>
-               </button>
-               <button className="glass-panel" disabled={bank < 5000000} onClick={() => buyAsset('property', { name: "Mega Mansion", cost: 5000000, type: "mansion", upkeep: 25000 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>Mega Mansion - $5,000,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Compound ($25,000/yr upkeep)</div>
-               </button>
+            {/* ── Portfolio (owned assets) ── */}
+            {assetMenu === 'portfolio' && (() => {
+              const allOwned = [
+                ...properties.map(p => ({ ...p, _category: 'property' })),
+                ...belongings.map(b => ({ ...b, _category: 'belonging' })),
+              ];
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {allOwned.length === 0 && (
+                    <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>You don't own any assets yet.</div>
+                  )}
+                  {selectedProp ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div className="glass-panel" style={{ padding: '1rem', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.5rem' }}>{selectedProp.icon ?? '🏠'}</div>
+                        <strong>{selectedProp.name}</strong>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Current Value: ${Math.floor(selectedProp.currentValue).toLocaleString()}
+                        </div>
+                        {(() => {
+                          const gain = Math.floor(selectedProp.currentValue - (selectedProp.purchasePrice ?? selectedProp.cost ?? 0));
+                          const cgt = gain > 0 ? calculateCapitalGainsTax(selectedProp.purchasePrice ?? 0, selectedProp.currentValue, tier.capitalGainsTaxRate ?? 0) : 0;
+                          return (
+                            <div style={{ fontSize: '0.8rem', color: gain >= 0 ? '#4ade80' : '#ef4444' }}>
+                              {gain >= 0 ? `Profit: +$${gain.toLocaleString()}` : `Loss: -$${Math.abs(gain).toLocaleString()}`}
+                              {cgt > 0 && <span style={{ color: '#fca5a5' }}> · CGT on sale: $${cgt.toLocaleString()}</span>}
+                            </div>
+                          );
+                        })()}
+                        {selectedProp.upkeep > 0 && <div style={{ fontSize: '0.75rem', color: '#f97316' }}>Annual upkeep: −${selectedProp.upkeep.toLocaleString()}/yr</div>}
+                      </div>
+                      {(selectedProp.type === 'property' || selectedProp._category === 'property') && (
+                        <>
+                          <button className="glass-panel" disabled={bank < 10000} onClick={() => { debugModifyBank(-10000); modifyProperty(selectedProp.id, 25000); triggerActivityEvent(`Renovated my ${selectedProp.name} for $10,000.`); closeSheet(); }} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(59,130,246,0.1)' }}>
+                            <strong>🔨 Renovate (−$10,000)</strong>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>+$25,000 to property value</div>
+                          </button>
+                          <button className="glass-panel" onClick={() => { triggerActivityEvent(`Threw a massive party at my ${selectedProp.name}.`); closeSheet(); }} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(236,72,153,0.1)' }}>
+                            <strong>🎉 Throw a Party</strong>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Invite people over (+Happiness, +Relations)</div>
+                          </button>
+                        </>
+                      )}
+                      <button className="glass-panel" onClick={() => { sellAsset(selectedProp._category === 'property' ? 'property' : 'belonging', selectedProp.id); setSelectedProp(null); }}
+                        style={{ padding: '1rem', textAlign: 'left', background: 'rgba(239,68,68,0.1)' }}>
+                        <strong style={{ color: '#ef4444' }}>💰 Sell Asset</strong>
+                        <div style={{ fontSize: '0.8rem', color: '#fca5a5' }}>Liquidate for cash (after CGT)</div>
+                      </button>
+                      <button className="glass-panel" onClick={() => setSelectedProp(null)} style={{ padding: '0.8rem', textAlign: 'center' }}>← Back</button>
+                    </div>
+                  ) : (
+                    <>
+                      {allOwned.map(asset => {
+                        const gain = Math.floor(asset.currentValue - (asset.purchasePrice ?? asset.cost ?? 0));
+                        return (
+                          <button key={asset.id} className="glass-panel" onClick={() => setSelectedProp(asset)}
+                            style={{ padding: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)' }}>
+                            <div style={{ textAlign: 'left' }}>
+                              <div style={{ fontWeight: 'bold' }}>{asset.icon ?? (asset._category === 'property' ? '🏠' : '📦')} {asset.name}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                ${Math.floor(asset.currentValue).toLocaleString()} · {asset.yearsOwned}yr owned
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: gain >= 0 ? '#4ade80' : '#ef4444' }}>
+                                {gain >= 0 ? '+' : ''}${gain.toLocaleString()}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>vs purchase</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                      <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '8px' }}>← Back</button>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
-               <h3 style={{ margin: '15px 0 5px 0', color: 'var(--text-secondary)' }}>Vehicle Dealership</h3>
-               <button className="glass-panel" disabled={bank < 3000} onClick={() => buyAsset('vehicle', { name: "Used Clunker", cost: 3000, type: "car", upkeep: 100 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>Used Clunker - $3,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Barely runs ($100/yr maintenance)</div>
-               </button>
-               <button className="glass-panel" disabled={bank < 40000} onClick={() => buyAsset('vehicle', { name: "Sedan", cost: 40000, type: "car", upkeep: 500 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>New Sedan - $40,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Reliable ($500/yr maintenance)</div>
-               </button>
-               <button className="glass-panel" disabled={bank < 150000} onClick={() => buyAsset('vehicle', { name: "Supercar", cost: 150000, type: "car", upkeep: 3000 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>Supercar - $150,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Fast ($3,000/yr maintenance)</div>
-               </button>
-               <button className="glass-panel" disabled={bank < 4500000} onClick={() => buyAsset('vehicle', { name: "Luxury Yacht", cost: 4500000, type: "boat", upkeep: 100000 })} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
-                 <strong>Luxury Yacht - $4,500,000</strong>
-                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Ocean life ($100k/yr maintenance)</div>
-               </button>
+            {/* ── Shopping ── */}
+            {assetMenu === 'shopping' && (() => {
+              const stores = getStoresByCategory(shopTab, tier.id, catalogLookup);
+              const activeStore = shopStore ? stores.find(s => s.id === shopStore) : null;
 
-               <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '10px' }}>Back</button>
-            </div>
-          )}
-        </ActionSheet>
-      )}
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {/* Category tabs */}
+                  <div style={{ display: 'flex', gap: '4px', marginBottom: '2px' }}>
+                    {SHOP_TABS.map(tab => (
+                      <button key={tab.id} onClick={() => { setShopTab(tab.id); setShopStore(null); }} style={{ flex: 1, padding: '6px 2px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold', background: shopTab === tab.id ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.07)', color: shopTab === tab.id ? '#fff' : 'var(--text-secondary)' }}>
+                        {tab.icon}<br/>{tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tier badge */}
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', padding: '2px 0 4px' }}>
+                    {tier.icon} <strong style={{ color: tier.color }}>{tier.label}</strong> — stores and items unlock as your wealth grows
+                  </div>
+
+                  {/* ── Store list (no store selected) ── */}
+                  {!activeStore && (
+                    <>
+                      {stores.map(store => {
+                        const unlockedCount = store.listings.filter(l => !l.locked).length;
+                        const affordableCount = store.listings.filter(l => !l.locked && bank >= l.price).length;
+                        return (
+                          <button key={store.id} className="glass-panel"
+                            onClick={() => !store.locked && setShopStore(store.id)}
+                            style={{ padding: '0.9rem', textAlign: 'left', background: store.locked ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)', opacity: store.locked ? 0.45 : 1, cursor: store.locked ? 'not-allowed' : 'pointer', borderLeft: store.locked ? '3px solid #4b5563' : `3px solid ${tier.color}` }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div>
+                                <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>{store.icon} {store.name}</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{store.tagline}</div>
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
+                                {store.locked ? (
+                                  <span style={{ fontSize: '0.72rem', color: '#ef4444', background: 'rgba(239,68,68,0.15)', padding: '2px 6px', borderRadius: '4px' }}>🔒 {store.minTier.replace('_',' ')}</span>
+                                ) : (
+                                  <>
+                                    <div style={{ fontSize: '0.72rem', color: '#4ade80' }}>{unlockedCount} listings</div>
+                                    {affordableCount > 0 && <div style={{ fontSize: '0.68rem', color: '#34d399' }}>{affordableCount} affordable</div>}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                      <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '4px' }}>← Back</button>
+                    </>
+                  )}
+
+                  {/* ── Store detail (listings) ── */}
+                  {activeStore && (
+                    <>
+                      {/* Store header */}
+                      <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(139,92,246,0.08)', borderLeft: `3px solid ${tier.color}` }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '1rem' }}>{activeStore.icon} {activeStore.name}</div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{activeStore.tagline}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#a78bfa', marginTop: '4px' }}>{activeStore.listings.length} listings · {activeStore.listings.filter(l => !l.locked).length} available to your tier</div>
+                      </div>
+
+                      {activeStore.listings.map((listing, idx) => {
+                        const canAfford = bank >= listing.price;
+                        const isLocked  = listing.locked;
+                        const alreadyOwned = [...properties, ...belongings].some(a => a.catalogId === listing.catalogId && a.name === listing.displayName);
+
+                        return (
+                          <div key={`${listing.catalogId}_${idx}`} className="glass-panel"
+                            style={{ padding: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isLocked ? 'rgba(255,255,255,0.02)' : alreadyOwned ? 'rgba(52,211,153,0.06)' : 'rgba(255,255,255,0.05)', opacity: isLocked ? 0.45 : 1 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '1rem' }}>{listing.icon}</span>
+                                <span style={{ fontWeight: 'bold', fontSize: '0.88rem' }}>{listing.displayName}</span>
+                                {alreadyOwned && <span style={{ fontSize: '0.65rem', color: '#34d399', background: 'rgba(52,211,153,0.15)', padding: '1px 5px', borderRadius: '4px' }}>Owned</span>}
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '3px' }}>{listing.typeLabel}</div>
+                              {isLocked ? (
+                                <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '3px' }}>🔒 Requires {listing.minTier.replace('_',' ')} tier</div>
+                              ) : (
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                                  <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: canAfford ? '#4ade80' : '#ef4444' }}>${listing.price.toLocaleString()}</span>
+                                  {listing.upkeep > 0 && <span style={{ fontSize: '0.7rem', color: '#f97316' }}>−${listing.upkeep.toLocaleString()}/yr upkeep</span>}
+                                  {listing.type === 'investment' && listing.returnProfile && (
+                                    <span style={{ fontSize: '0.7rem', color: '#60a5fa' }}>~{Math.round(listing.returnProfile.base * 100)}% base return</span>
+                                  )}
+                                  {listing.type === 'property' && (
+                                    <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>+{Math.round((listing.appreciationRate - 1) * 100)}%/yr appreciation</span>
+                                  )}
+                                </div>
+                              )}
+                              {!isLocked && Object.keys(listing.statEffects).length > 0 && (
+                                <div style={{ fontSize: '0.68rem', color: '#fbbf24', marginTop: '2px' }}>
+                                  Passive: {Object.entries(listing.statEffects).map(([k, v]) => `${k} +${v}`).join(' · ')}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ marginLeft: '10px', flexShrink: 0 }}>
+                              {!isLocked && (
+                                <button className="btn btn-primary"
+                                  disabled={!canAfford}
+                                  style={{ fontSize: '0.75rem', padding: '5px 12px', opacity: canAfford ? 1 : 0.35 }}
+                                  onClick={() => {
+                                    const assetToBuy = {
+                                      ...listing.catalogEntry,
+                                      name: listing.displayName,
+                                      catalogId: listing.catalogId,
+                                      cost: listing.price,
+                                    };
+                                    buyAsset(categoryMap[shopTab], assetToBuy);
+                                  }}>
+                                  {canAfford ? 'Buy' : `$${Math.ceil((listing.price - bank) / 1000)}k short`}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      <button className="glass-panel" onClick={() => setShopStore(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '4px' }}>← Back to {SHOP_TABS.find(t => t.id === shopTab)?.label}</button>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
+          </ActionSheet>
+        );
+      })()}
 
       {activeSheet === 'relationships' && (() => {
         const getMood = (relation) => {
