@@ -6,6 +6,7 @@ import { DEGREE_CONFIG, DEGREE_LABELS } from '../engine/gameState';
 import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
 import { ASSET_CATALOG, getAllAssets, calculateCapitalGainsTax } from '../config/assetCatalog';
 import { STORE_CATALOG, getStoresByCategory } from '../config/storeCatalog';
+import { CRYPTO_LIST, STOCK_LIST, PENNY_STOCK_LIST, BOND_LIST, FUND_LIST, getMarketHealth, bondDisplayName } from '../config/investmentMarket';
 
 const SECTOR_META = {
   tech:          { icon: '💻', label: 'Tech' },
@@ -35,7 +36,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, debugGrantDegree, debugSetEconomy, debugAddNetworking } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, debugGrantDegree, debugSetEconomy, debugAddNetworking } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -80,8 +81,11 @@ export default function MainGame({ engine }) {
 
   const [willDistribution, setWillDistribution] = useState({});
   const [shopStore, setShopStore] = useState(null);
+  const [investSubType, setInvestSubType] = useState(null);
+  const [investSelected, setInvestSelected] = useState(null);
+  const [investAmount, setInvestAmount] = useState('');
 
-  const closeSheet = () => { setActiveSheet(null); setSelectedRel(null); setSelectedProp(null); setAssetMenu(null); setActivityMenu(null); setDatingMatch(null); setJobMenu(null); setJobSector(null); setShopStore(null); };
+  const closeSheet = () => { setActiveSheet(null); setSelectedRel(null); setSelectedProp(null); setAssetMenu(null); setActivityMenu(null); setDatingMatch(null); setJobMenu(null); setJobSector(null); setShopStore(null); setInvestSubType(null); setInvestSelected(null); setInvestAmount(''); };
 
   const handleSearchMatch = () => {
     if (bank < 20) return;
@@ -1031,12 +1035,336 @@ export default function MainGame({ engine }) {
               const stores = getStoresByCategory(shopTab, tier.id, catalogLookup);
               const activeStore = shopStore ? stores.find(s => s.id === shopStore) : null;
 
+              // ── Shared category tab bar ──
+              const CategoryTabs = () => (
+                <div style={{ display: 'flex', gap: '4px', marginBottom: '2px' }}>
+                  {SHOP_TABS.map(tab => (
+                    <button key={tab.id} onClick={() => { setShopTab(tab.id); setShopStore(null); setInvestSubType(null); setInvestSelected(null); setInvestAmount(''); }} style={{ flex: 1, padding: '6px 2px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold', background: shopTab === tab.id ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.07)', color: shopTab === tab.id ? '#fff' : 'var(--text-secondary)' }}>
+                      {tab.icon}<br/>{tab.label}
+                    </button>
+                  ))}
+                </div>
+              );
+
+              // ── INVESTMENTS HUB ──────────────────────────────────────────
+              if (shopTab === 'investments') {
+                const econPhase = economyCycle?.phase ?? 'normal';
+                const phaseColor = econPhase === 'boom' ? '#4ade80' : econPhase === 'recession' ? '#ef4444' : '#fbbf24';
+
+                const INV_TYPES = [
+                  { id: 'stocks',      label: 'Stocks',       icon: '📈', desc: 'Company shares. Moderate risk, long-term growth.',     list: STOCK_LIST },
+                  { id: 'crypto',      label: 'Crypto',       icon: '🪙', desc: 'Extreme volatility. Could 400x or go to zero.',        list: CRYPTO_LIST },
+                  { id: 'bonds',       label: 'Bonds',        icon: '📜', desc: 'Government bonds. Stable coupon income.',              list: BOND_LIST },
+                  { id: 'penny',       label: 'Penny Stocks', icon: '🎲', desc: 'High-risk micro caps. Moonshot or bust.',              list: PENNY_STOCK_LIST },
+                  { id: 'funds',       label: 'Funds',        icon: '🏦', desc: 'Diversified funds. Passive wealth building.',          list: FUND_LIST },
+                ];
+
+                // ── Instrument detail / buy view ──
+                if (investSelected) {
+                  const inst = investSelected;
+                  const subType = investSubType;
+                  const amtNum = parseFloat(investAmount.replace(/,/g, '')) || 0;
+                  const minInv = inst.minInvestment ?? (inst.basePrice ? Math.ceil(inst.basePrice) : 100);
+                  const canBuy = amtNum >= minInv && amtNum <= bank && amtNum > 0;
+                  const units = inst.basePrice && subType !== 'bond' ? Math.floor(amtNum / inst.basePrice) : null;
+                  const ownedUnits = belongings.filter(b => b.subType === subType && b.instrumentId === inst.id).reduce((s, b) => s + (b.units || 0), 0);
+                  const ownedValue = belongings.filter(b => b.subType === subType && b.instrumentId === inst.id).reduce((s, b) => s + b.currentValue, 0);
+
+                  const presets = [
+                    { label: '10%',  amt: Math.floor(bank * 0.10) },
+                    { label: '25%',  amt: Math.floor(bank * 0.25) },
+                    { label: '50%',  amt: Math.floor(bank * 0.50) },
+                    { label: 'All',  amt: Math.floor(bank) },
+                  ];
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <CategoryTabs />
+
+                      {/* Header */}
+                      <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(139,92,246,0.08)', borderLeft: '3px solid #a78bfa' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '1.4rem' }}>{inst.icon}</span>
+                          <div>
+                            <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#c4b5fd' }}>
+                              {inst.name}{inst.ticker ? <span style={{ color: '#6b7280', fontSize: '0.85rem' }}> ({inst.ticker})</span> : null}
+                            </div>
+                            {inst.entity && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{inst.entity}</div>}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{inst.description}</div>
+                      </div>
+
+                      {/* Stats table */}
+                      <div className="glass-panel" style={{ padding: '0.9rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                          {inst.basePrice && (
+                            <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Price / Unit</div><div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>${inst.basePrice.toLocaleString()}</div></div>
+                          )}
+                          {inst.coupon && (
+                            <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Coupon Rate</div><div style={{ fontWeight: 'bold', color: '#4ade80' }}>{(inst.coupon * 100).toFixed(1)}%</div></div>
+                          )}
+                          {inst.maturity && (
+                            <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Maturity</div><div style={{ fontWeight: 'bold' }}>{inst.maturity} Years</div></div>
+                          )}
+                          {inst.volatility && (
+                            <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Volatility</div>
+                              <div style={{ fontWeight: 'bold', color: inst.volatility >= 1.5 ? '#ef4444' : inst.volatility >= 0.7 ? '#f97316' : '#fbbf24' }}>
+                                {inst.volatility >= 1.5 ? '🔥 Extreme' : inst.volatility >= 0.7 ? '⚡ High' : inst.volatility >= 0.4 ? '📊 Moderate' : '🛡️ Low'}
+                              </div>
+                            </div>
+                          )}
+                          {inst.baseReturn && (
+                            <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Avg Annual Return</div><div style={{ fontWeight: 'bold', color: '#34d399' }}>~{(inst.baseReturn * 100).toFixed(0)}%</div></div>
+                          )}
+                          {inst.returnProfile && (
+                            <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Base Return</div><div style={{ fontWeight: 'bold', color: '#34d399' }}>~{(inst.returnProfile.base * 100).toFixed(0)}%/yr</div></div>
+                          )}
+                          <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Min Investment</div><div style={{ fontWeight: 'bold' }}>${minInv.toLocaleString()}</div></div>
+                          {ownedValue > 0 && (
+                            <div><div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>You Own</div><div style={{ fontWeight: 'bold', color: '#4ade80' }}>${Math.floor(ownedValue).toLocaleString()}</div></div>
+                          )}
+                        </div>
+
+                        {/* Risk bar */}
+                        {inst.risk !== undefined && (
+                          <div style={{ marginTop: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                              <span>Risk</span>
+                              <span style={{ color: inst.risk >= 0.7 ? '#ef4444' : inst.risk >= 0.4 ? '#f97316' : '#4ade80' }}>
+                                {inst.risk >= 0.7 ? 'Very High' : inst.risk >= 0.4 ? 'High' : inst.risk >= 0.2 ? 'Medium' : 'Low'}
+                              </span>
+                            </div>
+                            <div style={{ height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px' }}>
+                              <div style={{ width: `${inst.risk * 100}%`, height: '100%', borderRadius: '3px', background: inst.risk >= 0.7 ? '#ef4444' : inst.risk >= 0.4 ? '#f97316' : '#4ade80' }} />
+                            </div>
+                          </div>
+                        )}
+                        {/* Trendiness bar (crypto) */}
+                        {inst.trendiness !== undefined && (
+                          <div style={{ marginTop: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                              <span>Trendiness</span><span style={{ color: inst.trendiness >= 0.7 ? '#4ade80' : '#fbbf24' }}>{Math.round(inst.trendiness * 100)}%</span>
+                            </div>
+                            <div style={{ height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px' }}>
+                              <div style={{ width: `${inst.trendiness * 100}%`, height: '100%', borderRadius: '3px', background: inst.trendiness >= 0.7 ? '#4ade80' : '#fbbf24' }} />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Buy section */}
+                      <div className="glass-panel" style={{ padding: '0.9rem' }}>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Investment Amount — Cash: <strong style={{ color: '#34d399' }}>${Math.floor(bank).toLocaleString()}</strong></div>
+                        <input
+                          type="number"
+                          value={investAmount}
+                          onChange={e => setInvestAmount(e.target.value)}
+                          placeholder={`Min $${minInv.toLocaleString()}`}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: '1rem', marginBottom: '8px', boxSizing: 'border-box' }}
+                        />
+                        {/* Preset % buttons */}
+                        <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                          {presets.map(p => (
+                            <button key={p.label} onClick={() => setInvestAmount(String(p.amt))}
+                              style={{ flex: 1, padding: '5px 4px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '0.72rem', background: 'rgba(139,92,246,0.2)', color: '#c4b5fd' }}>
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                        {amtNum > 0 && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                            {units !== null && units > 0 ? <span>{units.toLocaleString()} units @ ${inst.basePrice.toLocaleString()} each · </span> : null}
+                            {subType === 'bond' && amtNum >= minInv ? <span>Annual coupon income: <strong style={{ color: '#4ade80' }}>+${Math.floor(amtNum * inst.coupon).toLocaleString()}/yr</strong> · </span> : null}
+                            Cost: <strong style={{ color: canBuy ? '#34d399' : '#ef4444' }}>${amtNum.toLocaleString()}</strong>
+                          </div>
+                        )}
+                        <button className="btn btn-primary"
+                          disabled={!canBuy}
+                          style={{ width: '100%', padding: '10px', fontSize: '0.9rem', opacity: canBuy ? 1 : 0.35 }}
+                          onClick={() => {
+                            buyInvestment(inst, amtNum, subType);
+                            setInvestSelected(null);
+                            setInvestAmount('');
+                          }}>
+                          {!canBuy && amtNum < minInv && amtNum > 0 ? `Min $${minInv.toLocaleString()}` : !canBuy && amtNum > bank ? 'Not enough cash' : '💸 Buy it'}
+                        </button>
+                      </div>
+
+                      <button className="glass-panel" onClick={() => { setInvestSelected(null); setInvestAmount(''); }} style={{ padding: '0.8rem', textAlign: 'center' }}>← Back to {INV_TYPES.find(t => t.id === investSubType)?.label}</button>
+                    </div>
+                  );
+                }
+
+                // ── Instrument list for a sub-type ──
+                if (investSubType) {
+                  const typeInfo = INV_TYPES.find(t => t.id === investSubType);
+                  const instrumentList = typeInfo?.list ?? [];
+                  const mh = getMarketHealth(investSubType, econPhase);
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <CategoryTabs />
+
+                      {/* Sub-type header */}
+                      <div className="glass-panel" style={{ padding: '0.9rem', background: 'rgba(139,92,246,0.08)', borderLeft: '3px solid #a78bfa' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>{typeInfo.icon} {typeInfo.label}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{typeInfo.desc}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Market</div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: mh.color }}>{mh.label}</div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: '6px', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px' }}>
+                          <div style={{ width: `${mh.score}%`, height: '100%', background: mh.color, borderRadius: '3px', transition: 'width 0.5s' }} />
+                        </div>
+                      </div>
+
+                      {instrumentList.map((inst) => {
+                        const ownedVal = belongings.filter(b => b.subType === investSubType && b.instrumentId === inst.id).reduce((s, b) => s + b.currentValue, 0);
+                        const canAfford = bank >= (inst.minInvestment ?? (inst.basePrice ?? 100));
+
+                        return (
+                          <button key={inst.id} className="glass-panel"
+                            onClick={() => { setInvestSelected(inst); setInvestAmount(''); }}
+                            style={{ padding: '0.9rem', textAlign: 'left', background: ownedVal > 0 ? 'rgba(52,211,153,0.07)' : 'rgba(255,255,255,0.04)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flex: 1 }}>
+                                <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>{inst.icon}</span>
+                                <div>
+                                  <div style={{ fontWeight: 'bold', fontSize: '0.88rem', color: '#c4b5fd' }}>
+                                    {investSubType === 'bonds' ? bondDisplayName(inst) : inst.name}
+                                    {inst.ticker && <span style={{ color: '#6b7280', fontSize: '0.78rem' }}> ({inst.ticker})</span>}
+                                  </div>
+                                  {investSubType === 'bonds' && inst.entity && (
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{inst.entity}</div>
+                                  )}
+                                  {investSubType === 'bonds' && (
+                                    <div style={{ fontSize: '0.75rem', color: '#4ade80', marginTop: '2px' }}>{(inst.coupon * 100).toFixed(1)}% Coupon</div>
+                                  )}
+                                  {investSubType === 'crypto' && inst.trendiness !== undefined && (
+                                    <div style={{ marginTop: '4px' }}>
+                                      <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginBottom: '2px' }}>Trendiness</div>
+                                      <div style={{ width: '80px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px' }}>
+                                        <div style={{ width: `${inst.trendiness * 100}%`, height: '100%', background: inst.trendiness >= 0.7 ? '#4ade80' : '#fbbf24', borderRadius: '2px' }} />
+                                      </div>
+                                    </div>
+                                  )}
+                                  {(investSubType === 'stocks' || investSubType === 'penny') && (
+                                    <div style={{ marginTop: '4px' }}>
+                                      <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginBottom: '2px' }}>Market Health</div>
+                                      <div style={{ width: '80px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px' }}>
+                                        <div style={{ width: `${mh.score}%`, height: '100%', background: mh.color, borderRadius: '2px' }} />
+                                      </div>
+                                    </div>
+                                  )}
+                                  {ownedVal > 0 && <div style={{ fontSize: '0.68rem', color: '#34d399', marginTop: '3px' }}>Holding: ${Math.floor(ownedVal).toLocaleString()}</div>}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
+                                {inst.basePrice && <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: canAfford ? '#fff' : '#6b7280' }}>${inst.basePrice.toLocaleString()}</div>}
+                                {inst.minInvestment && !inst.basePrice && <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Min ${inst.minInvestment.toLocaleString()}</div>}
+                                <div style={{ fontSize: '0.65rem', color: '#6b7280', marginTop: '2px' }}>›</div>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+
+                      <button className="glass-panel" onClick={() => setInvestSubType(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '4px' }}>← Back to Investments</button>
+                    </div>
+                  );
+                }
+
+                // ── Investment Hub overview ──
+                const econLabel = econPhase === 'boom' ? '📈 Bull Market' : econPhase === 'recession' ? '📉 Bear Market' : '〰️ Normal Market';
+
+                // Your current investment holdings summary
+                const myInvestments = belongings.filter(b => b.subType);
+                const totalInvested = myInvestments.reduce((s, b) => s + b.currentValue, 0);
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <CategoryTabs />
+
+                    {/* Market status */}
+                    <div className="glass-panel" style={{ padding: '0.9rem', background: 'rgba(16,185,129,0.06)', borderLeft: `3px solid ${phaseColor}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{econLabel}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Economy phase affects all markets</div>
+                        </div>
+                        {totalInvested > 0 && (
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Portfolio Value</div>
+                            <div style={{ fontWeight: 'bold', color: '#34d399', fontSize: '0.9rem' }}>${Math.floor(totalInvested).toLocaleString()}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Tools row */}
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', padding: '2px 0', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tools</div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {[
+                        { icon: '👤', label: 'Financial Advisor', ctx: 'I consulted a financial advisor for investment advice.' },
+                        { icon: '📰', label: 'Financial News', ctx: 'I read the financial news to understand market trends.' },
+                        { icon: '🤔', label: 'Opinion', ctx: 'I asked someone for their opinion on my investment strategy.' },
+                      ].map(tool => (
+                        <button key={tool.label} className="glass-panel"
+                          onClick={() => triggerActivityEvent(tool.ctx)}
+                          style={{ flex: 1, padding: '0.7rem 4px', textAlign: 'center', fontSize: '0.68rem', color: '#c4b5fd', background: 'rgba(139,92,246,0.1)' }}>
+                          <div style={{ fontSize: '1.1rem', marginBottom: '3px' }}>{tool.icon}</div>
+                          {tool.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Investment type cards */}
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', padding: '4px 0 2px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Investment Types</div>
+                    {INV_TYPES.map(type => {
+                      const mh = getMarketHealth(type.id, econPhase);
+                      const heldValue = belongings.filter(b => b.subType === type.id).reduce((s, b) => s + b.currentValue, 0);
+                      return (
+                        <button key={type.id} className="glass-panel"
+                          onClick={() => setInvestSubType(type.id)}
+                          style={{ padding: '0.9rem', textAlign: 'left', background: 'rgba(255,255,255,0.04)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                              <span style={{ fontSize: '1.4rem' }}>{type.icon}</span>
+                              <div>
+                                <div style={{ fontWeight: 'bold', fontSize: '0.92rem' }}>{type.label}</div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '1px', maxWidth: '180px' }}>{type.desc}</div>
+                                {heldValue > 0 && <div style={{ fontSize: '0.7rem', color: '#34d399', marginTop: '2px' }}>Holding ${Math.floor(heldValue).toLocaleString()}</div>}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right', minWidth: '60px' }}>
+                              <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Market Health</div>
+                              <div style={{ width: '60px', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', marginBottom: '2px' }}>
+                                <div style={{ width: `${mh.score}%`, height: '100%', background: mh.color, borderRadius: '3px' }} />
+                              </div>
+                              <div style={{ fontSize: '0.65rem', color: mh.color }}>{mh.label} ›</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    <button className="glass-panel" onClick={() => setAssetMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '4px' }}>← Back</button>
+                  </div>
+                );
+              }
+              // ── END INVESTMENTS HUB ─────────────────────────────────────
+
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {/* Category tabs */}
                   <div style={{ display: 'flex', gap: '4px', marginBottom: '2px' }}>
                     {SHOP_TABS.map(tab => (
-                      <button key={tab.id} onClick={() => { setShopTab(tab.id); setShopStore(null); }} style={{ flex: 1, padding: '6px 2px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold', background: shopTab === tab.id ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.07)', color: shopTab === tab.id ? '#fff' : 'var(--text-secondary)' }}>
+                      <button key={tab.id} onClick={() => { setShopTab(tab.id); setShopStore(null); setInvestSubType(null); setInvestSelected(null); }} style={{ flex: 1, padding: '6px 2px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold', background: shopTab === tab.id ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.07)', color: shopTab === tab.id ? '#fff' : 'var(--text-secondary)' }}>
                         {tab.icon}<br/>{tab.label}
                       </button>
                     ))}

@@ -4,6 +4,7 @@ import { doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import { generateDynamicEvent } from './llmService';
 import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
+import { calculateCapitalGainsTax, estimateInvestmentReturn, getAllAssets } from '../config/assetCatalog';
 
 import staticEvents from './events.json';
 import staticCareers from './careers.json';
@@ -364,22 +365,140 @@ export function useGameState() {
     const marketCrash = Math.random() < 0.05; 
     const marketBoom = !marketCrash && Math.random() < 0.10; 
 
+    // Resolve catalog appreciation rates for all owned assets
+    const catalogMap = Object.fromEntries(getAllAssets().map(a => [a.id, a]));
+
+    let investmentIncome = 0;
+    let investmentHistoryStr = null;
+
     nextProperties = nextProperties.map(prop => {
       let newValue = prop.currentValue;
-      if (marketCrash) { newValue = Math.floor(newValue * 0.7); }
-      else if (marketBoom) { newValue = Math.floor(newValue * 1.3); }
-      else { newValue = Math.floor(newValue * (1 + (Math.random() * 0.03 + 0.02))); }
+      if (prop.type === 'investment') {
+        // Investments use returnProfile for annual gains/losses
+        const catalogEntry = { ...prop, currentValue: prop.currentValue };
+        const ret = estimateInvestmentReturn(catalogEntry, nextEconomy.phase);
+        newValue = Math.max(0, prop.currentValue + ret);
+        investmentIncome += ret;
+      } else if (marketCrash) {
+        newValue = Math.floor(newValue * 0.7);
+      } else if (marketBoom) {
+        newValue = Math.floor(newValue * 1.3);
+      } else {
+        // Use catalog appreciation rate if available, else default +2–5%
+        const rate = catalogMap[prop.catalogId]?.appreciationRate ?? (1 + (Math.random() * 0.03 + 0.02));
+        newValue = Math.floor(newValue * rate);
+      }
       totalUpkeep += prop.upkeep || 0;
-      return { ...prop, currentValue: newValue, yearsOwned: prop.yearsOwned + 1 };
+      // Apply passive stat effects from owned assets
+      const fx = catalogMap[prop.catalogId]?.statEffects ?? {};
+      for (const [stat, delta] of Object.entries(fx)) {
+        if (nextStats[stat] !== undefined) nextStats[stat] = Math.min(100, Math.max(0, nextStats[stat] + delta));
+      }
+      return { ...prop, currentValue: Math.max(0, newValue), yearsOwned: prop.yearsOwned + 1 };
     });
 
+    const bondMaturities = []; // collect bond principal returns
     nextBelongings = nextBelongings.map(item => {
       let newValue = item.currentValue;
-      if (item.type === 'heirloom' || item.type === 'jewelry') { newValue = Math.floor(newValue * 1.02); }
-      else { newValue = Math.floor(newValue * 0.85); }
+      if (item.type === 'investment') {
+        const subType = item.subType;
+
+        if (subType === 'bond') {
+          // Annual coupon income, then principal back at maturity
+          const couponIncome = Math.floor((item.purchasePrice ?? 0) * (item.couponRate ?? 0.04));
+          investmentIncome += couponIncome;
+          const newYTM = (item.yearsToMaturity ?? 1) - 1;
+          if (newYTM <= 0) {
+            // Bond matures: principal returned, bond removed
+            bondMaturities.push({ name: item.name, principal: item.purchasePrice ?? item.currentValue });
+            return null; // will be filtered out below
+          }
+          return { ...item, currentValue: item.purchasePrice ?? item.currentValue, yearsOwned: item.yearsOwned + 1, yearsToMaturity: newYTM };
+
+        } else if (subType === 'crypto') {
+          const vol = item.volatility ?? 0.60;
+          const trend = ((item.trendiness ?? 0.5) - 0.5) * 0.30;
+          const crashRoll = Math.random();
+          const moonRoll  = Math.random();
+          // Moonshot: small chance of insane multi (higher chance for ultra-volatile coins)
+          if (vol >= 1.5 && moonRoll < 0.02) {
+            const mult = 50 + Math.random() * 950; // 50x–1000x
+            newValue = Math.floor(item.currentValue * mult);
+          } else if (vol >= 0.80 && moonRoll < 0.015) {
+            const mult = 5 + Math.random() * 95;   // 5x–100x
+            newValue = Math.floor(item.currentValue * mult);
+          // Crash: small chance of near-total wipe
+          } else if (crashRoll < 0.05 + (vol - 0.6) * 0.1) {
+            const survive = 0.02 + Math.random() * 0.18; // lose 80–98%
+            newValue = Math.max(0, Math.floor(item.currentValue * survive));
+          } else {
+            let swing = (Math.random() * 2 - 1) * vol;
+            if (nextEconomy.phase === 'boom') swing += 0.20 + trend;
+            if (nextEconomy.phase === 'recession') swing -= 0.30;
+            else swing += trend;
+            newValue = Math.max(0, Math.floor(item.currentValue * (1 + swing)));
+          }
+
+        } else if (subType === 'stock') {
+          let swing = (Math.random() * 2 - 1) * (item.volatility ?? 0.25);
+          let rate = swing + (item.baseReturn ?? 0.08);
+          if (nextEconomy.phase === 'boom') rate += 0.10;
+          if (nextEconomy.phase === 'recession') rate -= 0.15;
+          newValue = Math.max(0, Math.floor(item.currentValue * (1 + rate)));
+
+        } else if (subType === 'penny_stock') {
+          const roll = Math.random();
+          if (roll < 0.12) {
+            newValue = 0; // bankrupt
+          } else if (roll < 0.22) {
+            newValue = Math.floor(item.currentValue * (2 + Math.random() * 4)); // 2x–6x
+          } else {
+            const swing = (Math.random() - 0.45) * 0.70;
+            newValue = Math.max(0, Math.floor(item.currentValue * (1 + swing)));
+          }
+
+        } else if (subType === 'fund' || item.returnProfile) {
+          const ret = estimateInvestmentReturn({ ...item }, nextEconomy.phase);
+          newValue = Math.max(0, item.currentValue + ret);
+          investmentIncome += ret;
+
+        } else {
+          // Legacy catalog-based investment
+          const ret = estimateInvestmentReturn({ ...item }, nextEconomy.phase);
+          newValue = Math.max(0, item.currentValue + ret);
+          investmentIncome += ret;
+        }
+      } else {
+        // Non-investment belongings: use catalog appreciation rate
+        const rate = catalogMap[item.catalogId]?.appreciationRate;
+        if (rate) {
+          newValue = Math.floor(item.currentValue * rate);
+        } else if (item.type === 'luxury' || item.type === 'heirloom' || item.type === 'jewelry') {
+          newValue = Math.floor(item.currentValue * 1.025);
+        } else {
+          newValue = Math.floor(item.currentValue * 0.85);
+        }
+      }
       totalUpkeep += item.upkeep || 0;
+      const fx = catalogMap[item.catalogId]?.statEffects ?? {};
+      for (const [stat, delta] of Object.entries(fx)) {
+        if (nextStats[stat] !== undefined) nextStats[stat] = Math.min(100, Math.max(0, nextStats[stat] + delta));
+      }
       return { ...item, currentValue: Math.max(0, newValue), yearsOwned: item.yearsOwned + 1 };
-    });
+    }).filter(Boolean); // remove matured bonds
+
+    // Add matured bond principals to bank + history
+    for (const bond of bondMaturities) {
+      nextBank += bond.principal;
+      investmentHistoryStr = (investmentHistoryStr ? investmentHistoryStr + ' ' : '') + `Bond Maturity: ${bond.name} matured — principal of $${bond.principal.toLocaleString()} returned.`;
+    }
+
+    if (investmentIncome !== 0) {
+      nextBank += investmentIncome;
+      investmentHistoryStr = investmentIncome > 0
+        ? `Investments: Your portfolio returned $${investmentIncome.toLocaleString()} this year.`
+        : `Investments: Your portfolio lost $${Math.abs(investmentIncome).toLocaleString()} this year.`;
+    }
 
     nextBank -= totalUpkeep;
     let upkeepHistoryStr = null;
@@ -509,6 +628,7 @@ export function useGameState() {
     }
     
     if (businessHistory) updatedHistory.push({ age: nextAge, text: `Business: ${businessHistory}` });
+    if (investmentHistoryStr) updatedHistory.push({ age: nextAge, text: investmentHistoryStr });
     if (lifestyleHistoryStr) updatedHistory.push({ age: nextAge, text: lifestyleHistoryStr });
     if (educationHistory) updatedHistory.push({ age: nextAge, text: educationHistory });
     if (reviewHistory)   updatedHistory.push({ age: nextAge, text: reviewHistory });
@@ -1027,6 +1147,7 @@ export function useGameState() {
     const newAsset = {
       ...item,
       id: `${category}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      catalogId: item.id,       // retain reference for catalog lookups in ageUp
       currentValue: item.cost,
       purchasePrice: item.cost,
       yearsOwned: 0
@@ -1050,27 +1171,96 @@ export function useGameState() {
   };
 
   const sellAsset = (category, id) => {
-    if (category === 'property') {
-      const asset = properties.find(p => p.id === id);
-      if (!asset) return;
-      setBank(prev => prev + asset.currentValue);
-      setProperties(prev => {
-        const next = prev.filter(p => p.id !== id);
-        syncToCloud({ properties: next, bank: bank + asset.currentValue });
-        return next;
-      });
-      setHistory(prev => [...prev, { age, text: `Real Estate: Sold your ${asset.name} for $${Math.floor(asset.currentValue).toLocaleString()}.` }]);
+    const isProperty = category === 'property';
+    const asset = isProperty ? properties.find(p => p.id === id) : belongings.find(b => b.id === id);
+    if (!asset) return;
+
+    const tier = getWealthTier(bank);
+    const cgt = calculateCapitalGainsTax(asset.purchasePrice ?? asset.cost ?? 0, asset.currentValue, tier.capitalGainsTaxRate ?? 0);
+    const proceeds = Math.floor(asset.currentValue) - cgt;
+    const gain = Math.floor(asset.currentValue) - (asset.purchasePrice ?? asset.cost ?? 0);
+
+    setBank(prev => prev + proceeds);
+
+    const gainStr = gain > 0 ? ` (+$${gain.toLocaleString()} gain, $${cgt.toLocaleString()} CGT)` : gain < 0 ? ` (loss of $${Math.abs(gain).toLocaleString()})` : '';
+    const msg = `${isProperty ? 'Real Estate' : 'Assets'}: Sold ${asset.name} for $${Math.floor(asset.currentValue).toLocaleString()}${gainStr}. Net proceeds: $${proceeds.toLocaleString()}.`;
+
+    if (isProperty) {
+      setProperties(prev => { const next = prev.filter(p => p.id !== id); syncToCloud({ properties: next }); return next; });
     } else {
-      const asset = belongings.find(b => b.id === id);
-      if (!asset) return;
-      setBank(prev => prev + asset.currentValue);
-      setBelongings(prev => {
-        const next = prev.filter(b => b.id !== id);
-        syncToCloud({ belongings: next, bank: bank + asset.currentValue });
-        return next;
-      });
-      setHistory(prev => [...prev, { age, text: `Belongings: Sold your ${asset.name} for $${Math.floor(asset.currentValue).toLocaleString()}.` }]);
+      setBelongings(prev => { const next = prev.filter(b => b.id !== id); syncToCloud({ belongings: next }); return next; });
     }
+    setHistory(prev => { const updated = [...prev, { age, text: msg }]; syncToCloud({ history: updated }); return updated; });
+  };
+
+  /**
+   * Buy a variable-amount investment from the investments hub.
+   * subType: 'crypto' | 'stock' | 'penny_stock' | 'bond' | 'fund'
+   * instrument: one of the objects from investmentMarket.js
+   * amountDollars: how much the player wants to invest
+   */
+  const buyInvestment = (instrument, amountDollars, subType) => {
+    const amount = Math.floor(amountDollars);
+    if (bank < amount || amount < (instrument.minInvestment ?? 1)) return;
+
+    let units;
+    let pricePerUnit;
+    if (subType === 'bond') {
+      units = amount; // "units" = dollars of principal for bonds
+      pricePerUnit = 1;
+    } else if (instrument.basePrice) {
+      units = Math.max(1, Math.floor(amount / instrument.basePrice));
+      pricePerUnit = instrument.basePrice;
+    } else {
+      units = amount;
+      pricePerUnit = 1;
+    }
+    const actualCost = subType === 'bond' ? amount : Math.min(amount, units * pricePerUnit);
+
+    const displayName = subType === 'bond'
+      ? `${instrument.name} (${instrument.maturity}-Yr)`
+      : instrument.ticker
+        ? `${instrument.name} (${instrument.ticker})`
+        : instrument.name;
+
+    const newInv = {
+      id: `inv_${subType}_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      type: 'investment',
+      subType,
+      instrumentId: instrument.id,
+      catalogId: instrument.id,
+      name: displayName,
+      icon: instrument.icon ?? '📊',
+      units,
+      pricePerUnit,
+      currentPricePerUnit: pricePerUnit,
+      purchasePrice: actualCost,
+      currentValue: actualCost,
+      yearsOwned: 0,
+      upkeep: 0,
+      // Bond-specific
+      couponRate: instrument.coupon ?? null,
+      maturityYears: instrument.maturity ?? null,
+      yearsToMaturity: instrument.maturity ?? null,
+      entity: instrument.entity ?? null,
+      // Volatility / return info (for ageUp processing)
+      volatility: instrument.volatility ?? 0,
+      trendiness: instrument.trendiness ?? 0,
+      baseReturn: instrument.baseReturn ?? 0,
+      returnProfile: instrument.returnProfile ?? null,
+      sector: instrument.sector ?? null,
+    };
+
+    setBank(prev => prev - actualCost);
+    setBelongings(prev => {
+      const next = [...prev, newInv];
+      syncToCloud({ belongings: next });
+      return next;
+    });
+    const unitsLabel = subType === 'bond'
+      ? `$${actualCost.toLocaleString()} principal`
+      : `${units.toLocaleString()} units @ $${pricePerUnit.toLocaleString()}`;
+    setHistory(prev => { const updated = [...prev, { age, text: `Investing: Bought ${displayName} — ${unitsLabel}.` }]; syncToCloud({ history: updated }); return updated; });
   };
 
   const attendNetworkingEvent = () => {
@@ -1182,6 +1372,7 @@ export function useGameState() {
     haveChild,
     giftRelationship,
     meetFriend,
+    buyInvestment,
     triggerActivityEvent
   };
 }
