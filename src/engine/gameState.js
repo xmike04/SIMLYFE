@@ -1348,7 +1348,7 @@ export function useGameState() {
 
   const debugMaxStats = () => {
     setStats(prev => {
-      const max = { ...prev, health: 100, happiness: 100, smarts: 100, looks: 100, athleticism: 100, karma: 100 };
+      const max = { ...prev, health: 100, happiness: 100, smarts: 100, looks: 100, grades: 100, athleticism: 100, karma: 100, acting: 100, voice: 100, modeling: 100 };
       syncToCloud({ stats: max });
       return max;
     });

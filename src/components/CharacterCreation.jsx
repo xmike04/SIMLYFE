@@ -8,7 +8,7 @@ export default function CharacterCreation({ onStartLife }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onStartLife(name, gender, country);
+    onStartLife(name.trim(), gender, country);
   };
 
   const inputStyle = {

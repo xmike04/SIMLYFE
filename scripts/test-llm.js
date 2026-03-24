@@ -1,3 +1,4 @@
+/* global process */
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import fs from 'fs';
 import path from 'path';

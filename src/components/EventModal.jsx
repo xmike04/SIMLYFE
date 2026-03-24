@@ -17,7 +17,7 @@ export default function EventModal({ event, onChoice }) {
         <h3 className="mb-4 mt-2" style={{ lineHeight: '1.4' }}>{event.description}</h3>
         
         <div className="flex-column" style={{ gap: '0.8rem' }}>
-          {event.choices.map((choice, i) => (
+          {(event.choices || []).map((choice, i) => (
             <button 
               key={i} 
               className="btn btn-secondary" 

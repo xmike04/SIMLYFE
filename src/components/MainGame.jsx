@@ -84,8 +84,9 @@ export default function MainGame({ engine }) {
   const [investSubType, setInvestSubType] = useState(null);
   const [investSelected, setInvestSelected] = useState(null);
   const [investAmount, setInvestAmount] = useState('');
+  const [shopTab, setShopTab] = useState('realEstate');
 
-  const closeSheet = () => { setActiveSheet(null); setSelectedRel(null); setSelectedProp(null); setAssetMenu(null); setActivityMenu(null); setDatingMatch(null); setJobMenu(null); setJobSector(null); setShopStore(null); setInvestSubType(null); setInvestSelected(null); setInvestAmount(''); };
+  const closeSheet = () => { setActiveSheet(null); setSelectedRel(null); setSelectedProp(null); setAssetMenu(null); setActivityMenu(null); setDatingMatch(null); setJobMenu(null); setJobSector(null); setShopStore(null); setInvestSubType(null); setInvestSelected(null); setInvestAmount(''); setShopTab('realEstate'); };
 
   const handleSearchMatch = () => {
     if (bank < 20) return;
@@ -815,7 +816,7 @@ export default function MainGame({ engine }) {
         const cashflow = annualSalary - annualIncomeTax - annualUpkeep - tier.lifestyleCost;
 
         // Shopping state
-        const [shopTab, setShopTab] = useState('realEstate');
+        // Shopping state
         const SHOP_TABS = [
           { id: 'realEstate', label: 'Real Estate', icon: '🏡' },
           { id: 'vehicles',   label: 'Vehicles',    icon: '🚗' },
