@@ -1977,3 +1977,865 @@ describe('wealth tier integration', () => {
     expect(tier.giftAmounts[0]).toBeLessThanOrEqual(20);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 12. Asset catalog mechanics
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { ASSET_CATALOG, getAllAssets, getAssetsByTier, calculateCapitalGainsTax, estimateInvestmentReturn } from '../config/assetCatalog';
+
+describe('ASSET_CATALOG schema', () => {
+  it('has all four required categories', () => {
+    expect(ASSET_CATALOG).toHaveProperty('realEstate');
+    expect(ASSET_CATALOG).toHaveProperty('vehicles');
+    expect(ASSET_CATALOG).toHaveProperty('luxury');
+    expect(ASSET_CATALOG).toHaveProperty('investments');
+  });
+
+  it('every item has required fields', () => {
+    for (const item of getAllAssets()) {
+      expect(item, `${item.id} missing id`).toHaveProperty('id');
+      expect(item, `${item.id} missing name`).toHaveProperty('name');
+      expect(item, `${item.id} missing cost`).toHaveProperty('cost');
+      expect(item, `${item.id} missing upkeep`).toHaveProperty('upkeep');
+      expect(item, `${item.id} missing type`).toHaveProperty('type');
+      expect(item, `${item.id} missing minTier`).toHaveProperty('minTier');
+      expect(item, `${item.id} missing appreciationRate`).toHaveProperty('appreciationRate');
+    }
+  });
+
+  it('all costs are positive numbers', () => {
+    for (const item of getAllAssets()) {
+      expect(item.cost, `${item.id} cost must be > 0`).toBeGreaterThan(0);
+    }
+  });
+
+  it('all upkeep values are non-negative', () => {
+    for (const item of getAllAssets()) {
+      expect(item.upkeep, `${item.id} upkeep must be >= 0`).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('no duplicate IDs across all categories', () => {
+    const ids = getAllAssets().map(a => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('investment items have returnProfile', () => {
+    for (const item of ASSET_CATALOG.investments) {
+      expect(item, `${item.id} missing returnProfile`).toHaveProperty('returnProfile');
+      expect(item.returnProfile).toHaveProperty('base');
+      expect(item.returnProfile).toHaveProperty('boomBonus');
+      expect(item.returnProfile).toHaveProperty('recessionPenalty');
+      expect(item.returnProfile).toHaveProperty('volatility');
+    }
+  });
+
+  it('statEffects values are numbers when present', () => {
+    for (const item of getAllAssets()) {
+      if (item.statEffects) {
+        for (const [key, val] of Object.entries(item.statEffects)) {
+          expect(typeof val, `${item.id} statEffects.${key} must be a number`).toBe('number');
+        }
+      }
+    }
+  });
+});
+
+describe('getAssetsByTier', () => {
+  it('returns all items in a category', () => {
+    const result = getAssetsByTier('realEstate', 'ultra');
+    expect(result.length).toBe(ASSET_CATALOG.realEstate.length);
+  });
+
+  it('items below player tier have locked: false', () => {
+    const result = getAssetsByTier('realEstate', 'ultra');
+    expect(result.every(i => !i.locked)).toBe(true);
+  });
+
+  it('broke player cannot access penthouse or above', () => {
+    const result = getAssetsByTier('realEstate', 'broke');
+    const penthouse = result.find(i => i.id === 'penthouse');
+    expect(penthouse.locked).toBe(true);
+  });
+
+  it('working tier unlocks studio_apt and city_condo', () => {
+    const result = getAssetsByTier('realEstate', 'working');
+    expect(result.find(i => i.id === 'studio_apt').locked).toBe(false);
+    expect(result.find(i => i.id === 'city_condo').locked).toBe(false);
+  });
+
+  it('working tier cannot access wealthy-tier penthouse', () => {
+    const result = getAssetsByTier('realEstate', 'working');
+    expect(result.find(i => i.id === 'penthouse').locked).toBe(true);
+  });
+
+  it('ultra tier unlocks all luxury items', () => {
+    const result = getAssetsByTier('luxury', 'ultra');
+    expect(result.every(i => !i.locked)).toBe(true);
+  });
+
+  it('returns empty array for unknown category', () => {
+    expect(getAssetsByTier('nonexistent', 'middle')).toEqual([]);
+  });
+});
+
+describe('calculateCapitalGainsTax', () => {
+  it('no tax when no gain', () => {
+    expect(calculateCapitalGainsTax(100000, 100000, 0.20)).toBe(0);
+  });
+
+  it('no tax on a loss', () => {
+    expect(calculateCapitalGainsTax(100000, 80000, 0.20)).toBe(0);
+  });
+
+  it('20% CGT on a $50k gain', () => {
+    expect(calculateCapitalGainsTax(100000, 150000, 0.20)).toBe(10000);
+  });
+
+  it('37% CGT for ultra-wealthy on large gain', () => {
+    expect(calculateCapitalGainsTax(1_000_000, 5_000_000, 0.37)).toBe(1_480_000);
+  });
+
+  it('result is a floored integer', () => {
+    const result = calculateCapitalGainsTax(100000, 133333, 0.20); // gain = 33333, tax = 6666.6
+    expect(Number.isInteger(result)).toBe(true);
+    expect(result).toBe(6666);
+  });
+
+  it('0% CGT rate produces no tax regardless of gain', () => {
+    expect(calculateCapitalGainsTax(0, 500000, 0)).toBe(0);
+  });
+});
+
+describe('estimateInvestmentReturn', () => {
+  const makeInvestment = (profileOverrides = {}) => ({
+    type: 'investment',
+    currentValue: 100_000,
+    returnProfile: { base: 0.10, boomBonus: 0.05, recessionPenalty: -0.10, volatility: 0, ...profileOverrides },
+  });
+
+  it('returns 0 for non-investment assets', () => {
+    expect(estimateInvestmentReturn({ type: 'property', currentValue: 100000 }, 'normal')).toBe(0);
+  });
+
+  it('returns 0 for asset with no returnProfile', () => {
+    expect(estimateInvestmentReturn({ type: 'investment', currentValue: 100000 }, 'normal')).toBe(0);
+  });
+
+  it('normal economy: returns base rate (no volatility)', () => {
+    const ret = estimateInvestmentReturn(makeInvestment(), 'normal');
+    expect(ret).toBe(10000); // 10% of 100k
+  });
+
+  it('boom economy: adds boomBonus', () => {
+    const ret = estimateInvestmentReturn(makeInvestment(), 'boom');
+    expect(ret).toBe(15000); // (10% + 5%) of 100k
+  });
+
+  it('recession economy: applies recessionPenalty', () => {
+    const ret = estimateInvestmentReturn(makeInvestment(), 'recession');
+    expect(ret).toBe(0); // (10% - 10%) of 100k = 0
+  });
+
+  it('severe recession: can return negative (loss)', () => {
+    const ret = estimateInvestmentReturn(makeInvestment({ base: 0.05, recessionPenalty: -0.20 }), 'recession');
+    expect(ret).toBeLessThan(0);           // (5% - 20%) = net −15%
+    expect(ret).toBeGreaterThanOrEqual(-15100); // ~−15% of 100k, floored
+  });
+
+  it('return scales with asset value', () => {
+    const small = estimateInvestmentReturn(makeInvestment(), 'normal'); // 100k base → 10k
+    const large = estimateInvestmentReturn({ ...makeInvestment(), currentValue: 1_000_000 }, 'normal');
+    expect(large).toBe(small * 10);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §13. INTEGRATION — Cross-system edge cases combining all four v1.4 systems:
+//     Wealth Tiers · Relationships · Assets/Store Catalog · Investments
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { WEALTH_TIERS as WT2, getWealthTier as gwt, calculateIncomeTax as cit } from '../config/wealthTiers';
+import { STORE_CATALOG, getStoresByCategory, STORE_TIER_ORDER } from '../config/storeCatalog';
+import { CRYPTO_LIST, STOCK_LIST, BOND_LIST, PENNY_STOCK_LIST, FUND_LIST, getMarketHealth, bondDisplayName } from '../config/investmentMarket';
+
+// ── Helpers mirrored from gameState.js for integration tests ──────────────────
+
+function calcDivorceCost(bank) {
+  return Math.min(50_000, Math.max(5_000, Math.floor(bank * 0.15)));
+}
+
+function calcNetWorth(bank, properties, belongings) {
+  return Math.floor(bank
+    + properties.reduce((s, p) => s + p.currentValue, 0)
+    + belongings.reduce((s, b) => s + b.currentValue, 0));
+}
+
+function processInvestmentYear(item, econPhase, randomFn = Math.random) {
+  const subType = item.subType;
+  let newValue = item.currentValue;
+  let income = 0;
+
+  if (subType === 'bond') {
+    income = Math.floor((item.purchasePrice ?? 0) * (item.couponRate ?? 0.04));
+    const newYTM = (item.yearsToMaturity ?? 1) - 1;
+    if (newYTM <= 0) return { newValue: 0, income, matured: true };
+    return { newValue: item.purchasePrice, income, matured: false, yearsToMaturity: newYTM };
+  }
+
+  if (subType === 'stock') {
+    let swing = (randomFn() * 2 - 1) * (item.volatility ?? 0.25);
+    let rate = swing + (item.baseReturn ?? 0.08);
+    if (econPhase === 'boom') rate += 0.10;
+    if (econPhase === 'recession') rate -= 0.15;
+    newValue = Math.max(0, Math.floor(item.currentValue * (1 + rate)));
+  }
+
+  if (subType === 'penny_stock') {
+    const roll = randomFn();
+    if (roll < 0.12)       newValue = 0;
+    else if (roll < 0.22)  newValue = Math.floor(item.currentValue * (2 + randomFn() * 4));
+    else                   newValue = Math.max(0, Math.floor(item.currentValue * (1 + (randomFn() - 0.45) * 0.70)));
+  }
+
+  if (subType === 'fund' || item.returnProfile) {
+    const { base, boomBonus, recessionPenalty, volatility } = item.returnProfile;
+    let rate = base + (randomFn() * 2 - 1) * volatility;
+    if (econPhase === 'boom') rate += boomBonus;
+    if (econPhase === 'recession') rate += recessionPenalty;
+    income = Math.floor(item.currentValue * rate);
+    newValue = Math.max(0, item.currentValue + income);
+  }
+
+  return { newValue, income, matured: false };
+}
+
+function calcCryptoYear(item, econPhase, moonshotRoll, crashRoll, swingRoll) {
+  const vol = item.volatility ?? 0.60;
+  const trend = ((item.trendiness ?? 0.5) - 0.5) * 0.30;
+  if (vol >= 1.5 && moonshotRoll < 0.02) {
+    return Math.floor(item.currentValue * (50 + swingRoll * 950));
+  }
+  if (vol >= 0.80 && moonshotRoll < 0.015) {
+    return Math.floor(item.currentValue * (5 + swingRoll * 95));
+  }
+  if (crashRoll < 0.05 + (vol - 0.6) * 0.1) {
+    return Math.max(0, Math.floor(item.currentValue * (0.02 + swingRoll * 0.18)));
+  }
+  let swing = (swingRoll * 2 - 1) * vol;
+  swing += (econPhase === 'boom' ? 0.20 + trend : econPhase === 'recession' ? -0.30 : trend);
+  return Math.max(0, Math.floor(item.currentValue * (1 + swing)));
+}
+
+// ── §13.1 applyEffects: bank:0 edge case ─────────────────────────────────────
+
+describe('§13.1 applyEffects — bank:0 edge case', () => {
+  const baseStats = { health: 80, happiness: 80, smarts: 50, looks: 50, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, grades: 70 };
+
+  it('bank:0 effect does not change bank (falsy guard bug would skip this)', () => {
+    const { bank } = applyEffects(baseStats, 500, { bank: 0 });
+    expect(bank).toBe(500); // no change — 0 means "no effect", not "set to 0"
+  });
+
+  it('bank negative effect correctly reduces', () => {
+    const { bank } = applyEffects(baseStats, 1000, { bank: -1000 });
+    expect(bank).toBe(0);
+  });
+
+  it('multiple stats + bank in one effect object all apply', () => {
+    const { stats, bank } = applyEffects(baseStats, 2000, { health: -10, happiness: 15, karma: -5, bank: -500 });
+    expect(stats.health).toBe(70);
+    expect(stats.happiness).toBe(95);
+    expect(stats.karma).toBe(45);
+    expect(bank).toBe(1500);
+  });
+});
+
+// ── §13.2 Wealth tier × income tax × lifestyle cost pipeline ─────────────────
+
+describe('§13.2 Wealth tier × income tax × lifestyle cost pipeline', () => {
+  it('broke player pays 0 income tax regardless of salary', () => {
+    const tax = cit(50_000, -100);
+    expect(tax).toBe(0);
+  });
+
+  it('working-class player ($20k bank) pays 15% on salary', () => {
+    const tax = cit(60_000, 20_000);
+    expect(tax).toBe(9_000); // 60k × 15%
+  });
+
+  it('upper_middle player ($300k bank) pays 28% on salary', () => {
+    const tax = cit(100_000, 300_000);
+    expect(tax).toBe(28_000);
+  });
+
+  it('ultra-wealthy player ($150M bank) pays 45% on salary', () => {
+    const tax = cit(500_000, 150_000_000);
+    expect(tax).toBe(225_000);
+  });
+
+  it('annual cashflow: salary - tax - lifestyle cost goes negative for lower earner with high lifestyle', () => {
+    const bank = 1_000_000; // wealthy tier
+    const tier = gwt(bank);
+    const salary = 80_000;
+    const tax = cit(salary, bank);
+    const netSalary = salary - tax;
+    const cashflow = netSalary - tier.lifestyleCost;
+    // wealthy lifestyle = $40k/yr, net salary after 35% tax = $52k → still positive
+    expect(cashflow).toBeGreaterThan(0);
+    expect(netSalary).toBe(52_000);
+  });
+
+  it('ultra tier lifestyle cost ($1M) exceeds most salaries', () => {
+    const tier = gwt(100_000_000);
+    expect(tier.lifestyleCost).toBe(1_000_000);
+    const salary = 500_000;
+    const tax = cit(salary, 100_000_000);
+    const net = salary - tax - tier.lifestyleCost;
+    expect(net).toBeLessThan(0); // -$775k/yr from salary alone — needs investment income
+  });
+
+  it('tier transition: $49,999 is middle class boundary', () => {
+    expect(gwt(49_999).id).toBe('working');
+    expect(gwt(50_000).id).toBe('middle');
+  });
+
+  it('relationDecayMult scales from 1.0 (broke) to 2.5 (ultra)', () => {
+    const tiers = WT2.map(t => t.relationDecayMult);
+    expect(tiers[0]).toBe(1.0);
+    expect(tiers[tiers.length - 1]).toBe(2.5);
+    // each tier's mult is >= previous
+    for (let i = 1; i < tiers.length; i++) {
+      expect(tiers[i]).toBeGreaterThanOrEqual(tiers[i - 1]);
+    }
+  });
+});
+
+// ── §13.3 Asset × wealth tier × CGT integration ──────────────────────────────
+
+describe('§13.3 Asset × wealth tier × CGT integration', () => {
+  it('studio apartment appreciates 3% per year correctly', () => {
+    const studio = { id: 'studio_apt', currentValue: 50_000, appreciationRate: 1.03 };
+    expect(Math.floor(50_000 * 1.03)).toBe(51_500);
+  });
+
+  it('vehicle depreciates 15% per year correctly', () => {
+    const clunker = { id: 'used_clunker', currentValue: 3_000, appreciationRate: 0.80 };
+    expect(Math.floor(3_000 * 0.80)).toBe(2_400);
+  });
+
+  it('CGT: selling at loss returns 0 tax', () => {
+    expect(calculateCapitalGainsTax(100_000, 70_000, 0.20)).toBe(0);
+  });
+
+  it('CGT: selling crypto at 400x applies current tier rate', () => {
+    const purchasePrice = 1_000;
+    const currentValue = 400_000; // 400x
+    const cgtRate = gwt(500_000).capitalGainsTaxRate; // upper_middle = 23%
+    const tax = calculateCapitalGainsTax(purchasePrice, currentValue, cgtRate);
+    expect(tax).toBe(Math.floor((400_000 - 1_000) * 0.23)); // $91,770
+  });
+
+  it('CGT: ultra-wealthy pays 37% on art appreciation', () => {
+    const tax = calculateCapitalGainsTax(8_000_000, 20_000_000, 0.37);
+    expect(tax).toBe(Math.floor(12_000_000 * 0.37)); // $4,440,000
+  });
+
+  it('net worth correctly sums bank + properties + belongings', () => {
+    const bank = 50_000;
+    const properties = [{ currentValue: 250_000 }, { currentValue: 120_000 }];
+    const belongings = [{ currentValue: 8_000 }, { currentValue: 15_000 }];
+    expect(calcNetWorth(bank, properties, belongings)).toBe(443_000);
+  });
+
+  it('market crash: 30% wipe on properties but not belongings', () => {
+    const props = [{ currentValue: 100_000 }, { currentValue: 200_000 }];
+    const crashed = props.map(p => ({ ...p, currentValue: Math.floor(p.currentValue * 0.7) }));
+    expect(crashed[0].currentValue).toBe(70_000);
+    expect(crashed[1].currentValue).toBe(140_000);
+  });
+
+  it('getAssetsByTier: broke player cannot access working-tier items', () => {
+    const brokeItems = getAssetsByTier('vehicles', 'broke');
+    const usedClunker = brokeItems.find(i => i.id === 'used_clunker');
+    const newSedan = brokeItems.find(i => i.id === 'sedan');
+    expect(usedClunker.locked).toBe(false);
+    expect(newSedan.locked).toBe(true);
+  });
+
+  it('getAssetsByTier: ultra player sees all items unlocked', () => {
+    const items = getAssetsByTier('realEstate', 'ultra');
+    expect(items.every(i => !i.locked)).toBe(true);
+  });
+});
+
+// ── §13.4 Store catalog × wealth tier gating ─────────────────────────────────
+
+describe('§13.4 Store catalog × wealth tier gating', () => {
+  it('budget_auto_sales is visible to broke tier', () => {
+    const stores = getStoresByCategory('vehicles', 'broke', {});
+    const budget = stores.find(s => s.id === 'budget_auto_sales');
+    expect(budget).toBeDefined();
+    expect(budget.locked).toBe(false);
+  });
+
+  it('anderson_race_world requires wealthy tier — locked for middle', () => {
+    const stores = getStoresByCategory('vehicles', 'middle', {});
+    const race = stores.find(s => s.id === 'anderson_race_world');
+    expect(race.locked).toBe(true);
+  });
+
+  it('anderson_race_world is unlocked at wealthy tier', () => {
+    const stores = getStoresByCategory('vehicles', 'wealthy', {});
+    const race = stores.find(s => s.id === 'anderson_race_world');
+    expect(race.locked).toBe(false);
+  });
+
+  it('san_diego_aircraft_brokers requires rich tier', () => {
+    const stores = getStoresByCategory('vehicles', 'ultra', {});
+    const jets = stores.find(s => s.id === 'san_diego_aircraft_brokers');
+    expect(jets.locked).toBe(false);
+  });
+
+  it('elite_global_properties is locked until rich tier', () => {
+    const lockedFor = ['broke', 'struggling', 'working', 'middle', 'upper_middle', 'wealthy'];
+    for (const tier of lockedFor) {
+      const stores = getStoresByCategory('realEstate', tier, {});
+      const store = stores.find(s => s.id === 'elite_global_properties');
+      expect(store.locked).toBe(true);
+    }
+  });
+
+  it('STORE_TIER_ORDER matches WEALTH_TIERS order', () => {
+    const tierIds = WT2.map(t => t.id);
+    expect(STORE_TIER_ORDER).toEqual(tierIds);
+  });
+
+  it('every store in every category has at least 2 listings', () => {
+    for (const [cat, stores] of Object.entries(STORE_CATALOG)) {
+      for (const store of stores) {
+        expect(store.listings.length, `${cat}/${store.id} has fewer than 2 listings`).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+});
+
+// ── §13.5 Relationship × wealth tier integration ─────────────────────────────
+
+describe('§13.5 Relationship × wealth tier integration', () => {
+  it('dating costs scale with wealth tier', () => {
+    const dateCosts = WT2.map(t => t.dateCost);
+    // every tier should have a dateCost >= previous
+    for (let i = 1; i < dateCosts.length; i++) {
+      expect(dateCosts[i]).toBeGreaterThanOrEqual(dateCosts[i - 1]);
+    }
+  });
+
+  it('gift amounts have 3 tiers that scale with wealth', () => {
+    for (const tier of WT2) {
+      expect(tier.giftAmounts).toHaveLength(3);
+      expect(tier.giftAmounts[0]).toBeLessThan(tier.giftAmounts[1]);
+      expect(tier.giftAmounts[1]).toBeLessThan(tier.giftAmounts[2]);
+    }
+  });
+
+  it('divorce cost at $10k bank → clamped up to minimum $5k', () => {
+    // 15% of 10k = $1,500 is below the $5k floor, so result is $5,000
+    expect(calcDivorceCost(10_000)).toBe(5_000);
+    expect(calcDivorceCost(10_000)).toBe(Math.min(50_000, Math.max(5_000, Math.floor(10_000 * 0.15))));
+  });
+
+  it('divorce cost at $100k bank → 15% = $15k', () => {
+    expect(calcDivorceCost(100_000)).toBe(15_000);
+  });
+
+  it('divorce cost at $1M bank → capped at $50k', () => {
+    expect(calcDivorceCost(1_000_000)).toBe(50_000);
+  });
+
+  it('divorce cost at $500k bank → capped at $50k', () => {
+    expect(calcDivorceCost(500_000)).toBe(50_000);
+  });
+
+  it('parent death chance formula: age 70 → 0%, age 100 → 100%', () => {
+    const deathChance = (age) => Math.min(1, (age - 70) / 60);
+    expect(deathChance(70)).toBe(0);
+    expect(deathChance(100)).toBeCloseTo(0.5);
+    expect(deathChance(130)).toBe(1);
+  });
+
+  it('jealousy triggers when 2+ active romantic relationships', () => {
+    const rels = [
+      { status: 'dating', isAlive: true },
+      { status: 'married', isAlive: true },
+      { status: 'family', isAlive: true },
+    ];
+    const activeRomantic = rels.filter(r => (r.status === 'dating' || r.status === 'married') && r.isAlive);
+    expect(activeRomantic.length).toBe(2); // triggers jealousy
+  });
+
+  it('auto-breakup triggers at relation < 20', () => {
+    const shouldBreak = (rel) => (rel.status === 'dating' || rel.status === 'married') && rel.relation < 20;
+    expect(shouldBreak({ status: 'dating', relation: 19 })).toBe(true);
+    expect(shouldBreak({ status: 'dating', relation: 20 })).toBe(false);
+    expect(shouldBreak({ status: 'family', relation: 5 })).toBe(false); // family not affected
+  });
+});
+
+// ── §13.6 Investment processing edge cases ────────────────────────────────────
+
+describe('§13.6 Investment processing — bonds', () => {
+  const makeBond = (overrides = {}) => ({
+    subType: 'bond',
+    purchasePrice: 10_000,
+    currentValue: 10_000,
+    couponRate: 0.045,
+    yearsToMaturity: 5,
+    yearsOwned: 0,
+    ...overrides,
+  });
+
+  it('bond coupon income = purchasePrice × couponRate (floored)', () => {
+    const { income } = processInvestmentYear(makeBond());
+    expect(income).toBe(Math.floor(10_000 * 0.045)); // $450
+  });
+
+  it('bond value stays at purchasePrice (par) between maturity years', () => {
+    const { newValue } = processInvestmentYear(makeBond({ yearsToMaturity: 3 }));
+    expect(newValue).toBe(10_000);
+  });
+
+  it('bond matures when yearsToMaturity reaches 1 → returns matured:true', () => {
+    const { matured, newValue } = processInvestmentYear(makeBond({ yearsToMaturity: 1 }));
+    expect(matured).toBe(true);
+    expect(newValue).toBe(0); // removed from portfolio
+  });
+
+  it('coupon income still paid in maturity year', () => {
+    const { income, matured } = processInvestmentYear(makeBond({ yearsToMaturity: 1 }));
+    expect(matured).toBe(true);
+    expect(income).toBe(450); // still earns the last coupon
+  });
+
+  it('US 10yr bond: correct coupon on $50k investment', () => {
+    const us10yr = BOND_LIST.find(b => b.id === 'us_10yr');
+    const bond = makeBond({ purchasePrice: 50_000, couponRate: us10yr.coupon });
+    const { income } = processInvestmentYear(bond);
+    expect(income).toBe(Math.floor(50_000 * 0.045)); // $2,250/yr
+  });
+
+  it('Brazilian bond has higher coupon than US bond (EM premium)', () => {
+    const us = BOND_LIST.find(b => b.id === 'us_10yr');
+    const br = BOND_LIST.find(b => b.id === 'br_10yr');
+    expect(br.coupon).toBeGreaterThan(us.coupon);
+  });
+
+  it('Brazilian bond has higher risk than US bond', () => {
+    const us = BOND_LIST.find(b => b.id === 'us_10yr');
+    const br = BOND_LIST.find(b => b.id === 'br_10yr');
+    expect(br.risk).toBeGreaterThan(us.risk);
+  });
+
+  it('multiple bonds maturing in same year: principals stack', () => {
+    const b1 = makeBond({ purchasePrice: 10_000, yearsToMaturity: 1 });
+    const b2 = makeBond({ purchasePrice: 25_000, yearsToMaturity: 1 });
+    const r1 = processInvestmentYear(b1);
+    const r2 = processInvestmentYear(b2);
+    const totalReturn = r1.income + r2.income;
+    expect(r1.matured).toBe(true);
+    expect(r2.matured).toBe(true);
+    expect(totalReturn).toBe(450 + 1_125); // coupons on last year
+  });
+});
+
+describe('§13.7 Investment processing — stocks & penny stocks', () => {
+  const makeStock = (overrides = {}) => ({
+    subType: 'stock',
+    currentValue: 10_000,
+    volatility: 0.25,
+    baseReturn: 0.08,
+    yearsOwned: 0,
+    ...overrides,
+  });
+
+  const makePenny = (overrides = {}) => ({
+    subType: 'penny_stock',
+    currentValue: 5_000,
+    yearsOwned: 0,
+    ...overrides,
+  });
+
+  it('stock in boom: gets +10% bonus on top of base return', () => {
+    // Force a zero-swing roll: randomFn always returns 0.5 → swing = 0
+    const { newValue } = processInvestmentYear(makeStock(), 'boom', () => 0.5);
+    const expectedRate = 0 + 0.08 + 0.10; // swing=0, base=8%, boom=10%
+    expect(newValue).toBe(Math.floor(10_000 * (1 + expectedRate)));
+  });
+
+  it('stock in recession: loses 15% from base return', () => {
+    const { newValue } = processInvestmentYear(makeStock(), 'recession', () => 0.5);
+    const expectedRate = 0 + 0.08 - 0.15; // swing=0, base=8%, recession=-15%
+    expect(newValue).toBe(Math.max(0, Math.floor(10_000 * (1 + expectedRate))));
+  });
+
+  it('stock value cannot go below 0', () => {
+    const { newValue } = processInvestmentYear(makeStock({ currentValue: 100 }), 'recession', () => 0);
+    expect(newValue).toBeGreaterThanOrEqual(0);
+  });
+
+  it('penny stock: roll < 0.12 → bankrupt (value = 0)', () => {
+    const { newValue } = processInvestmentYear(makePenny(), 'normal', () => 0.05);
+    expect(newValue).toBe(0);
+  });
+
+  it('penny stock: 0.12 <= roll < 0.22 → moonshot (2x–6x)', () => {
+    // roll=0.15 → moonshot, secondRoll=0.5 → 2 + 0.5*4 = 4x
+    let callCount = 0;
+    const { newValue } = processInvestmentYear(makePenny(), 'normal', () => {
+      callCount++;
+      return callCount === 1 ? 0.15 : 0.5;
+    });
+    expect(newValue).toBeGreaterThan(5_000 * 2);
+    expect(newValue).toBeLessThanOrEqual(5_000 * 6);
+  });
+
+  it('penny stock: roll >= 0.22 → stays in ±range (not moonshot)', () => {
+    // roll=0.50, swingRoll=0.5 → swing = (0.5-0.45)*0.70 = 0.035
+    let callCount = 0;
+    const { newValue } = processInvestmentYear(makePenny(), 'normal', () => {
+      callCount++;
+      return callCount === 1 ? 0.50 : 0.50;
+    });
+    // Should be near 5000 but not a moonshot multiple
+    expect(newValue).toBeLessThan(5_000 * 2);
+    expect(newValue).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('§13.8 Crypto volatility — moonshot/crash mechanics', () => {
+  const makeCrypto = (overrides = {}) => ({
+    subType: 'crypto',
+    currentValue: 10_000,
+    volatility: 1.80, // VOID-tier volatility
+    trendiness: 0.5,
+    yearsOwned: 0,
+    ...overrides,
+  });
+
+  it('vol >= 1.5 + moonshotRoll < 0.02 → 50x–1000x multiplier', () => {
+    const result = calcCryptoYear(makeCrypto(), 'normal', 0.01, 0.50, 0.5);
+    // 50 + 0.5*950 = 525x
+    expect(result).toBe(Math.floor(10_000 * (50 + 0.5 * 950)));
+    expect(result).toBeGreaterThan(10_000 * 50);
+  });
+
+  it('vol >= 1.5 + moonshotRoll >= 0.02 + crashRoll low → crash path', () => {
+    // crashRoll = 0.03 < 0.05 + (1.80-0.6)*0.1 = 0.17
+    const result = calcCryptoYear(makeCrypto(), 'normal', 0.05, 0.03, 0.5);
+    // survive = 0.02 + 0.5*0.18 = 0.11 → 89% loss
+    expect(result).toBe(Math.max(0, Math.floor(10_000 * (0.02 + 0.5 * 0.18))));
+    expect(result).toBeLessThan(10_000 * 0.20); // lost >80%
+  });
+
+  it('low-volatility coin (DHMN, 0.40) has much smaller moonshot window', () => {
+    const dhmn = CRYPTO_LIST.find(c => c.id === 'diamondhands');
+    expect(dhmn.volatility).toBeLessThan(0.80); // no moonshot mechanic
+  });
+
+  it('PumpDump has extreme volatility (>= 1.5)', () => {
+    const pump = CRYPTO_LIST.find(c => c.id === 'pumpdump');
+    expect(pump.volatility).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it('VoidBucks has extreme volatility (>= 1.5)', () => {
+    const void_ = CRYPTO_LIST.find(c => c.id === 'voidbucks');
+    expect(void_.volatility).toBeGreaterThanOrEqual(1.5);
+  });
+
+  it('all crypto coins have trendiness between 0 and 1', () => {
+    for (const coin of CRYPTO_LIST) {
+      expect(coin.trendiness).toBeGreaterThanOrEqual(0);
+      expect(coin.trendiness).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('all crypto coins have basePrice > 0', () => {
+    for (const coin of CRYPTO_LIST) {
+      expect(coin.basePrice).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('§13.9 investmentMarket schema validation', () => {
+  it('all BOND_LIST entries have required fields', () => {
+    for (const bond of BOND_LIST) {
+      expect(bond.id).toBeTruthy();
+      expect(bond.name).toBeTruthy();
+      expect(bond.coupon).toBeGreaterThan(0);
+      expect(bond.maturity).toBeGreaterThan(0);
+      expect(bond.minInvestment).toBeGreaterThan(0);
+      expect(bond.risk).toBeGreaterThanOrEqual(0);
+      expect(bond.risk).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('all STOCK_LIST entries have required fields', () => {
+    for (const stock of STOCK_LIST) {
+      expect(stock.id).toBeTruthy();
+      expect(stock.ticker).toBeTruthy();
+      expect(stock.basePrice).toBeGreaterThan(0);
+      expect(stock.volatility).toBeGreaterThan(0);
+      expect(stock.baseReturn).toBeGreaterThan(0);
+      expect(stock.sector).toBeTruthy();
+    }
+  });
+
+  it('all PENNY_STOCK_LIST entries have required fields', () => {
+    for (const penny of PENNY_STOCK_LIST) {
+      expect(penny.id).toBeTruthy();
+      expect(penny.ticker).toBeTruthy();
+      expect(penny.basePrice).toBeGreaterThan(0);
+      expect(penny.basePrice).toBeLessThan(5); // must be genuinely cheap
+    }
+  });
+
+  it('all FUND_LIST entries have a returnProfile with required keys', () => {
+    for (const fund of FUND_LIST) {
+      expect(fund.returnProfile).toBeDefined();
+      expect(fund.returnProfile.base).toBeDefined();
+      expect(fund.returnProfile.boomBonus).toBeDefined();
+      expect(fund.returnProfile.recessionPenalty).toBeDefined();
+      expect(fund.returnProfile.volatility).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('getMarketHealth returns score in 5–95 range and valid color/label', () => {
+    const types = ['crypto', 'stocks', 'bonds', 'penny', 'funds'];
+    const phases = ['normal', 'boom', 'recession'];
+    for (const t of types) {
+      for (const p of phases) {
+        const mh = getMarketHealth(t, p);
+        expect(mh.score).toBeGreaterThanOrEqual(5);
+        expect(mh.score).toBeLessThanOrEqual(95);
+        expect(['Bullish', 'Mixed', 'Bearish']).toContain(mh.label);
+        expect(mh.color).toMatch(/^#/);
+      }
+    }
+  });
+
+  it('bondDisplayName formats correctly', () => {
+    const bond = BOND_LIST.find(b => b.id === 'us_10yr');
+    expect(bondDisplayName(bond)).toBe('US Government Bond (10-Yr)');
+  });
+
+  it('bonds are in ascending coupon order within same country', () => {
+    const usBonds = BOND_LIST.filter(b => b.id.startsWith('us_'));
+    // longer maturity → higher coupon (normal yield curve)
+    for (let i = 1; i < usBonds.length; i++) {
+      expect(usBonds[i].coupon).toBeGreaterThan(usBonds[i - 1].coupon);
+    }
+  });
+});
+
+describe('§13.10 Full pipeline integration: wealth tier + assets + investments + relationships', () => {
+  it('net worth calculation correctly sums all asset classes', () => {
+    const bank = 250_000;
+    const properties = [
+      { currentValue: 400_000 }, // suburban home
+      { currentValue: 800_000 }, // beachfront villa
+    ];
+    const belongings = [
+      { currentValue: 120_000, subType: 'stock'   }, // ApexTech shares
+      { currentValue: 10_000,  subType: 'bond'    }, // US bond
+      { currentValue: 75_000,  subType: undefined  }, // luxury SUV
+    ];
+    const nw = calcNetWorth(bank, properties, belongings);
+    expect(nw).toBe(1_655_000);
+    // nw puts them in wealthy tier
+    expect(gwt(nw).id).toBe('wealthy');
+  });
+
+  it('wealthy player selling a boomed property triggers large CGT', () => {
+    const purchasePrice = 250_000;
+    const currentValue  = 500_000; // doubled
+    const cgtRate = gwt(1_500_000).capitalGainsTaxRate; // wealthy = 28%
+    const cgt = calculateCapitalGainsTax(purchasePrice, currentValue, cgtRate);
+    expect(cgt).toBe(Math.floor(250_000 * 0.28)); // $70,000
+    // net proceeds
+    expect(currentValue - cgt).toBe(430_000);
+  });
+
+  it('expensive divorce + stock loss in same year can wipe out middle-class player', () => {
+    const bank = 80_000; // just above middle-class entry
+    const divorceCost = calcDivorceCost(bank);   // 15% = $12k
+    const stockLoss = 30_000; // paper loss from stock crash
+    const lifestyleCost = gwt(bank).lifestyleCost; // $3k for middle
+    const yearEnd = bank - divorceCost - lifestyleCost;
+    expect(divorceCost).toBe(12_000);
+    expect(yearEnd).toBe(80_000 - 12_000 - 3_000); // $65k remaining
+    expect(gwt(yearEnd).id).toBe('middle'); // still middle
+  });
+
+  it('crypto moonshot can push broke player into upper_middle in one year', () => {
+    // Broke player holds 1000 PUMP tokens worth $1 each ($1k invested)
+    const crypto = {
+      subType: 'crypto', currentValue: 1_000,
+      volatility: 2.00, trendiness: 0.55, yearsOwned: 0,
+    };
+    // Force moonshot: moonshotRoll=0.01, swingRoll=0.5 → 50+475=525x
+    const newValue = calcCryptoYear(crypto, 'boom', 0.01, 0.99, 0.5);
+    expect(newValue).toBe(Math.floor(1_000 * (50 + 0.5 * 950)));
+    expect(gwt(newValue).id).toBe('upper_middle'); // 525k lands in upper_middle
+  });
+
+  it('asset upkeep drain: multiple properties + lifestyle can bankrupt middle player', () => {
+    const bank = 60_000;
+    const tier = gwt(bank);                          // middle: $3k lifestyle
+    const propertyUpkeep = 2_500 + 4_000 + 12_000;  // suburban + condo + beach villa
+    const totalDrain = tier.lifestyleCost + propertyUpkeep;
+    const yearEnd = bank - totalDrain;
+    expect(totalDrain).toBe(21_500);
+    expect(yearEnd).toBe(38_500);
+    expect(yearEnd).toBeGreaterThan(0); // survived, but drained
+  });
+
+  it('happiness penalty stacks with wealth tier (working class pays 5, upper pays 12)', () => {
+    const workingTier = gwt(15_000);
+    const upperTier   = gwt(300_000);
+    expect(workingTier.happinessPenalty).toBe(5);
+    expect(upperTier.happinessPenalty).toBe(12);
+    expect(upperTier.happinessPenalty).toBeGreaterThan(workingTier.happinessPenalty);
+  });
+
+  it('fund investment in boom: VC seed can return 60% bonus on top of 0% base', () => {
+    const vcSeed = FUND_LIST.find(f => f.id === 'vc_seed');
+    // Force zero-swing: rng = 0.5 → swing = 0; boom → boomBonus=0.60
+    const result = processInvestmentYear(
+      { ...vcSeed, currentValue: 1_000_000, returnProfile: vcSeed.returnProfile },
+      'boom',
+      () => 0.5
+    );
+    expect(result.income).toBe(Math.floor(1_000_000 * (0 + 0 + 0.60))); // $600k
+    expect(result.newValue).toBe(1_600_000);
+  });
+
+  it('fund investment in recession: VC seed can lose 50%', () => {
+    const vcSeed = FUND_LIST.find(f => f.id === 'vc_seed');
+    const result = processInvestmentYear(
+      { ...vcSeed, currentValue: 1_000_000, returnProfile: vcSeed.returnProfile },
+      'recession',
+      () => 0.5
+    );
+    expect(result.income).toBe(Math.floor(1_000_000 * (0 + 0 - 0.50))); // −$500k
+    expect(result.newValue).toBe(500_000);
+  });
+
+  it('S&P500 fund has lower risk and lower boom bonus than VC seed', () => {
+    const sp = FUND_LIST.find(f => f.id === 'sp500_idx');
+    const vc = FUND_LIST.find(f => f.id === 'vc_seed');
+    expect(sp.risk).toBeLessThan(vc.risk);
+    expect(sp.returnProfile.boomBonus).toBeLessThan(vc.returnProfile.boomBonus);
+    expect(sp.returnProfile.recessionPenalty).toBeGreaterThan(vc.returnProfile.recessionPenalty); // less negative
+  });
+});

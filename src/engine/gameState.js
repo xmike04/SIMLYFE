@@ -155,7 +155,7 @@ export function useGameState() {
     setHistory(initialHistory);
     setCurrentEvent(null);
 
-    syncToCloud({ character: newChar, age: 0, stats: initialStats, bank: 0, history: initialHistory, isDead: false, relationships: initialFamily, belongings: [], properties: [], education: INITIAL_EDUCATION, careerMeta: INITIAL_CAREER_META, networking: 0, economyCycle: INITIAL_ECONOMY });
+    syncToCloud({ character: newChar, age: 0, stats: initialStats, bank: 0, history: initialHistory, isDead: false, flags: [], relationships: initialFamily, belongings: [], properties: [], education: INITIAL_EDUCATION, careerMeta: INITIAL_CAREER_META, networking: 0, economyCycle: INITIAL_ECONOMY });
   };
 
   const checkDeath = useCallback((currentStats, currentAge) => {
@@ -179,7 +179,7 @@ export function useGameState() {
       return newStats;
     });
 
-    if (effects.bank) setBank(prev => prev + effects.bank);
+    if (effects.bank != null) setBank(prev => prev + effects.bank);
 
     if (effects.flags) {
       setFlags((prev) => [...new Set([...prev, ...effects.flags])]);
@@ -960,7 +960,8 @@ export function useGameState() {
     };
     const visit = DOCTOR_VISITS[visitType] ?? DOCTOR_VISITS.checkup;
     if (bank < visit.cost) return;
-    setBank(prev => prev - visit.cost);
+    const newBank = bank - visit.cost;
+    setBank(newBank);
     setStats(prev => ({
       ...prev,
       health:    Math.min(100, prev.health    + visit.health),
@@ -968,7 +969,7 @@ export function useGameState() {
     }));
     setHistory(prev => {
       const updated = [...prev, { age, text: `Doctor: Paid $${visit.cost.toLocaleString()} for a ${visit.label}. (+${visit.health} Health)` }];
-      syncToCloud({ history: updated });
+      syncToCloud({ history: updated, bank: newBank });
       return updated;
     });
   };
@@ -1014,14 +1015,16 @@ export function useGameState() {
     if (!rel || (rel.status !== 'dating' && rel.status !== 'married')) return 'blocked';
     const wasMarried = rel.status === 'married';
     let divorceCostAmount = 0;
+    let newBank = bank;
     if (wasMarried) {
       divorceCostAmount = Math.min(50000, Math.max(5000, Math.floor(bank * 0.15)));
-      setBank(prev => prev - divorceCostAmount);
+      newBank = bank - divorceCostAmount;
+      setBank(newBank);
     }
     setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
     setRelationships(prev => {
       const next = prev.map(r => r.id === id ? { ...r, status: 'ex' } : r);
-      syncToCloud({ relationships: next });
+      syncToCloud({ relationships: next, ...(wasMarried ? { bank: newBank } : {}) });
       return next;
     });
     setHistory(prev => {
@@ -1068,13 +1071,14 @@ export function useGameState() {
     const rel = relationships.find(r => r.id === id);
     if (!rel || bank < amount) return 'blocked';
     const relationGain = amount >= 1000 ? 20 : amount >= 200 ? 10 : 5;
-    setBank(prev => prev - amount);
+    const newBank = bank - amount;
+    setBank(newBank);
     setRelationships(prev => {
       const next = prev.map(r => r.id === id
         ? { ...r, relation: Math.min(100, r.relation + relationGain) }
         : r
       );
-      syncToCloud({ relationships: next });
+      syncToCloud({ relationships: next, bank: newBank });
       return next;
     });
     markRelInteraction(id);
@@ -1142,8 +1146,9 @@ export function useGameState() {
 
   const buyAsset = (category, item) => {
     if (bank < item.cost) return;
-    setBank(prev => prev - item.cost);
-    
+    const newBank = bank - item.cost;
+    setBank(newBank);
+
     const newAsset = {
       ...item,
       id: `${category}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -1156,14 +1161,14 @@ export function useGameState() {
     if (category === 'property') {
       setProperties(prev => {
         const next = [...prev, newAsset];
-        syncToCloud({ properties: next, bank: bank - item.cost });
+        syncToCloud({ properties: next, bank: newBank });
         return next;
       });
       setHistory(prev => [...prev, { age, text: `Real Estate: Purchased a ${item.name} for $${item.cost.toLocaleString()}.` }]);
     } else {
       setBelongings(prev => {
         const next = [...prev, newAsset];
-        syncToCloud({ belongings: next, bank: bank - item.cost });
+        syncToCloud({ belongings: next, bank: newBank });
         return next;
       });
       setHistory(prev => [...prev, { age, text: `Shopping: Bought a ${item.name} for $${item.cost.toLocaleString()}.` }]);
@@ -1180,15 +1185,16 @@ export function useGameState() {
     const proceeds = Math.floor(asset.currentValue) - cgt;
     const gain = Math.floor(asset.currentValue) - (asset.purchasePrice ?? asset.cost ?? 0);
 
-    setBank(prev => prev + proceeds);
+    const newBank = bank + proceeds;
+    setBank(newBank);
 
     const gainStr = gain > 0 ? ` (+$${gain.toLocaleString()} gain, $${cgt.toLocaleString()} CGT)` : gain < 0 ? ` (loss of $${Math.abs(gain).toLocaleString()})` : '';
     const msg = `${isProperty ? 'Real Estate' : 'Assets'}: Sold ${asset.name} for $${Math.floor(asset.currentValue).toLocaleString()}${gainStr}. Net proceeds: $${proceeds.toLocaleString()}.`;
 
     if (isProperty) {
-      setProperties(prev => { const next = prev.filter(p => p.id !== id); syncToCloud({ properties: next }); return next; });
+      setProperties(prev => { const next = prev.filter(p => p.id !== id); syncToCloud({ properties: next, bank: newBank }); return next; });
     } else {
-      setBelongings(prev => { const next = prev.filter(b => b.id !== id); syncToCloud({ belongings: next }); return next; });
+      setBelongings(prev => { const next = prev.filter(b => b.id !== id); syncToCloud({ belongings: next, bank: newBank }); return next; });
     }
     setHistory(prev => { const updated = [...prev, { age, text: msg }]; syncToCloud({ history: updated }); return updated; });
   };
@@ -1215,7 +1221,7 @@ export function useGameState() {
       units = amount;
       pricePerUnit = 1;
     }
-    const actualCost = subType === 'bond' ? amount : Math.min(amount, units * pricePerUnit);
+    const actualCost = subType === 'bond' ? amount : units * pricePerUnit;
 
     const displayName = subType === 'bond'
       ? `${instrument.name} (${instrument.maturity}-Yr)`
