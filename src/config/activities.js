@@ -10,6 +10,7 @@ export const ACTIVITY_CATEGORIES = [
   { id: 'love', name: 'Love', icon: '💖', minAge: 14, color: 'rgba(255,255,255,0.05)' },
   { id: 'lottery', name: 'Lottery', icon: '🎫', minAge: 18, color: 'rgba(16, 185, 129, 0.1)', isSpecial: 'lottery' },
   { id: 'casino', name: 'Casino', icon: '🎰', minAge: 18, color: 'rgba(16, 185, 129, 0.1)', isSpecial: 'casino' },
+  { id: 'networking_mixer', name: 'Networking', icon: '🤝', minAge: 18, minBank: 200, color: 'rgba(139, 92, 246, 0.1)' },
   { id: 'nightclub', name: 'Nightclub', icon: '🪩', minAge: 18, color: 'rgba(139, 92, 246, 0.1)' },
   { id: 'fertility', name: 'Fertility', icon: '🍼', minAge: 18, color: 'rgba(236, 72, 153, 0.1)' },
   { id: 'plastic_surgery', name: 'Plastic Surgery', icon: '💉', minAge: 18, color: 'rgba(236, 72, 153, 0.1)' },
@@ -76,6 +77,12 @@ export const ACTIVITY_MENUS = {
     { text: 'Hook Up', context: 'Arranged a casual hook up for the night', bg: 'rgba(239, 68, 68, 0.1)' },
     { text: 'Mail Order Bride', context: 'Paid a large sum of money to meet a mail order bride', bg: 'rgba(59, 130, 246, 0.1)' },
     { text: 'Threesome', context: 'Arranged a wild threesome for the night', bg: 'rgba(139, 92, 246, 0.1)' }
+  ],
+  'networking_mixer': [
+    { text: 'Industry Mixer (-$200)', context: 'Attended a professional industry networking mixer to meet contacts', specialAction: 'networking_mixer' },
+    { text: 'Industry Conference (-$200)', context: 'Attended a major industry conference and networked aggressively', specialAction: 'networking_mixer' },
+    { text: 'LinkedIn Networking', context: 'Spent the afternoon building professional connections online' },
+    { text: 'Cold Outreach Campaign', context: 'Sent cold emails to industry professionals seeking mentorship and job leads' }
   ],
   'nightclub': [
     { text: 'VIP Table', context: 'Bought a VIP table and expensive bottles at a high-end nightclub' },

@@ -77,7 +77,7 @@ export const SPECIAL_CAREERS = [
     icon: "📈",
     description: "Launch companies, secure venture capital, and build equity.",
     actions: [
-      { text: "Launch Tech Startup (-$500)", context: "specialAction:startStartup", cost: 500 },
+      { text: "Launch Tech Startup (-$500)", context: "Invested $500 and officially launched a brand new technology startup company.", specialAction: "startStartup", cost: 500 },
       { text: "Pitch to Angel Investors", context: "Pitched a tech startup idea to Angel Investors for seed funding." },
       { text: "Expand Business Operations (-$50,000)", context: "Invested heavy capital to aggressively expand startup operations globally.", cost: 50000 },
       { text: "Attempt IPO", context: "Attempted to take the startup public with an Initial Public Offering (IPO) on the stock market." }

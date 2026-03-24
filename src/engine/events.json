@@ -49,7 +49,7 @@
     "maxAge": 50,
     "description": "Your friend tells you about a new cryptocurrency called 'DogeMoon'.",
     "choices": [
-      { "text": "Invest life savings", "effects": { "happiness": -20, "health": -5, "smarts": -10, "flags": ["broke"] } },
+      { "text": "Invest life savings", "effects": { "happiness": -20, "health": -5, "smarts": -10, "bank": -5000, "flags": ["broke"] } },
       { "text": "Put $100 in", "effects": { "happiness": 10, "smarts": 2 } },
       { "text": "Ignore them", "effects": { "smarts": 5 } }
     ]

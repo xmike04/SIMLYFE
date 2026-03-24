@@ -10,6 +10,26 @@ import staticCareers from './careers.json';
 const INITIAL_STATS = { health: 80, happiness: 80, smarts: 50, looks: 50, grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0 };
 const NAMES = ["James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda", "David", "Elizabeth", "William", "Barbara", "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah", "Charles", "Karen"];
 
+export const DEGREE_CONFIG = {
+  highSchool: { years: 0,  annualCost: 0,     requires: null,         happinessEffect: 0   },
+  associate:  { years: 2,  annualCost: 10000,  requires: 'highSchool', happinessEffect: 0   },
+  bachelor:   { years: 4,  annualCost: 20000,  requires: 'highSchool', happinessEffect: 0   },
+  master:     { years: 2,  annualCost: 30000,  requires: 'bachelor',   happinessEffect: 0   },
+  phd:        { years: 4,  annualCost: 0,      requires: 'master',     happinessEffect: -20 },
+};
+
+export const DEGREE_LABELS = {
+  highSchool: 'HS Diploma',
+  associate:  "Associate's Degree",
+  bachelor:   "Bachelor's Degree",
+  master:     "Master's Degree",
+  phd:        'PhD',
+};
+
+const INITIAL_EDUCATION = { highSchool: false, associate: false, bachelor: false, master: false, phd: false, currentDegree: null };
+const INITIAL_CAREER_META = { yearsInRole: 0, isOnPIP: false, financialStressFlag: false, unemploymentYearsLeft: 0 };
+const INITIAL_ECONOMY = { year: 0, phase: 'normal', yearsInPhase: 0 };
+
 export function useGameState() {
   const [userId, setUserId] = useState(null);
   const [eventsData, setEventsData] = useState(staticEvents);
@@ -29,6 +49,10 @@ export function useGameState() {
   const [belongings, setBelongings] = useState([]);
   const [properties, setProperties] = useState([]);
   const [isAging, setIsAging] = useState(false);
+  const [education, setEducation] = useState(INITIAL_EDUCATION);
+  const [careerMeta, setCareerMeta] = useState(INITIAL_CAREER_META);
+  const [networking, setNetworking] = useState(0);
+  const [economyCycle, setEconomyCycle] = useState(INITIAL_ECONOMY);
 
   // 1. Initialize anonymous auth and load cloud datastores if configured
   useEffect(() => {
@@ -51,6 +75,10 @@ export function useGameState() {
               if (data.relationships) setRelationships(data.relationships);
               if (data.belongings) setBelongings(data.belongings);
               if (data.properties) setProperties(data.properties);
+              if (data.education) setEducation({ ...INITIAL_EDUCATION, ...data.education });
+              if (data.careerMeta) setCareerMeta({ ...INITIAL_CAREER_META, ...data.careerMeta });
+              if (data.networking !== undefined) setNetworking(data.networking);
+              if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
             }
           } catch (e) {
             console.error("Failed to load save:", e);
@@ -105,6 +133,10 @@ export function useGameState() {
     setActivitiesThisYear({});
     setBelongings([]);
     setProperties([]);
+    setEducation(INITIAL_EDUCATION);
+    setCareerMeta(INITIAL_CAREER_META);
+    setNetworking(0);
+    setEconomyCycle(INITIAL_ECONOMY);
     
     const lastName = name.split(' ').pop();
     const initialFamily = [
@@ -113,7 +145,7 @@ export function useGameState() {
     ];
     const numSiblings = Math.floor(Math.random() * 4);
     for (let i=0; i<numSiblings; i++) {
-       initialFamily.push({ id: `rel_${Date.now()}_s${i}`, type: "Sibling", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: Math.floor(Math.random() * 15), relation: 40 + Math.floor(Math.random() * 60) });
+       initialFamily.push({ id: `rel_${Date.now()}_s${i}_${Math.floor(Math.random() * 1000000)}`, type: "Sibling", name: `${NAMES[Math.floor(Math.random() * NAMES.length)]} ${lastName}`, age: Math.floor(Math.random() * 15), relation: 40 + Math.floor(Math.random() * 60) });
     }
     setRelationships(initialFamily);
     
@@ -121,13 +153,13 @@ export function useGameState() {
     setHistory(initialHistory);
     setCurrentEvent(null);
 
-    syncToCloud({ character: newChar, age: 0, stats: initialStats, bank: 0, history: initialHistory, isDead: false, relationships: initialFamily, belongings: [], properties: [] });
+    syncToCloud({ character: newChar, age: 0, stats: initialStats, bank: 0, history: initialHistory, isDead: false, relationships: initialFamily, belongings: [], properties: [], education: INITIAL_EDUCATION, careerMeta: INITIAL_CAREER_META, networking: 0, economyCycle: INITIAL_ECONOMY });
   };
 
   const checkDeath = useCallback((currentStats, currentAge) => {
     if (currentStats.health <= 0) return true;
     if (currentAge >= 60) {
-      const chance = (currentAge - 50) * 0.02; 
+      const chance = (currentAge - 60) / 40; // 0% at 60, 100% at 100
       if (Math.random() < chance) return true;
     }
     return false;
@@ -136,13 +168,16 @@ export function useGameState() {
   const applyEffects = (effects) => {
     setStats((prevStats) => {
       const newStats = { ...prevStats };
-      if (effects.health) newStats.health = Math.min(100, Math.max(0, newStats.health + effects.health));
-      if (effects.happiness) newStats.happiness = Math.min(100, Math.max(0, newStats.happiness + effects.happiness));
-      if (effects.smarts) newStats.smarts = Math.min(100, Math.max(0, newStats.smarts + effects.smarts));
-      if (effects.looks) newStats.looks = Math.min(100, Math.max(0, newStats.looks + effects.looks));
-      if (effects.bank) setBank(prev => prev + effects.bank);
+      const statKeys = ['health', 'happiness', 'smarts', 'looks', 'athleticism', 'karma', 'acting', 'voice', 'modeling', 'grades'];
+      for (const key of statKeys) {
+        if (effects[key] != null) {
+          newStats[key] = Math.min(100, Math.max(0, (newStats[key] ?? 0) + effects[key]));
+        }
+      }
       return newStats;
     });
+
+    if (effects.bank) setBank(prev => prev + effects.bank);
 
     if (effects.flags) {
       setFlags((prev) => [...new Set([...prev, ...effects.flags])]);
@@ -186,11 +221,46 @@ export function useGameState() {
     let nextBank = bank;
     let nextCareer = career;
     let businessHistory = null;
-    
-    if (nextAge > 30) nextStats.health -= 1;
+    let educationHistory = null;
+
+    // ── Economy cycle ─────────────────────────────────────────────────────────
+    const PHASE_DURATIONS = { normal: 3, boom: 2, recession: 2 };
+    const phaseTransitions = { normal: 'boom', boom: 'recession', recession: 'normal' };
+    const newYearsInPhase = economyCycle.yearsInPhase + 1;
+    const nextEconomy = newYearsInPhase >= PHASE_DURATIONS[economyCycle.phase]
+      ? { year: economyCycle.year + 1, phase: phaseTransitions[economyCycle.phase], yearsInPhase: 0 }
+      : { year: economyCycle.year + 1, phase: economyCycle.phase, yearsInPhase: newYearsInPhase };
+
+    // ── Auto high-school diploma at 18 ────────────────────────────────────────
+    let nextEducation = { ...education };
+    if (nextAge >= 18 && !nextEducation.highSchool) {
+      nextEducation = { ...nextEducation, highSchool: true };
+      educationHistory = `Education: You earned your High School Diploma!`;
+    }
+
+    // ── Process in-progress degree ────────────────────────────────────────────
+    if (nextEducation.currentDegree) {
+      const deg = nextEducation.currentDegree;
+      const cfg = DEGREE_CONFIG[deg.type];
+      nextBank -= deg.annualCost;
+      if (cfg.happinessEffect) nextStats.happiness = Math.max(0, nextStats.happiness + cfg.happinessEffect);
+      const newYearsInProgram = deg.yearsInProgram + 1;
+      if (newYearsInProgram >= deg.totalYears) {
+        const bonuses = { associate: 3, bachelor: 10, master: 5, phd: 3 };
+        nextStats.smarts = Math.min(100, nextStats.smarts + (bonuses[deg.type] ?? 0));
+        nextStats.happiness = Math.min(100, nextStats.happiness + 3);
+        nextEducation = { ...nextEducation, [deg.type]: true, currentDegree: null };
+        educationHistory = `Education: You earned your ${DEGREE_LABELS[deg.type]}! +${bonuses[deg.type] ?? 0} Smarts.`;
+      } else {
+        nextEducation = { ...nextEducation, currentDegree: { ...deg, yearsInProgram: newYearsInProgram } };
+        educationHistory = `Education: Year ${newYearsInProgram}/${deg.totalYears} of your ${DEGREE_LABELS[deg.type]}. ($${deg.annualCost.toLocaleString()} paid)`;
+      }
+    }
+
+    if (nextAge > 30) nextStats.health = Math.max(0, nextStats.health - 1);
     if (nextAge > 50) {
-      nextStats.health -= 2;
-      nextStats.looks -= 1;
+      nextStats.health = Math.max(0, nextStats.health - 2);
+      nextStats.looks = Math.max(0, nextStats.looks - 1);
     }
 
     if (nextCareer) {
@@ -222,9 +292,53 @@ export function useGameState() {
         }
       } else {
         nextBank += nextCareer.salary;
-        nextStats.happiness = Math.min(100, Math.max(0, nextStats.happiness + nextCareer.happinessEffect));
+        nextStats.happiness = Math.min(100, Math.max(0, nextStats.happiness + (nextCareer.happinessEffect ?? 0)));
+        nextStats.health = Math.min(100, Math.max(0, nextStats.health + (nextCareer.healthEffect ?? 0)));
+        // Apply annual skill gains from job
+        if (nextCareer.smarts_gain)    nextStats.smarts    = Math.min(100, nextStats.smarts + nextCareer.smarts_gain);
       }
     }
+
+    // ── Performance review & networking gain ──────────────────────────────────
+    let nextCareerMeta = { ...careerMeta };
+    let nextNetworking = networking;
+    let reviewHistory  = null;
+
+    if (nextCareer && nextCareer.id !== 'founder') {
+      nextCareerMeta = { ...nextCareerMeta, yearsInRole: nextCareerMeta.yearsInRole + 1 };
+      // Networking gain from job
+      nextNetworking = Math.min(100, nextNetworking + (nextCareer.networking_gain ?? 0));
+
+      const review = runPerformanceReview(nextStats, nextCareer, nextCareerMeta, nextNetworking, nextEconomy);
+      reviewHistory = review.historyText;
+      nextStats.happiness = Math.min(100, Math.max(0, nextStats.happiness + review.statEffects.happiness));
+      nextCareerMeta = { ...nextCareerMeta, isOnPIP: review.setIsOnPIP, financialStressFlag: review.newFinancialStressFlag, unemploymentYearsLeft: review.unemploymentYears };
+
+      if (review.outcome === 'promoted' && review.newCareer?.nextTierId) {
+        // Resolve the promotion to the actual next-tier career object
+        const promoted = careersData.find(c => c.id === nextCareer.nextTierId);
+        if (promoted) {
+          nextCareer = promoted;
+          nextCareerMeta = { ...nextCareerMeta, yearsInRole: 0 };
+        }
+      } else if (review.outcome === 'raise' || review.outcome === 'no_change') {
+        nextCareer = review.newCareer;
+      } else if (review.outcome === 'fired') {
+        nextCareer = null;
+        nextCareerMeta = { ...nextCareerMeta, yearsInRole: 0 };
+      }
+    } else if (!nextCareer && nextCareerMeta.unemploymentYearsLeft > 0) {
+      // Unemployment stipend
+      const stipend = 4000;
+      nextBank += stipend;
+      nextCareerMeta = { ...nextCareerMeta, unemploymentYearsLeft: nextCareerMeta.unemploymentYearsLeft - 1 };
+      reviewHistory = nextCareerMeta.unemploymentYearsLeft > 0
+        ? `Unemployment: Received $${stipend.toLocaleString()} in benefits.`
+        : `Unemployment: Benefits expired. Time to find work.`;
+    }
+
+    // Financial stress flag: unemployed and broke
+    if (!nextCareer && nextBank < 0) nextCareerMeta = { ...nextCareerMeta, financialStressFlag: true };
 
     let nextProperties = [...properties];
     let nextBelongings = [...belongings];
@@ -270,6 +384,10 @@ export function useGameState() {
     setStats(nextStats);
     setBank(nextBank);
     setCareer(nextCareer);
+    setCareerMeta(nextCareerMeta);
+    setNetworking(nextNetworking);
+    setEconomyCycle(nextEconomy);
+    setEducation(nextEducation);
     setActivitiesThisYear({});
     setProperties(nextProperties);
     setBelongings(nextBelongings);
@@ -284,14 +402,14 @@ export function useGameState() {
       setIsDead(true);
       updatedHistory.push({ age: nextAge, text: `You passed away peacefully at age ${nextAge}.` });
       setHistory(updatedHistory);
-      syncToCloud({ age: nextAge, stats: nextStats, bank: nextBank, isDead: true, history: updatedHistory, belongings: nextBelongings, properties: nextProperties });
+      syncToCloud({ age: nextAge, stats: nextStats, bank: nextBank, isDead: true, history: updatedHistory, belongings: nextBelongings, properties: nextProperties, careerMeta: nextCareerMeta, economyCycle: nextEconomy, education: nextEducation });
       setIsAging(false);
       return;
     }
 
     let eventTriggered = false;
     const dynamicEvent = await generateDynamicEvent({
-      character, age: nextAge, stats: nextStats, bank: nextBank, career, history: updatedHistory
+      character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory
     });
 
     if (dynamicEvent && dynamicEvent.description && dynamicEvent.choices) {
@@ -313,38 +431,149 @@ export function useGameState() {
       updatedHistory.push({ age: nextAge, text: `Age ${nextAge}: An uneventful year passed.` });
     }
     
-    if (businessHistory) {
-      updatedHistory.push({ age: nextAge, text: `Business: ${businessHistory}` });
-    }
-    
+    if (businessHistory) updatedHistory.push({ age: nextAge, text: `Business: ${businessHistory}` });
+    if (educationHistory) updatedHistory.push({ age: nextAge, text: educationHistory });
+    if (reviewHistory)   updatedHistory.push({ age: nextAge, text: reviewHistory });
     if (upkeepHistoryStr) updatedHistory.push({ age: nextAge, text: upkeepHistoryStr });
     if (marketHistoryStr) updatedHistory.push({ age: nextAge, text: marketHistoryStr });
-    
+
     setHistory(updatedHistory);
-    
-    syncToCloud({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings });
+
+    syncToCloud({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings });
     setIsAging(false);
-  }, [age, stats, bank, isDead, currentEvent, career, history, triggerRandomEvent, checkDeath, syncToCloud, isAging, character, relationships, properties, belongings]);
+  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, triggerRandomEvent, checkDeath, syncToCloud, isAging, character, relationships, properties, belongings, runPerformanceReview, careersData]);
+
+  // ─── Career expansion helpers ────────────────────────────────────────────────
+
+  const checkCareerEligibility = useCallback((careerEntry) => {
+    if (age < careerEntry.minAge) return { eligible: false, reason: `Requires age ${careerEntry.minAge}+` };
+    if (careerEntry.requiresDegree && !education[careerEntry.requiresDegree]) {
+      return { eligible: false, reason: `Requires ${DEGREE_LABELS[careerEntry.requiresDegree]}` };
+    }
+    const netReq = careerEntry.requiresNetworking ?? 0;
+    if (networking < netReq) return { eligible: false, reason: `Requires Networking ${netReq}+` };
+    for (const [stat, min] of Object.entries(careerEntry.statRequirements ?? {})) {
+      if ((stats[stat] ?? 0) < min) return { eligible: false, reason: `Requires ${stat} ${min}+` };
+    }
+    return { eligible: true, reason: '' };
+  }, [age, education, networking, stats]);
+
+  const enrollInDegree = (degreeType) => {
+    const cfg = DEGREE_CONFIG[degreeType];
+    if (!cfg) return;
+    if (education.currentDegree !== null) {
+      setHistory(prev => [...prev, { age, text: `Education: You're already enrolled in a program.` }]);
+      return;
+    }
+    if (cfg.requires && !education[cfg.requires]) {
+      setHistory(prev => [...prev, { age, text: `Education: You need a ${DEGREE_LABELS[cfg.requires]} first.` }]);
+      return;
+    }
+    if (bank < cfg.annualCost) {
+      setHistory(prev => [...prev, { age, text: `Education: You can't afford the first year's tuition ($${cfg.annualCost.toLocaleString()}).` }]);
+      return;
+    }
+    setBank(prev => prev - cfg.annualCost);
+    const newEdu = { ...education, currentDegree: { type: degreeType, yearsInProgram: 0, totalYears: cfg.years, annualCost: cfg.annualCost } };
+    setEducation(newEdu);
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Education: You enrolled in a ${DEGREE_LABELS[degreeType]} program (Year 1/${cfg.years}).` }];
+      syncToCloud({ education: newEdu, history: updated });
+      return updated;
+    });
+  };
+
+  const runPerformanceReview = useCallback((currentStats, currentCareer, currentMeta, currentNetworking, currentEconomy) => {
+    let roll = 0.5;
+    roll += Math.min(0.10, ((currentStats.smarts  - 50) / 10) * 0.02);
+    roll += Math.min(0.06, ((currentStats.health  - 50) / 10) * 0.02);
+    roll += Math.min(0.05, ((currentStats.karma   - 50) / 10) * 0.01);
+    roll += Math.min(0.10, (currentNetworking / 20) * 0.02);
+    if (currentMeta.isOnPIP)             roll -= 0.05;
+    if (currentMeta.financialStressFlag) roll -= 0.10;
+    if (currentEconomy?.phase === 'boom')      roll += 0.05;
+    if (currentEconomy?.phase === 'recession') roll -= 0.05;
+
+    let outcome;
+    if (roll < 0.10)      outcome = 'fired';
+    else if (roll < 0.25) outcome = 'pip';
+    else if (roll < 0.55) outcome = 'no_change';
+    else if (roll < 0.85) outcome = 'raise';
+    else                  outcome = 'promoted';
+
+    if (currentEconomy?.phase === 'recession' && roll < 0.15) outcome = 'fired';
+    if (currentEconomy?.phase === 'boom' && outcome === 'fired' && roll >= 0.12) outcome = 'pip';
+
+    let newCareer = { ...currentCareer };
+    let setIsOnPIP = false;
+    let unemploymentYears = 0;
+    let newFinancialStressFlag = currentMeta.financialStressFlag ?? false;
+
+    if (outcome === 'promoted') {
+      if (!currentCareer.nextTierId) {
+        outcome = 'raise';
+      } else {
+        const reqs = currentCareer.promotionRequirements ?? {};
+        const meetsReqs = (
+          (currentMeta.yearsInRole >= (reqs.minYearsInRole ?? 0)) &&
+          (currentStats.smarts >= (reqs.minSmarts ?? 0)) &&
+          (currentStats.health >= (reqs.minHealth ?? 0)) &&
+          (currentStats.karma  >= (reqs.minKarma  ?? 0))
+        );
+        if (!meetsReqs) outcome = 'raise';
+      }
+    }
+
+    if (outcome === 'raise') {
+      newCareer = { ...currentCareer, salary: Math.round(currentCareer.salary * 1.05) };
+    } else if (outcome === 'pip') {
+      setIsOnPIP = true;
+      newCareer = { ...currentCareer };
+    } else if (outcome === 'fired') {
+      newCareer = null;
+      unemploymentYears = 2;
+      newFinancialStressFlag = true;
+    }
+
+    const texts = {
+      promoted:  `Career: Outstanding performance — you've been promoted! Your manager wants to discuss next steps.`,
+      raise:     `Career: Good performance. You received a 5% salary raise ($${Math.round(currentCareer.salary * 0.05).toLocaleString()}).`,
+      no_change: `Career: Satisfactory year. No change in compensation.`,
+      pip:       `Career: Your manager placed you on a Performance Improvement Plan. Shape up.`,
+      fired:     `Career: You were let go. Your position has been eliminated. Unemployment benefits activated.`,
+    };
+
+    return { outcome, newCareer, setIsOnPIP, unemploymentYears, newFinancialStressFlag, historyText: texts[outcome],
+      statEffects: { happiness: outcome === 'pip' ? -10 : outcome === 'fired' ? -30 : 0 } };
+  }, []);
 
   const chooseCareer = (jobId) => {
     if (jobId === null) {
       setCareer(null);
+      const newMeta = { ...INITIAL_CAREER_META, financialStressFlag: careerMeta.financialStressFlag };
+      setCareerMeta(newMeta);
       setHistory(prev => {
         const updated = [...prev, { age, text: `You quit your current occupation.` }];
-        syncToCloud({ history: updated, career: null });
+        syncToCloud({ history: updated, career: null, careerMeta: newMeta });
         return updated;
       });
       return;
     }
     const selected = careersData.find(c => c.id === jobId);
-    if (selected) {
-      setCareer(selected);
-      setHistory(prev => {
-        const updated = [...prev, { age, text: `You got a job as a ${selected.title}.` }];
-        syncToCloud({ history: updated, career: selected });
-        return updated;
-      });
+    if (!selected) return;
+    const { eligible, reason } = checkCareerEligibility(selected);
+    if (!eligible) {
+      setHistory(prev => [...prev, { age, text: `Career: Can't apply — ${reason}.` }]);
+      return;
     }
+    const newMeta = { ...INITIAL_CAREER_META, financialStressFlag: false };
+    setCareer(selected);
+    setCareerMeta(newMeta);
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Career: You got a job as a ${selected.title} ($${selected.salary.toLocaleString()}/yr).` }];
+      syncToCloud({ history: updated, career: selected, careerMeta: newMeta });
+      return updated;
+    });
   };
 
   const performActivity = (activityId, name, effects) => {
@@ -584,6 +813,41 @@ export function useGameState() {
     }
   };
 
+  const attendNetworkingEvent = () => {
+    if (bank < 200) return;
+    setBank(prev => prev - 200);
+    setNetworking(prev => Math.min(100, prev + 5));
+    setStats(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 2) }));
+    triggerActivityEvent('Attended a professional networking mixer to meet industry contacts.');
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Career: Attended a networking event (+5 Networking). Cost $200.` }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
+  };
+
+  const debugGrantDegree = (degreeType) => {
+    setEducation(prev => {
+      const next = { ...prev, [degreeType]: true };
+      syncToCloud({ education: next });
+      return next;
+    });
+  };
+
+  const debugSetEconomy = (phase) => {
+    const next = { year: economyCycle.year, phase, yearsInPhase: 0 };
+    setEconomyCycle(next);
+    syncToCloud({ economyCycle: next });
+  };
+
+  const debugAddNetworking = (amount) => {
+    setNetworking(prev => {
+      const next = Math.min(100, prev + amount);
+      syncToCloud({ networking: next });
+      return next;
+    });
+  };
+
   const debugModifyBank = (amount) => {
     setBank(prev => prev + amount);
     syncToCloud({ bank: bank + amount });
@@ -598,9 +862,11 @@ export function useGameState() {
   };
 
   const debugMaxStats = () => {
-    const max = { health: 100, happiness: 100, smarts: 100, looks: 100 };
-    setStats(max);
-    syncToCloud({ stats: max });
+    setStats(prev => {
+      const max = { ...prev, health: 100, happiness: 100, smarts: 100, looks: 100, athleticism: 100, karma: 100 };
+      syncToCloud({ stats: max });
+      return max;
+    });
   };
 
   return {
@@ -612,6 +878,10 @@ export function useGameState() {
     isDead,
     career,
     careersData,
+    careerMeta,
+    networking,
+    economyCycle,
+    education,
     history,
     currentEvent,
     activitiesThisYear,
@@ -624,10 +894,16 @@ export function useGameState() {
     debugModifyBank,
     debugAddAge,
     debugMaxStats,
+    debugGrantDegree,
+    debugSetEconomy,
+    debugAddNetworking,
     startLife,
     ageUp,
     handleChoice,
     chooseCareer,
+    checkCareerEligibility,
+    enrollInDegree,
+    attendNetworkingEvent,
     performActivity,
     modifyRelationship,
     modifyProperty,
