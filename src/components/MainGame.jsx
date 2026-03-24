@@ -568,70 +568,175 @@ export default function MainGame({ engine }) {
         );
       })()}
 
-      {activeSheet === 'activities' && (
+      {activeSheet === 'activities' && (() => {
+        // Resolve item lock state for the current menu
+        const resolveItemState = (opt) => {
+          // Yearly limit
+          const trackId = `${activityMenu}__${opt.text}`;
+          if (opt.yearlyLimit) {
+            const count = activitiesThisYear[trackId] ?? 0;
+            if (count >= opt.yearlyLimit) return { locked: true, reason: '✓ Done this year' };
+          }
+          // Cost
+          const cost = opt.cost ?? 0;
+          if (cost > 0 && bank < cost) return { locked: true, reason: `Need $${cost.toLocaleString()}` };
+          // Stat guard
+          if (opt.statGuard) {
+            const { stat, op, value } = opt.statGuard;
+            const actual = stats[stat] ?? 0;
+            if (op === 'gte' && actual < value) return { locked: true, reason: `Requires ${stat} ${value}+` };
+            if (op === 'lte' && actual > value) return { locked: true, reason: `Requires ${stat} ≤${value}` };
+          }
+          return { locked: false, reason: '' };
+        };
+
+        const handleActivityClick = (opt) => {
+          if (opt.specialAction === 'open_wills_ui') { setActiveSheet('wills'); setActivityMenu(null); return; }
+          if (opt.specialAction === 'open_dating_ui') { setActiveSheet('dating'); setActivityMenu(null); return; }
+          if (opt.specialAction === 'networking_mixer') { attendNetworkingEvent(); closeSheet(); return; }
+          if (opt.specialAction) { handleSpecialSkill(opt.specialAction, opt.context); return; }
+          // Route through unified performActivity
+          const result = performActivity(opt, activityMenu);
+          if (result !== 'ok') return; // already handled inside performActivity
+          closeSheet();
+        };
+
+        return (
         <ActionSheet title={activityMenu ? ACTIVITY_CATEGORIES.find(c => c.id === activityMenu)?.name : "Activities"} onClose={() => { setActivityMenu(null); setActiveSheet(null); }}>
+          {/* ── Category list ── */}
           {!activityMenu && (
             <>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '10px' }}>
                 {ACTIVITY_CATEGORIES.map(cat => {
-                  const isLockedByAge = age < cat.minAge;
+                  const isLockedByAge  = age < cat.minAge;
                   const isLockedByBank = cat.minBank && bank < cat.minBank;
                   const isDisabled = isLockedByAge || isLockedByBank;
-                  
+                  const lockReason = isLockedByAge ? `Age ${cat.minAge}+` : isLockedByBank ? `Need $${cat.minBank.toLocaleString()}` : '';
+
+                  const handleCatClick = () => {
+                    if (cat.isSpecial === 'doctor')  { setActiveSheet('doctor');  setActivityMenu(null); return; }
+                    if (cat.isSpecial === 'lottery')  { setActiveSheet('lottery'); setActivityMenu(null); return; }
+                    if (cat.isSpecial === 'casino')   { setActiveSheet('casino');  setActivityMenu(null); return; }
+                    setActivityMenu(cat.id);
+                  };
+
                   return (
-                    <button 
-                      key={cat.id} 
-                      className="glass-panel" 
-                      disabled={isDisabled} 
-                      onClick={() => setActivityMenu(cat.id)} 
-                      style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '15px', textAlign: 'left', background: cat.color }}
-                    >
-                      <div style={{ fontSize: '2rem' }}>{cat.icon}</div> 
+                    <button key={cat.id} className="glass-panel" disabled={isDisabled} onClick={handleCatClick}
+                      style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '15px', textAlign: 'left', background: cat.color, opacity: isDisabled ? 0.5 : 1 }}>
+                      <div style={{ fontSize: '2rem' }}>{cat.icon}</div>
                       <div style={{ flex: 1 }}>
-                        <strong style={{ fontSize: '1.2rem' }}>{cat.name}</strong>
-                        {cat.minBank && <div style={{ fontSize: '0.8rem', color: isLockedByBank ? '#ef4444' : 'var(--text-secondary)' }}>Cost: ${cat.minBank}</div>}
+                        <strong style={{ fontSize: '1.1rem' }}>{cat.name}</strong>
+                        {lockReason && <div style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '2px' }}>🔒 {lockReason}</div>}
+                        {!lockReason && cat.minBank && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Min: ${cat.minBank.toLocaleString()}</div>}
                       </div>
                     </button>
                   );
                 })}
               </div>
-              <button className="glass-panel" onClick={() => { surrender(); closeSheet(); }} style={{ padding: '1rem', textAlign: 'center', background: 'rgba(239, 68, 68, 0.2)', width: '100%', marginTop: '10px' }}>
-                 <div style={{ fontSize: '1.5rem' }}>☠️</div> <strong style={{color:'#fca5a5'}}>SURRENDER</strong>
+              <button className="glass-panel" onClick={() => { surrender(); closeSheet(); }} style={{ padding: '1rem', textAlign: 'center', background: 'rgba(239,68,68,0.2)', width: '100%', marginTop: '10px' }}>
+                <div style={{ fontSize: '1.5rem' }}>☠️</div>
+                <strong style={{ color: '#fca5a5' }}>SURRENDER</strong>
               </button>
             </>
           )}
 
+          {/* ── Activity menu items ── */}
           {activityMenu && ACTIVITY_MENUS[activityMenu] && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {ACTIVITY_MENUS[activityMenu].map((opt, i) => (
-                  <button 
-                    key={i}
-                    className="glass-panel" 
-                    onClick={() => {
-                      if (opt.specialAction === 'open_wills_ui') {
-                        setActiveSheet('wills');
-                        setActivityMenu(null);
-                      } else if (opt.specialAction === 'open_dating_ui') {
-                        setActiveSheet('dating');
-                        setActivityMenu(null);
-                      } else if (opt.specialAction === 'networking_mixer') {
-                        attendNetworkingEvent();
-                        closeSheet();
-                      } else if (opt.specialAction) {
-                        handleSpecialSkill(opt.specialAction, opt.context);
-                      } else {
-                        triggerActivityEvent(opt.context); 
-                        closeSheet(); 
-                      }
-                    }} 
-                    style={{ padding: '1rem', textAlign: 'left', background: opt.bg || 'rgba(255,255,255,0.05)' }}
-                  >
-                    <strong>{opt.text}</strong>
+              {ACTIVITY_MENUS[activityMenu].map((opt, i) => {
+                const { locked, reason } = resolveItemState(opt);
+                const cost = opt.cost ?? 0;
+                const isYearlyDone = reason === '✓ Done this year';
+                return (
+                  <button key={i} className="glass-panel" disabled={locked} onClick={() => handleActivityClick(opt)}
+                    style={{ padding: '1rem', textAlign: 'left', background: opt.bg || 'rgba(255,255,255,0.05)', opacity: locked ? (isYearlyDone ? 0.4 : 0.55) : 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <strong>{opt.text}</strong>
+                      {cost > 0 && <span style={{ fontSize: '0.75rem', color: '#ef4444', flexShrink: 0, marginLeft: '8px' }}>-${cost.toLocaleString()}</span>}
+                    </div>
+                    {opt.baseEffects && !locked && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        {Object.entries(opt.baseEffects).filter(([,v]) => v !== 0).map(([k, v]) =>
+                          `${v > 0 ? '+' : ''}${v} ${k}`
+                        ).join(' • ')}
+                      </div>
+                    )}
+                    {locked && <div style={{ fontSize: '0.72rem', color: isYearlyDone ? '#6b7280' : '#ef4444', marginTop: '2px' }}>{reason}</div>}
                   </button>
-                ))}
-                <button className="glass-panel" onClick={() => setActivityMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '10px' }}>Back</button>
+                );
+              })}
+              <button className="glass-panel" onClick={() => setActivityMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '10px' }}>Back</button>
             </div>
           )}
+        </ActionSheet>
+        );
+      })()}
+
+      {/* ── Doctor sheet ── */}
+      {activeSheet === 'doctor' && (
+        <ActionSheet title="Doctor" onClose={closeSheet}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {[
+              { key: 'checkup',    label: 'General Checkup',  cost: 100,  desc: '+15 Health, +3 Happiness',  color: 'rgba(59,130,246,0.1)' },
+              { key: 'therapy',    label: 'Therapy Session',  cost: 200,  desc: '+5 Health, +20 Happiness',  color: 'rgba(139,92,246,0.1)' },
+              { key: 'specialist', label: 'Specialist Visit', cost: 500,  desc: '+25 Health, +5 Happiness',  color: 'rgba(16,185,129,0.1)' },
+              { key: 'surgery',    label: 'Minor Surgery',    cost: 5000, desc: '+40 Health, -5 Happiness',  color: 'rgba(239,68,68,0.1)' },
+            ].map(v => (
+              <button key={v.key} className="glass-panel" disabled={bank < v.cost}
+                onClick={() => { visitDoctor(v.key); closeSheet(); }}
+                style={{ padding: '1rem', textAlign: 'left', background: v.color, opacity: bank < v.cost ? 0.55 : 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong>{v.label}</strong>
+                  <span style={{ fontSize: '0.75rem', color: '#ef4444' }}>-${v.cost.toLocaleString()}</span>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{v.desc}</div>
+                {bank < v.cost && <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '2px' }}>Need ${v.cost.toLocaleString()}</div>}
+              </button>
+            ))}
+          </div>
+        </ActionSheet>
+      )}
+
+      {/* ── Lottery sheet ── */}
+      {activeSheet === 'lottery' && (
+        <ActionSheet title="Lottery" onClose={closeSheet}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ padding: '0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              Jackpot: <strong style={{ color: '#10b981' }}>$10,000,000</strong> • Odds: 1 in 100,000
+            </div>
+            {[1, 5, 10, 50].map(n => (
+              <button key={n} className="glass-panel" disabled={bank < n * 5}
+                onClick={() => { playLottery(n); closeSheet(); }}
+                style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16,185,129,0.1)', opacity: bank < n * 5 ? 0.55 : 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong>Buy {n} Ticket{n > 1 ? 's' : ''}</strong>
+                  <span style={{ fontSize: '0.75rem', color: '#ef4444' }}>-${(n * 5).toLocaleString()}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </ActionSheet>
+      )}
+
+      {/* ── Casino sheet ── */}
+      {activeSheet === 'casino' && (
+        <ActionSheet title="Casino" onClose={closeSheet}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ padding: '0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+              45% win 2× • 25% get half back • 30% lose all
+            </div>
+            {[100, 500, 1000, 5000, 10000].map(amt => (
+              <button key={amt} className="glass-panel" disabled={bank < amt}
+                onClick={() => { goGamble(amt); closeSheet(); }}
+                style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16,185,129,0.1)', opacity: bank < amt ? 0.55 : 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <strong>Bet ${amt.toLocaleString()}</strong>
+                  <span style={{ fontSize: '0.75rem', color: '#10b981' }}>Win: ${(amt * 2).toLocaleString()}</span>
+                </div>
+                {bank < amt && <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '2px' }}>Insufficient funds</div>}
+              </button>
+            ))}
+          </div>
         </ActionSheet>
       )}
 

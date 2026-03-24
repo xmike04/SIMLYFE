@@ -171,6 +171,95 @@ describe('ACTIVITY_MENUS', () => {
       expect(unique.size, `Duplicate menu item texts in "${key}": ${labels}`).toBe(labels.length);
     }
   });
+
+  // ── New schema fields ─────────────────────────────────────────────────────
+
+  const KNOWN_STATS = new Set([
+    'health', 'happiness', 'smarts', 'looks', 'athleticism', 'karma',
+    'acting', 'voice', 'modeling',
+  ]);
+
+  it('cost is a positive number when present', () => {
+    for (const [key, menu] of Object.entries(ACTIVITY_MENUS)) {
+      for (const item of menu) {
+        if (item.cost !== undefined) {
+          expect(typeof item.cost, `cost in "${key}" → "${item.text}" must be a number`).toBe('number');
+          expect(item.cost, `cost in "${key}" → "${item.text}" must be >= 0`).toBeGreaterThanOrEqual(0);
+        }
+      }
+    }
+  });
+
+  it('yearlyLimit is a positive integer when present', () => {
+    for (const [key, menu] of Object.entries(ACTIVITY_MENUS)) {
+      for (const item of menu) {
+        if (item.yearlyLimit !== undefined) {
+          expect(
+            Number.isInteger(item.yearlyLimit),
+            `yearlyLimit in "${key}" → "${item.text}" must be an integer`
+          ).toBe(true);
+          expect(item.yearlyLimit, `yearlyLimit in "${key}" → "${item.text}" must be >= 1`).toBeGreaterThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('statGuard has valid shape { stat, op, value } when present', () => {
+    const VALID_OPS = new Set(['gte', 'lte']);
+    for (const [key, menu] of Object.entries(ACTIVITY_MENUS)) {
+      for (const item of menu) {
+        if (item.statGuard !== undefined) {
+          const g = item.statGuard;
+          const loc = `statGuard in "${key}" → "${item.text}"`;
+          expect(g, `${loc} must have stat`).toHaveProperty('stat');
+          expect(g, `${loc} must have op`).toHaveProperty('op');
+          expect(g, `${loc} must have value`).toHaveProperty('value');
+          expect(KNOWN_STATS.has(g.stat), `${loc}: unknown stat "${g.stat}"`).toBe(true);
+          expect(VALID_OPS.has(g.op), `${loc}: invalid op "${g.op}" — must be "gte" or "lte"`).toBe(true);
+          expect(typeof g.value, `${loc}: value must be a number`).toBe('number');
+          expect(g.value, `${loc}: value must be 0–100`).toBeGreaterThanOrEqual(0);
+          expect(g.value, `${loc}: value must be 0–100`).toBeLessThanOrEqual(100);
+        }
+      }
+    }
+  });
+
+  it('baseEffects only use known stat keys when present', () => {
+    for (const [key, menu] of Object.entries(ACTIVITY_MENUS)) {
+      for (const item of menu) {
+        if (item.baseEffects !== undefined) {
+          expect(
+            typeof item.baseEffects,
+            `baseEffects in "${key}" → "${item.text}" must be an object`
+          ).toBe('object');
+          for (const statKey of Object.keys(item.baseEffects)) {
+            expect(
+              KNOWN_STATS.has(statKey),
+              `Unknown stat key "${statKey}" in baseEffects of "${key}" → "${item.text}"`
+            ).toBe(true);
+          }
+          for (const [statKey, delta] of Object.entries(item.baseEffects)) {
+            expect(
+              typeof delta,
+              `baseEffects["${statKey}"] in "${key}" → "${item.text}" must be a number`
+            ).toBe('number');
+          }
+        }
+      }
+    }
+  });
+
+  it('isSpecial categories do not appear in ACTIVITY_MENUS', () => {
+    const specialIds = new Set(
+      ACTIVITY_CATEGORIES.filter(c => c.isSpecial).map(c => c.id)
+    );
+    for (const key of Object.keys(ACTIVITY_MENUS)) {
+      expect(
+        specialIds.has(key),
+        `isSpecial category "${key}" should not have an ACTIVITY_MENUS entry — it gets a dedicated sheet`
+      ).toBe(false);
+    }
+  });
 });
 
 // ─── 3. SPECIAL_CAREERS ──────────────────────────────────────────────────────

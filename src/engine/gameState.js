@@ -576,18 +576,48 @@ export function useGameState() {
     });
   };
 
-  const performActivity = (activityId, name, effects) => {
-    if (activitiesThisYear[activityId]) return false;
+  /**
+   * performActivity — unified activity dispatcher.
+   * @param {object} item  — the full ACTIVITY_MENUS item object
+   * @param {string} categoryId — the parent category id (used as namespace for yearlyLimit tracking)
+   * Handles: yearlyLimit gating, cost deduction, statGuard check, baseEffects, then LLM event.
+   * Returns: 'blocked_yearly' | 'blocked_guard' | 'blocked_cost' | 'ok'
+   */
+  const performActivity = (item, categoryId) => {
+    const trackId = `${categoryId}__${item.text}`;
 
-    applyEffects(effects);
-    setActivitiesThisYear(prev => ({ ...prev, [activityId]: true }));
-    
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Activity: You decided to ${name}.` }];
-      syncToCloud({ history: updated });
-      return updated;
-    });
-    return true;
+    // 1. Per-year limit gate
+    if (item.yearlyLimit) {
+      const count = activitiesThisYear[trackId] ?? 0;
+      if (count >= item.yearlyLimit) return 'blocked_yearly';
+    }
+
+    // 2. Stat guard
+    if (item.statGuard) {
+      const { stat, op, value } = item.statGuard;
+      const actual = stats[stat] ?? 0;
+      if (op === 'gte' && actual < value) return 'blocked_guard';
+      if (op === 'lte' && actual > value) return 'blocked_guard';
+    }
+
+    // 3. Cost deduction
+    const cost = item.cost ?? 0;
+    if (cost > 0) {
+      if (bank < cost) return 'blocked_cost';
+      setBank(prev => prev - cost);
+    }
+
+    // 4. Apply guaranteed base effects
+    if (item.baseEffects) applyEffects(item.baseEffects);
+
+    // 5. Track usage
+    if (item.yearlyLimit) {
+      setActivitiesThisYear(prev => ({ ...prev, [trackId]: (prev[trackId] ?? 0) + 1 }));
+    }
+
+    // 6. Fire LLM event
+    triggerActivityEvent(item.context);
+    return 'ok';
   };
 
   const modifyRelationship = (id, delta) => {
@@ -659,18 +689,20 @@ export function useGameState() {
     });
   };
 
-  const playLottery = () => {
-    if (bank < 5) return;
-    setBank(prev => prev - 5);
-    const won = Math.random() < 0.00001;
-    let msg = `Lottery: You bought a $5 ticket and lost.`;
+  const playLottery = (ticketCount = 1) => {
+    const cost = 5 * ticketCount;
+    if (bank < cost) return;
+    setBank(prev => prev - cost);
+    let won = false;
+    for (let i = 0; i < ticketCount; i++) { if (Math.random() < 0.00001) { won = true; break; } }
+    let msg = `Lottery: You bought ${ticketCount} ticket${ticketCount > 1 ? 's' : ''} ($${cost}) and lost.`;
     if (won) {
       setBank(prev => prev + 10000000);
-      msg = `Lottery: HOLY MOLY! You bought a $5 ticket and WON $10,000,000!`;
+      msg = `Lottery: HOLY MOLY! You bought ${ticketCount} ticket${ticketCount > 1 ? 's' : ''} and WON $10,000,000!`;
     }
     setHistory(prev => {
       const updated = [...prev, { age, text: msg }];
-      syncToCloud({ history: updated, bank: won ? bank + 10000000 : bank - 5 });
+      syncToCloud({ history: updated });
       return updated;
     });
   };
@@ -693,26 +725,48 @@ export function useGameState() {
   const goGamble = (amount) => {
     if (bank < amount || amount <= 0) return;
     setBank(prev => prev - amount);
-    const win = Math.random() < 0.45;
-    let msg = `Casino: You gambled $${amount} and lost it all.`;
-    if (win) {
-      setBank(prev => prev + amount * 2);
-      msg = `Casino: You gambled $${amount} and WON $${amount * 2}!`;
+    const roll = Math.random();
+    let msg, bankDelta;
+    if (roll < 0.45) {
+      const winnings = amount * 2;
+      setBank(prev => prev + winnings);
+      bankDelta = amount; // net +amount
+      msg = `Casino: You gambled $${amount.toLocaleString()} and WON $${winnings.toLocaleString()}!`;
+    } else if (roll < 0.70) {
+      const partial = Math.floor(amount * 0.5);
+      setBank(prev => prev + partial);
+      bankDelta = -(amount - partial);
+      msg = `Casino: You gambled $${amount.toLocaleString()} and got half back ($${partial.toLocaleString()}).`;
+    } else {
+      bankDelta = -amount;
+      msg = `Casino: You gambled $${amount.toLocaleString()} and lost it all.`;
     }
+    setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness + (bankDelta > 0 ? 5 : -5)) }));
     setHistory(prev => {
       const updated = [...prev, { age, text: msg }];
-      syncToCloud({ history: updated, bank: win ? bank + amount : bank - amount });
+      syncToCloud({ history: updated });
       return updated;
     });
   };
 
-  const visitDoctor = () => {
-    if (bank < 100) return;
-    setBank(prev => prev - 100);
-    setStats(prev => ({ ...prev, health: Math.min(100, prev.health + 20), happiness: Math.min(100, prev.happiness + 5) }));
+  const visitDoctor = (visitType = 'checkup') => {
+    const DOCTOR_VISITS = {
+      checkup:   { cost: 100,  health: 15, happiness: 3,  label: 'General Checkup' },
+      specialist: { cost: 500,  health: 25, happiness: 5,  label: 'Specialist Visit' },
+      surgery:   { cost: 5000, health: 40, happiness: -5, label: 'Minor Surgery' },
+      therapy:   { cost: 200,  health: 5,  happiness: 20, label: 'Therapy Session' },
+    };
+    const visit = DOCTOR_VISITS[visitType] ?? DOCTOR_VISITS.checkup;
+    if (bank < visit.cost) return;
+    setBank(prev => prev - visit.cost);
+    setStats(prev => ({
+      ...prev,
+      health:    Math.min(100, prev.health    + visit.health),
+      happiness: Math.min(100, Math.max(0, prev.happiness + visit.happiness)),
+    }));
     setHistory(prev => {
-      const updated = [...prev, { age, text: `Doctor: You paid $100 for a checkup. You feel healthier.` }];
-      syncToCloud({ history: updated, bank: bank - 100 });
+      const updated = [...prev, { age, text: `Doctor: Paid $${visit.cost.toLocaleString()} for a ${visit.label}. (+${visit.health} Health)` }];
+      syncToCloud({ history: updated });
       return updated;
     });
   };
