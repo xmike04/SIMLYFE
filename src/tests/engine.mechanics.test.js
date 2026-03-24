@@ -2547,6 +2547,57 @@ describe('§13.6 Investment processing — bonds', () => {
     expect(r2.matured).toBe(true);
     expect(totalReturn).toBe(450 + 1_125); // coupons on last year
   });
+
+  // History string composition (mirrors fixed logic in gameState.js)
+  function buildInvestmentHistoryStr(bondMaturities, totalInvestmentIncome) {
+    let str = '';
+    for (const bond of bondMaturities) {
+      const msg = `Bond Maturity: ${bond.name} matured — principal of $${bond.principal.toLocaleString()} returned.`;
+      str = str ? `${str} ${msg}` : msg;
+    }
+    if (totalInvestmentIncome !== 0) {
+      const incomeMsg = totalInvestmentIncome > 0
+        ? `Investments: Your portfolio returned $${totalInvestmentIncome.toLocaleString()} this year.`
+        : `Investments: Your portfolio lost $${Math.abs(totalInvestmentIncome).toLocaleString()} this year.`;
+      str = str ? `${str} | ${incomeMsg}` : incomeMsg;
+    }
+    return str;
+  }
+
+  it('bond maturity message is not overwritten when there is also coupon income', () => {
+    const result = buildInvestmentHistoryStr(
+      [{ name: 'US Government Bond (10-Yr)', principal: 10_000 }],
+      450 // coupon income
+    );
+    expect(result).toContain('Bond Maturity');
+    expect(result).toContain('$10,000 returned');
+    expect(result).toContain('Investments:');
+    expect(result).toContain('$450');
+  });
+
+  it('income-only year: no bond prefix, only income message', () => {
+    const result = buildInvestmentHistoryStr([], 1_200);
+    expect(result).toBe('Investments: Your portfolio returned $1,200 this year.');
+    expect(result).not.toContain('Bond Maturity');
+  });
+
+  it('maturity-only year: no income suffix, only maturity message', () => {
+    const result = buildInvestmentHistoryStr(
+      [{ name: 'German Government Bond (5-Yr)', principal: 5_000 }],
+      0
+    );
+    expect(result).toContain('Bond Maturity');
+    expect(result).not.toContain('Investments:');
+  });
+
+  it('loss year with bond maturity: both messages present', () => {
+    const result = buildInvestmentHistoryStr(
+      [{ name: 'UK Government Bond (10-Yr)', principal: 20_000 }],
+      -3_000
+    );
+    expect(result).toContain('Bond Maturity');
+    expect(result).toContain('lost $3,000');
+  });
 });
 
 describe('§13.7 Investment processing — stocks & penny stocks', () => {
@@ -2837,5 +2888,100 @@ describe('§13.10 Full pipeline integration: wealth tier + assets + investments 
     expect(sp.risk).toBeLessThan(vc.risk);
     expect(sp.returnProfile.boomBonus).toBeLessThan(vc.returnProfile.boomBonus);
     expect(sp.returnProfile.recessionPenalty).toBeGreaterThan(vc.returnProfile.recessionPenalty); // less negative
+  });
+});
+
+// ── §14 sellInvestment pure-function mirror ───────────────────────────────────
+
+// Mirror of the sellInvestment logic in gameState.js
+function sellInvestmentCalc(item, bank, cgtRate) {
+  if (item.subType === 'bond') {
+    const proceeds = Math.floor(item.purchasePrice ?? item.currentValue);
+    return { proceeds, newBank: bank + proceeds };
+  }
+  const gain = Math.floor(item.currentValue) - (item.purchasePrice ?? 0);
+  const cgt = gain > 0 ? calculateCapitalGainsTax(item.purchasePrice ?? 0, item.currentValue, cgtRate) : 0;
+  const proceeds = Math.floor(item.currentValue) - cgt;
+  return { proceeds, cgt, gain, newBank: bank + proceeds };
+}
+
+describe('§14 sellInvestment — pure-function mirror', () => {
+  const makeCryptoHolding = (overrides = {}) => ({
+    id: 'inv_crypto_1',
+    subType: 'crypto',
+    purchasePrice: 1_000,
+    currentValue: 50_000,
+    units: 100,
+    ...overrides,
+  });
+
+  const makeBondHolding = (overrides = {}) => ({
+    id: 'inv_bond_1',
+    subType: 'bond',
+    purchasePrice: 10_000,
+    currentValue: 10_000,
+    couponRate: 0.045,
+    yearsToMaturity: 3,
+    ...overrides,
+  });
+
+  const makeStockHolding = (overrides = {}) => ({
+    id: 'inv_stock_1',
+    subType: 'stock',
+    purchasePrice: 5_000,
+    currentValue: 3_000, // at a loss
+    ...overrides,
+  });
+
+  it('crypto at large gain: CGT applied, net proceeds correct', () => {
+    const cgtRate = 0.23; // upper_middle tier
+    const { proceeds, cgt, gain } = sellInvestmentCalc(makeCryptoHolding(), 10_000, cgtRate);
+    expect(gain).toBe(49_000);
+    expect(cgt).toBe(calculateCapitalGainsTax(1_000, 50_000, 0.23));
+    expect(proceeds).toBe(Math.floor(50_000) - cgt);
+  });
+
+  it('crypto at large gain: bank increases by net proceeds', () => {
+    const { newBank } = sellInvestmentCalc(makeCryptoHolding(), 10_000, 0.23);
+    const expectedCgt = calculateCapitalGainsTax(1_000, 50_000, 0.23);
+    expect(newBank).toBe(10_000 + 50_000 - expectedCgt);
+  });
+
+  it('stock at a loss: no CGT, proceeds = full currentValue', () => {
+    const { proceeds, cgt } = sellInvestmentCalc(makeStockHolding(), 20_000, 0.20);
+    expect(cgt).toBe(0);
+    expect(proceeds).toBe(3_000);
+  });
+
+  it('stock at a loss: bank increases by full currentValue (no CGT penalty)', () => {
+    const { newBank } = sellInvestmentCalc(makeStockHolding(), 20_000, 0.20);
+    expect(newBank).toBe(23_000);
+  });
+
+  it('bond early sale: returns purchasePrice (par), no CGT', () => {
+    const { proceeds, newBank } = sellInvestmentCalc(makeBondHolding(), 5_000, 0.20);
+    expect(proceeds).toBe(10_000); // par value, no CGT
+    expect(newBank).toBe(15_000);
+  });
+
+  it('bond: proceeds do not depend on CGT rate', () => {
+    const r1 = sellInvestmentCalc(makeBondHolding(), 0, 0.00);
+    const r2 = sellInvestmentCalc(makeBondHolding(), 0, 0.37);
+    expect(r1.proceeds).toBe(r2.proceeds);
+  });
+
+  it('penny stock at zero value: proceeds = 0, bank unchanged', () => {
+    const bust = { id: 'p1', subType: 'penny_stock', purchasePrice: 2_000, currentValue: 0 };
+    const { proceeds, newBank } = sellInvestmentCalc(bust, 8_000, 0.15);
+    expect(proceeds).toBe(0);
+    expect(newBank).toBe(8_000);
+  });
+
+  it('fund at gain: CGT applies at provided rate', () => {
+    const fund = { id: 'f1', subType: 'fund', purchasePrice: 100_000, currentValue: 130_000 };
+    const cgtRate = 0.28;
+    const { proceeds, cgt } = sellInvestmentCalc(fund, 0, cgtRate);
+    expect(cgt).toBe(calculateCapitalGainsTax(100_000, 130_000, cgtRate));
+    expect(proceeds).toBe(130_000 - cgt);
   });
 });

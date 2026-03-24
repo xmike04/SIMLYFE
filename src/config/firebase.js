@@ -2,23 +2,29 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// PLACEHOLDER CONFIGURATION
-// Create a Firebase Web App in the console and replace these with real values to activate V2 cloud features.
+// Read credentials from environment variables (set in .env.local, never committed).
+// All VITE_FIREBASE_* vars must be set to activate cloud saves.
 const firebaseConfig = {
-  apiKey: "PLACEHOLDER_API_KEY",
-  authDomain: "PLACEHOLDER_PROJECT_ID.firebaseapp.com",
-  projectId: "PLACEHOLDER_PROJECT_ID",
-  storageBucket: "PLACEHOLDER_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "PLACEHOLDER_SENDER_ID",
-  appId: "PLACEHOLDER_APP_ID"
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-const isConfigured = firebaseConfig.apiKey !== "PLACEHOLDER_API_KEY";
+const isConfigured = !!(
+  firebaseConfig.apiKey &&
+  firebaseConfig.projectId &&
+  !firebaseConfig.apiKey.startsWith('PLACEHOLDER')
+);
 
-export const app = isConfigured ? initializeApp(firebaseConfig) : null;
+export const app  = isConfigured ? initializeApp(firebaseConfig) : null;
 export const auth = isConfigured ? getAuth(app) : null;
-export const db = isConfigured ? getFirestore(app) : null;
+export const db   = isConfigured ? getFirestore(app) : null;
 
 if (!isConfigured) {
-  console.warn("Firebase is not configured! Cloud saves and remote events are disabled. Please update src/config/firebase.js with your keys to activate V2 features.");
+  console.warn(
+    'Firebase is not configured. Add VITE_FIREBASE_* variables to .env.local to enable cloud saves.'
+  );
 }

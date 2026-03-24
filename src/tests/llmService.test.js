@@ -33,11 +33,23 @@ const makeState = (overrides = {}) => ({
   ...overrides,
 });
 
-// ─── Helper: load llmService with a specific API key value ───────────────────
-// apiKey is a module-level const so we must reset + re-import to change it.
+// ─── Helpers: load llmService with specific env vars ─────────────────────────
+// Module-level consts (apiKey, supabaseUrl) require reset + re-import to change.
+
 async function loadService(apiKey = '') {
   vi.resetModules();
   vi.stubEnv('VITE_OPENAI_API_KEY', apiKey);
+  vi.stubEnv('VITE_SUPABASE_URL', '');         // ensure direct path
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
+  const mod = await import('../engine/llmService');
+  return mod.generateDynamicEvent;
+}
+
+async function loadServiceProxy(supabaseUrl = 'https://test.supabase.co', anonKey = 'anon-key') {
+  vi.resetModules();
+  vi.stubEnv('VITE_OPENAI_API_KEY', '');
+  vi.stubEnv('VITE_SUPABASE_URL', supabaseUrl);
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', anonKey);
   const mod = await import('../engine/llmService');
   return mod.generateDynamicEvent;
 }
@@ -179,6 +191,63 @@ describe('generateDynamicEvent', () => {
     const prompt = capturedBody.messages[0].content;
     expect(prompt).toContain('Entry 9');
     expect(prompt).not.toContain('Entry 0');
+  });
+});
+
+// ─── 1b. Proxy path tests ─────────────────────────────────────────────────────
+
+describe('generateDynamicEvent — proxy path', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('returns null when neither direct key nor Supabase vars are set', async () => {
+    const generateDynamicEvent = await loadServiceProxy('', '');
+    const result = await generateDynamicEvent(makeState());
+    expect(result).toBeNull();
+  });
+
+  it('calls Supabase edge function URL (not openai.com) when proxy is configured', async () => {
+    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'test-anon');
+    let capturedUrl = null;
+    global.fetch = vi.fn().mockImplementation((url) => {
+      capturedUrl = url;
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+      });
+    });
+    await generateDynamicEvent(makeState());
+    expect(capturedUrl).toContain('supabase.co');
+    expect(capturedUrl).toContain('generate-event');
+    expect(capturedUrl).not.toContain('openai.com');
+  });
+
+  it('sends Authorization header with anon key when using proxy', async () => {
+    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'my-anon-key');
+    let capturedHeaders = null;
+    global.fetch = vi.fn().mockImplementation((url, opts) => {
+      capturedHeaders = opts.headers;
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+      });
+    });
+    await generateDynamicEvent(makeState());
+    expect(capturedHeaders['Authorization']).toContain('my-anon-key');
+  });
+
+  it('returns error event when proxy returns non-ok status', async () => {
+    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'test-anon');
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'Internal server error' }),
+    });
+    const result = await generateDynamicEvent(makeState());
+    expect(result.description).toMatch(/LLM ERROR/i);
   });
 });
 

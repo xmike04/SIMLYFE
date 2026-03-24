@@ -1,15 +1,23 @@
-const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+// Route LLM calls through the Supabase Edge Function proxy when configured.
+// This keeps OPENAI_API_KEY server-side instead of bundled in client JS.
+// Fallback: if only VITE_OPENAI_API_KEY is set (dev mode), call OpenAI directly.
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const directApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+
+const useProxy = !!(supabaseUrl && supabaseKey);
 
 export async function generateDynamicEvent(state, actionContext) {
-  if (!apiKey) {
-    console.warn("VITE_OPENAI_API_KEY missing - skipping dynamic LLM generation.");
+  if (!useProxy && !directApiKey) {
+    console.warn("No LLM credentials configured — skipping dynamic event generation.");
     return null;
   }
 
   try {
     const historyLog = state.history.slice(-5).map(h => `Age ${h.age}: ${h.text}`).join('\n');
-    
-    let promptText = `You are the core Event Engine for a dark, hyper-realistic text-based life simulator. 
+
+    let promptText = `You are the core Event Engine for a dark, hyper-realistic text-based life simulator.
 Based on the character's exact demographics, age, recent history, and crucially their STATS, generate a single highly creative, age-appropriate, logically consistent annual life event.
 
 CRITICAL CONSTRAINT: The event description MUST be extremely concise, strictly under 50 words! Keep it punchy like a text message since players rapidly tap through years.
@@ -47,33 +55,47 @@ ${historyLog}`;
       promptText += `\n\nCRITICAL CONTEXT: The user just explicitly performed this action in the app: "${actionContext}". Generate the event DIRECTLY centered around the immediate consequences or outcome of this action!`;
     }
 
-    const url = "https://api.openai.com/v1/chat/completions";
-    
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: promptText }],
-        temperature: 0.8,
-        response_format: { type: "json_object" }
-      })
-    });
+    const messages = [{ role: "user", content: promptText }];
+
+    let response;
+    if (useProxy) {
+      // Secure path: proxy through Supabase Edge Function
+      response = await fetch(`${supabaseUrl}/functions/v1/generate-event`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({ messages, max_tokens: 400, temperature: 0.8 }),
+      });
+    } else {
+      // Dev fallback: direct OpenAI call (key visible in bundle — dev only)
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${directApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages,
+          temperature: 0.8,
+          response_format: { type: "json_object" },
+        }),
+      });
+    }
 
     const data = await response.json();
 
     if (!response.ok) {
-        throw new Error(`API Error ${response.status}: ${JSON.stringify(data.error || data)}`);
+      throw new Error(`API Error ${response.status}: ${JSON.stringify(data.error || data)}`);
     }
 
     let textResult = data.choices[0].message.content.trim();
     if (textResult.startsWith('```')) {
       textResult = textResult.replace(/^```json\n?/i, '').replace(/^```\n?/, '').replace(/\n?```$/, '');
     }
-    
+
     return JSON.parse(textResult);
 
   } catch (error) {

@@ -495,9 +495,12 @@ export function useGameState() {
 
     if (investmentIncome !== 0) {
       nextBank += investmentIncome;
-      investmentHistoryStr = investmentIncome > 0
+      const incomeMsg = investmentIncome > 0
         ? `Investments: Your portfolio returned $${investmentIncome.toLocaleString()} this year.`
         : `Investments: Your portfolio lost $${Math.abs(investmentIncome).toLocaleString()} this year.`;
+      investmentHistoryStr = investmentHistoryStr
+        ? `${investmentHistoryStr} | ${incomeMsg}`
+        : incomeMsg;
     }
 
     nextBank -= totalUpkeep;
@@ -1269,6 +1272,32 @@ export function useGameState() {
     setHistory(prev => { const updated = [...prev, { age, text: `Investing: Bought ${displayName} — ${unitsLabel}.` }]; syncToCloud({ history: updated }); return updated; });
   };
 
+  const sellInvestment = (belongingId) => {
+    const item = belongings.find(b => b.id === belongingId);
+    if (!item) return;
+
+    const tier = getWealthTier(bank);
+    let proceeds;
+    let historyNote;
+
+    if (item.subType === 'bond') {
+      // Bonds sell at par (purchase price) — no mark-to-market, no CGT on principal return
+      proceeds = Math.floor(item.purchasePrice ?? item.currentValue);
+      historyNote = `Sold ${item.name} early — recovered $${proceeds.toLocaleString()} principal.`;
+    } else {
+      const gain = Math.floor(item.currentValue) - (item.purchasePrice ?? 0);
+      const cgt = gain > 0 ? calculateCapitalGainsTax(item.purchasePrice ?? 0, item.currentValue, tier.capitalGainsTaxRate ?? 0) : 0;
+      proceeds = Math.floor(item.currentValue) - cgt;
+      const gainStr = gain > 0 ? ` (+$${gain.toLocaleString()} gain, $${cgt.toLocaleString()} CGT)` : gain < 0 ? ` (loss of $${Math.abs(gain).toLocaleString()})` : '';
+      historyNote = `Sold ${item.name} for $${Math.floor(item.currentValue).toLocaleString()}${gainStr}. Net: $${proceeds.toLocaleString()}.`;
+    }
+
+    const newBank = bank + proceeds;
+    setBank(newBank);
+    setBelongings(prev => { const next = prev.filter(b => b.id !== belongingId); syncToCloud({ belongings: next, bank: newBank }); return next; });
+    setHistory(prev => { const updated = [...prev, { age, text: `Investing: ${historyNote}` }]; syncToCloud({ history: updated }); return updated; });
+  };
+
   const attendNetworkingEvent = () => {
     if (bank < 200) return;
     setBank(prev => prev - 200);
@@ -1379,6 +1408,7 @@ export function useGameState() {
     giftRelationship,
     meetFriend,
     buyInvestment,
+    sellInvestment,
     triggerActivityEvent
   };
 }

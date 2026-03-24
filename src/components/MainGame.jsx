@@ -36,7 +36,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, debugGrantDegree, debugSetEconomy, debugAddNetworking } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, debugGrantDegree, debugSetEconomy, debugAddNetworking } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -981,6 +981,36 @@ export default function MainGame({ engine }) {
                           );
                         })()}
                         {selectedProp.upkeep > 0 && <div style={{ fontSize: '0.75rem', color: '#f97316' }}>Annual upkeep: −${selectedProp.upkeep.toLocaleString()}/yr</div>}
+                        {/* Investment-specific detail rows */}
+                        {selectedProp.subType === 'bond' && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div>Coupon rate: <strong style={{ color: '#a78bfa' }}>{Math.round((selectedProp.couponRate ?? 0) * 100)}%/yr</strong> (${Math.floor((selectedProp.purchasePrice ?? 0) * (selectedProp.couponRate ?? 0)).toLocaleString()} income/yr)</div>
+                            <div>Years to maturity: <strong style={{ color: '#fbbf24' }}>{selectedProp.yearsToMaturity ?? 0}</strong></div>
+                            <div>Par value: <strong>${(selectedProp.purchasePrice ?? 0).toLocaleString()}</strong> (returned at maturity)</div>
+                          </div>
+                        )}
+                        {selectedProp.subType === 'crypto' && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div>Holdings: <strong style={{ color: '#fbbf24' }}>{(selectedProp.units ?? 0).toFixed(6)} {selectedProp.ticker ?? ''}</strong></div>
+                            <div>Volatility: <strong style={{ color: (selectedProp.volatility ?? 0) >= 1.5 ? '#ef4444' : (selectedProp.volatility ?? 0) >= 0.8 ? '#f97316' : '#fbbf24' }}>
+                              {(selectedProp.volatility ?? 0) >= 1.5 ? 'Extreme 🌋' : (selectedProp.volatility ?? 0) >= 0.8 ? 'Very High 🎢' : 'High ⚡'}
+                            </strong></div>
+                            {selectedProp.trendiness != null && <div>Trend: <strong style={{ color: selectedProp.trendiness > 0.6 ? '#4ade80' : selectedProp.trendiness < 0.4 ? '#ef4444' : '#fbbf24' }}>{selectedProp.trendiness > 0.6 ? '🔥 Bullish' : selectedProp.trendiness < 0.4 ? '❄️ Bearish' : '⚖️ Neutral'}</strong></div>}
+                          </div>
+                        )}
+                        {(selectedProp.subType === 'stock' || selectedProp.subType === 'penny_stock') && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div>Shares: <strong style={{ color: '#60a5fa' }}>{(selectedProp.units ?? 0).toFixed(4)}</strong></div>
+                            {selectedProp.sector && <div>Sector: <strong>{selectedProp.sector}</strong></div>}
+                            {selectedProp.baseReturn != null && <div>Avg return: <strong style={{ color: '#4ade80' }}>{Math.round(selectedProp.baseReturn * 100)}%/yr</strong></div>}
+                          </div>
+                        )}
+                        {selectedProp.subType === 'fund' && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {selectedProp.returnProfile?.label && <div>Strategy: <strong style={{ color: '#34d399' }}>{selectedProp.returnProfile.label}</strong></div>}
+                            {selectedProp.returnProfile?.base != null && <div>Base return: <strong style={{ color: '#4ade80' }}>{Math.round(selectedProp.returnProfile.base * 100)}%/yr</strong></div>}
+                          </div>
+                        )}
                       </div>
                       {(selectedProp.type === 'property' || selectedProp._category === 'property') && (
                         <>
@@ -1005,16 +1035,40 @@ export default function MainGame({ engine }) {
                     <>
                       {allOwned.map(asset => {
                         const gain = Math.floor(asset.currentValue - (asset.purchasePrice ?? asset.cost ?? 0));
+                        const isInvestment = !!asset.subType;
                         return (
                           <button key={asset.id} className="glass-panel" onClick={() => setSelectedProp(asset)}
-                            style={{ padding: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)' }}>
-                            <div style={{ textAlign: 'left' }}>
+                            style={{ padding: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', width: '100%', textAlign: 'left' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontWeight: 'bold' }}>{asset.icon ?? (asset._category === 'property' ? '🏠' : '📦')} {asset.name}</div>
                               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                                 ${Math.floor(asset.currentValue).toLocaleString()} · {asset.yearsOwned}yr owned
                               </div>
+                              {/* Investment-specific detail row */}
+                              {isInvestment && asset.subType === 'bond' && (
+                                <div style={{ fontSize: '0.7rem', color: '#a78bfa' }}>
+                                  {Math.round((asset.couponRate ?? 0) * 100)}% coupon · {asset.yearsToMaturity ?? 0}yr to maturity
+                                </div>
+                              )}
+                              {isInvestment && (asset.subType === 'crypto') && (
+                                <div style={{ fontSize: '0.7rem', color: '#fbbf24' }}>
+                                  {(asset.units ?? 0).toFixed(4)} units · {asset.ticker ?? ''}
+                                  {asset.trendiness != null && <span style={{ color: asset.trendiness > 0.6 ? '#4ade80' : asset.trendiness < 0.4 ? '#ef4444' : '#fbbf24' }}> · {asset.trendiness > 0.6 ? '🔥 Hot' : asset.trendiness < 0.4 ? '❄️ Cold' : '⚖️ Neutral'}</span>}
+                                </div>
+                              )}
+                              {isInvestment && (asset.subType === 'stock' || asset.subType === 'penny_stock') && (
+                                <div style={{ fontSize: '0.7rem', color: '#60a5fa' }}>
+                                  {(asset.units ?? 0).toFixed(2)} shares{asset.sector ? ` · ${asset.sector}` : ''}
+                                  {asset.baseReturn != null && <span style={{ color: '#4ade80' }}> · avg {Math.round(asset.baseReturn * 100)}%/yr</span>}
+                                </div>
+                              )}
+                              {isInvestment && asset.subType === 'fund' && (
+                                <div style={{ fontSize: '0.7rem', color: '#34d399' }}>
+                                  {asset.returnProfile?.label ?? 'Diversified Fund'}
+                                </div>
+                              )}
                             </div>
-                            <div style={{ textAlign: 'right' }}>
+                            <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
                               <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: gain >= 0 ? '#4ade80' : '#ef4444' }}>
                                 {gain >= 0 ? '+' : ''}${gain.toLocaleString()}
                               </div>
@@ -1222,6 +1276,42 @@ export default function MainGame({ engine }) {
                           <div style={{ width: `${mh.score}%`, height: '100%', background: mh.color, borderRadius: '3px', transition: 'width 0.5s' }} />
                         </div>
                       </div>
+
+                      {/* My Holdings section */}
+                      {(() => {
+                        const myHoldings = belongings.filter(b => b.subType === investSubType);
+                        if (myHoldings.length === 0) return null;
+                        return (
+                          <div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', padding: '2px 0 4px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Holdings</div>
+                            {myHoldings.map(holding => {
+                              const gain = Math.floor(holding.currentValue) - (holding.purchasePrice ?? 0);
+                              return (
+                                <div key={holding.id} className="glass-panel" style={{ padding: '0.8rem', marginBottom: '4px', background: 'rgba(52,211,153,0.06)', borderLeft: '3px solid #34d399', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{holding.icon} {holding.name}</div>
+                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                      Value: ${Math.floor(holding.currentValue).toLocaleString()}
+                                      {investSubType === 'bond' && holding.yearsToMaturity != null && ` · ${holding.yearsToMaturity}yr left`}
+                                      {(investSubType === 'crypto' || investSubType === 'stock' || investSubType === 'penny_stock') && holding.units != null && ` · ${holding.units.toFixed(investSubType === 'crypto' ? 4 : 2)} units`}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: gain >= 0 ? '#4ade80' : '#ef4444' }}>
+                                      {gain >= 0 ? '+' : ''}${gain.toLocaleString()} since purchase
+                                    </div>
+                                  </div>
+                                  <button className="btn btn-primary"
+                                    style={{ fontSize: '0.72rem', padding: '4px 10px', background: 'rgba(239,68,68,0.3)', marginLeft: '8px', flexShrink: 0 }}
+                                    onClick={() => sellInvestment(holding.id)}>
+                                    Sell
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', padding: '2px 0 4px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Available</div>
 
                       {instrumentList.map((inst) => {
                         const ownedVal = belongings.filter(b => b.subType === investSubType && b.instrumentId === inst.id).reduce((s, b) => s + b.currentValue, 0);

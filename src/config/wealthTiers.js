@@ -18,6 +18,7 @@ export const WEALTH_TIERS = [
     icon: '💸',
     minBank: -Infinity,
     incomeTaxRate: 0,          // no tax when you have nothing
+    capitalGainsTaxRate: 0,    // no CGT when you have nothing
     lifestyleCost: 0,          // no expectations
     giftAmounts: [5, 20, 50],  // can barely afford small gifts
     dateCost: 0,               // dates are free (park bench)
@@ -31,6 +32,7 @@ export const WEALTH_TIERS = [
     icon: '😰',
     minBank: 1_000,
     incomeTaxRate: 0.10,
+    capitalGainsTaxRate: 0.10,
     lifestyleCost: 0,
     giftAmounts: [10, 50, 200],
     dateCost: 20,
@@ -44,6 +46,7 @@ export const WEALTH_TIERS = [
     icon: '🔧',
     minBank: 10_000,
     incomeTaxRate: 0.15,
+    capitalGainsTaxRate: 0.15,
     lifestyleCost: 500,        // basic bills, social obligations
     giftAmounts: [50, 200, 1_000],
     dateCost: 50,
@@ -57,6 +60,7 @@ export const WEALTH_TIERS = [
     icon: '🏠',
     minBank: 50_000,
     incomeTaxRate: 0.22,
+    capitalGainsTaxRate: 0.20,
     lifestyleCost: 3_000,      // mortgage upkeep, dining out, vacations
     giftAmounts: [100, 500, 2_000],
     dateCost: 100,
@@ -70,6 +74,7 @@ export const WEALTH_TIERS = [
     icon: '💼',
     minBank: 250_000,
     incomeTaxRate: 0.28,
+    capitalGainsTaxRate: 0.23,
     lifestyleCost: 10_000,     // club memberships, private school, travel
     giftAmounts: [500, 2_000, 10_000],
     dateCost: 300,
@@ -83,6 +88,7 @@ export const WEALTH_TIERS = [
     icon: '💎',
     minBank: 1_000_000,
     incomeTaxRate: 0.35,
+    capitalGainsTaxRate: 0.28,
     lifestyleCost: 40_000,     // staff, luxury car, penthouse upkeep
     giftAmounts: [1_000, 5_000, 25_000],
     dateCost: 500,
@@ -96,6 +102,7 @@ export const WEALTH_TIERS = [
     icon: '🤑',
     minBank: 10_000_000,
     incomeTaxRate: 0.40,
+    capitalGainsTaxRate: 0.33,
     lifestyleCost: 150_000,    // yacht, security detail, private flights
     giftAmounts: [5_000, 20_000, 100_000],
     dateCost: 2_000,
@@ -109,6 +116,7 @@ export const WEALTH_TIERS = [
     icon: '👑',
     minBank: 100_000_000,
     incomeTaxRate: 0.45,
+    capitalGainsTaxRate: 0.37,
     lifestyleCost: 1_000_000,  // island maintenance, foundations, entourage
     giftAmounts: [20_000, 100_000, 500_000],
     dateCost: 10_000,
