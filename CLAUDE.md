@@ -308,9 +308,13 @@ Tests live in `src/tests/`. Four files, each targeting a distinct layer:
 
 ## Known Issues / TODOs
 
-- **`@google/generative-ai` unused**: Gemini SDK is installed but never imported — either wire it up or remove it
 - **`firebase-admin` in client bundle**: Admin SDK should only run server-side; it's in `dependencies`, which may increase bundle size
-- **`MainGame.jsx` size**: At ~1926 lines, consider splitting further into sub-components beyond the existing `sheets/` directory
+- **`MainGame.jsx` size**: Now ~650 lines after extracting `JobSheet`, `AssetsSheet`, and `RelationshipsSheet` — but Doctor, Lottery, Casino, Debug, Dating App, and Wills sheets are still inline `<ActionSheet>` blocks and should be extracted to `sheets/`
+- **`gameState.js` size**: At ~1415 lines, `useGameState()` returns 50+ values and functions — consider breaking into smaller focused hooks (e.g. `useCareer`, `useEducation`, `useInvestments`)
+- **`sheets/` extraction is partial**: `JobSheet`, `AssetsSheet`, and `RelationshipsSheet` have been extracted; Doctor, Lottery, Casino, Debug, Dating App, and Wills remain inline in `MainGame.jsx`
+- **Test mirror drift**: Engine tests in `engine.mechanics.test.js` copy logic from `gameState.js` as pure functions — these mirrors will silently diverge if the originals change and no shared module is extracted
+- **No E2E or integration tests**: Only unit tests exist; there are no browser-level or component integration tests
+- **Supabase edge function has no authentication beyond anon key**: Anyone with the project URL and anon key can invoke the edge function and trigger OpenAI calls at the project's expense
 - **Death probability**: Currently guarantees death at age 100 — this may be intentional
 
 ---
