@@ -209,6 +209,70 @@ export function useGameState() {
     return false;
   }, [eventsData]);
 
+  const runPerformanceReview = useCallback((currentStats, currentCareer, currentMeta, currentNetworking, currentEconomy) => {
+    let roll = 0.5;
+    roll += Math.min(0.10, ((currentStats.smarts  - 50) / 10) * 0.02);
+    roll += Math.min(0.06, ((currentStats.health  - 50) / 10) * 0.02);
+    roll += Math.min(0.05, ((currentStats.karma   - 50) / 10) * 0.01);
+    roll += Math.min(0.10, (currentNetworking / 20) * 0.02);
+    if (currentMeta.isOnPIP)             roll -= 0.05;
+    if (currentMeta.financialStressFlag) roll -= 0.10;
+    if (currentEconomy?.phase === 'boom')      roll += 0.05;
+    if (currentEconomy?.phase === 'recession') roll -= 0.05;
+
+    let outcome;
+    if (roll < 0.10)      outcome = 'fired';
+    else if (roll < 0.25) outcome = 'pip';
+    else if (roll < 0.55) outcome = 'no_change';
+    else if (roll < 0.85) outcome = 'raise';
+    else                  outcome = 'promoted';
+
+    if (currentEconomy?.phase === 'recession' && roll < 0.15) outcome = 'fired';
+    if (currentEconomy?.phase === 'boom' && outcome === 'fired' && roll >= 0.12) outcome = 'pip';
+
+    let newCareer = { ...currentCareer };
+    let setIsOnPIP = false;
+    let unemploymentYears = 0;
+    let newFinancialStressFlag = currentMeta.financialStressFlag ?? false;
+
+    if (outcome === 'promoted') {
+      if (!currentCareer.nextTierId) {
+        outcome = 'raise';
+      } else {
+        const reqs = currentCareer.promotionRequirements ?? {};
+        const meetsReqs = (
+          (currentMeta.yearsInRole >= (reqs.minYearsInRole ?? 0)) &&
+          (currentStats.smarts >= (reqs.minSmarts ?? 0)) &&
+          (currentStats.health >= (reqs.minHealth ?? 0)) &&
+          (currentStats.karma  >= (reqs.minKarma  ?? 0))
+        );
+        if (!meetsReqs) outcome = 'raise';
+      }
+    }
+
+    if (outcome === 'raise') {
+      newCareer = { ...currentCareer, salary: Math.round(currentCareer.salary * 1.05) };
+    } else if (outcome === 'pip') {
+      setIsOnPIP = true;
+      newCareer = { ...currentCareer };
+    } else if (outcome === 'fired') {
+      newCareer = null;
+      unemploymentYears = 2;
+      newFinancialStressFlag = true;
+    }
+
+    const texts = {
+      promoted:  `Career: Outstanding performance — you've been promoted! Your manager wants to discuss next steps.`,
+      raise:     `Career: Good performance. You received a 5% salary raise ($${Math.round(currentCareer.salary * 0.05).toLocaleString()}).`,
+      no_change: `Career: Satisfactory year. No change in compensation.`,
+      pip:       `Career: Your manager placed you on a Performance Improvement Plan. Shape up.`,
+      fired:     `Career: You were let go. Your position has been eliminated. Unemployment benefits activated.`,
+    };
+
+    return { outcome, newCareer, setIsOnPIP, unemploymentYears, newFinancialStressFlag, historyText: texts[outcome],
+      statEffects: { happiness: outcome === 'pip' ? -10 : outcome === 'fired' ? -30 : 0 } };
+  }, []);
+
   const ageUp = useCallback(async () => {
     if (isDead || currentEvent || isAging) return;
 
@@ -686,70 +750,6 @@ export function useGameState() {
       return updated;
     });
   };
-
-  const runPerformanceReview = useCallback((currentStats, currentCareer, currentMeta, currentNetworking, currentEconomy) => {
-    let roll = 0.5;
-    roll += Math.min(0.10, ((currentStats.smarts  - 50) / 10) * 0.02);
-    roll += Math.min(0.06, ((currentStats.health  - 50) / 10) * 0.02);
-    roll += Math.min(0.05, ((currentStats.karma   - 50) / 10) * 0.01);
-    roll += Math.min(0.10, (currentNetworking / 20) * 0.02);
-    if (currentMeta.isOnPIP)             roll -= 0.05;
-    if (currentMeta.financialStressFlag) roll -= 0.10;
-    if (currentEconomy?.phase === 'boom')      roll += 0.05;
-    if (currentEconomy?.phase === 'recession') roll -= 0.05;
-
-    let outcome;
-    if (roll < 0.10)      outcome = 'fired';
-    else if (roll < 0.25) outcome = 'pip';
-    else if (roll < 0.55) outcome = 'no_change';
-    else if (roll < 0.85) outcome = 'raise';
-    else                  outcome = 'promoted';
-
-    if (currentEconomy?.phase === 'recession' && roll < 0.15) outcome = 'fired';
-    if (currentEconomy?.phase === 'boom' && outcome === 'fired' && roll >= 0.12) outcome = 'pip';
-
-    let newCareer = { ...currentCareer };
-    let setIsOnPIP = false;
-    let unemploymentYears = 0;
-    let newFinancialStressFlag = currentMeta.financialStressFlag ?? false;
-
-    if (outcome === 'promoted') {
-      if (!currentCareer.nextTierId) {
-        outcome = 'raise';
-      } else {
-        const reqs = currentCareer.promotionRequirements ?? {};
-        const meetsReqs = (
-          (currentMeta.yearsInRole >= (reqs.minYearsInRole ?? 0)) &&
-          (currentStats.smarts >= (reqs.minSmarts ?? 0)) &&
-          (currentStats.health >= (reqs.minHealth ?? 0)) &&
-          (currentStats.karma  >= (reqs.minKarma  ?? 0))
-        );
-        if (!meetsReqs) outcome = 'raise';
-      }
-    }
-
-    if (outcome === 'raise') {
-      newCareer = { ...currentCareer, salary: Math.round(currentCareer.salary * 1.05) };
-    } else if (outcome === 'pip') {
-      setIsOnPIP = true;
-      newCareer = { ...currentCareer };
-    } else if (outcome === 'fired') {
-      newCareer = null;
-      unemploymentYears = 2;
-      newFinancialStressFlag = true;
-    }
-
-    const texts = {
-      promoted:  `Career: Outstanding performance — you've been promoted! Your manager wants to discuss next steps.`,
-      raise:     `Career: Good performance. You received a 5% salary raise ($${Math.round(currentCareer.salary * 0.05).toLocaleString()}).`,
-      no_change: `Career: Satisfactory year. No change in compensation.`,
-      pip:       `Career: Your manager placed you on a Performance Improvement Plan. Shape up.`,
-      fired:     `Career: You were let go. Your position has been eliminated. Unemployment benefits activated.`,
-    };
-
-    return { outcome, newCareer, setIsOnPIP, unemploymentYears, newFinancialStressFlag, historyText: texts[outcome],
-      statEffects: { happiness: outcome === 'pip' ? -10 : outcome === 'fired' ? -30 : 0 } };
-  }, []);
 
   const chooseCareer = (jobId) => {
     if (jobId === null) {
