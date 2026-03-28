@@ -132,6 +132,17 @@ describe('generateDynamicEvent', () => {
     expect(result.description).toMatch(/LLM ERROR/i);
   });
 
+  it('returns error event when response schema is invalid', async () => {
+    const generateDynamicEvent = await loadService('sk-test');
+    const invalidEvent = { description: '', choices: [] };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify(invalidEvent) } }] }),
+    });
+    const result = await generateDynamicEvent(makeState());
+    expect(result.description).toMatch(/LLM ERROR/i);
+  });
+
   it('includes actionContext in prompt when provided', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     let capturedBody = null;
@@ -139,7 +150,7 @@ describe('generateDynamicEvent', () => {
       capturedBody = JSON.parse(opts.body);
       return Promise.resolve({
         ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [{ text: 'Ok', effects: {} }] }) } }] }),
       });
     });
     await generateDynamicEvent(makeState(), 'Went to the gym');
@@ -153,7 +164,7 @@ describe('generateDynamicEvent', () => {
       capturedBody = JSON.parse(opts.body);
       return Promise.resolve({
         ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [{ text: 'Ok', effects: {} }] }) } }] }),
       });
     });
     await generateDynamicEvent(makeState());
@@ -167,7 +178,7 @@ describe('generateDynamicEvent', () => {
       capturedBody = JSON.parse(opts.body);
       return Promise.resolve({
         ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [{ text: 'Ok', effects: {} }] }) } }] }),
       });
     });
     await generateDynamicEvent(makeState({ age: 42 }));
@@ -183,7 +194,7 @@ describe('generateDynamicEvent', () => {
       capturedBody = JSON.parse(opts.body);
       return Promise.resolve({
         ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [{ text: 'Ok', effects: {} }] }) } }] }),
       });
     });
     const longHistory = Array.from({ length: 10 }, (_, i) => ({ age: i, text: `Entry ${i}` }));
@@ -216,7 +227,7 @@ describe('generateDynamicEvent — proxy path', () => {
       capturedUrl = url;
       return Promise.resolve({
         ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [{ text: 'Ok', effects: {} }] }) } }] }),
       });
     });
     await generateDynamicEvent(makeState());
@@ -232,7 +243,7 @@ describe('generateDynamicEvent — proxy path', () => {
       capturedHeaders = opts.headers;
       return Promise.resolve({
         ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [] }) } }] }),
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ description: 'x', choices: [{ text: 'Ok', effects: {} }] }) } }] }),
       });
     });
     await generateDynamicEvent(makeState());

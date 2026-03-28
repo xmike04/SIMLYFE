@@ -7,10 +7,71 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const directApiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
 const useProxy = !!(supabaseUrl && supabaseKey);
+const isDev = import.meta.env.DEV || import.meta.env.MODE === 'test';
+const canUseDirectKey = !!(directApiKey && isDev);
+
+const VALID_EFFECT_KEYS = new Set([
+  'health', 'happiness', 'smarts', 'looks', 'bank',
+  'athleticism', 'karma', 'acting', 'voice', 'modeling', 'grades', 'flags'
+]);
+
+function validateEventPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return 'Payload must be an object';
+  }
+
+  if (typeof payload.description !== 'string' || !payload.description.trim()) {
+    return 'Description must be a non-empty string';
+  }
+
+  if (!Array.isArray(payload.choices) || payload.choices.length === 0) {
+    return 'Choices must be a non-empty array';
+  }
+
+  for (const choice of payload.choices) {
+    if (!choice || typeof choice !== 'object' || Array.isArray(choice)) {
+      return 'Choice must be an object';
+    }
+    if (typeof choice.text !== 'string' || !choice.text.trim()) {
+      return 'Choice text must be a non-empty string';
+    }
+    if (!choice.effects || typeof choice.effects !== 'object' || Array.isArray(choice.effects)) {
+      return 'Choice effects must be an object';
+    }
+
+    for (const [key, value] of Object.entries(choice.effects)) {
+      if (!VALID_EFFECT_KEYS.has(key)) {
+        return `Unknown effect key "${key}"`;
+      }
+
+      if (key === 'flags') {
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+          return 'Flags must be an object';
+        }
+        continue;
+      }
+
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return `Effect "${key}" must be a finite number`;
+      }
+
+      const limit = key === 'bank' ? 100000 : 100;
+      if (Math.abs(value) > limit) {
+        return `Effect "${key}" exceeds safe range`;
+      }
+    }
+  }
+
+  return null;
+}
 
 export async function generateDynamicEvent(state, actionContext) {
-  if (!useProxy && !directApiKey) {
-    console.warn("No LLM credentials configured — skipping dynamic event generation.");
+  if (!useProxy && !canUseDirectKey) {
+    if (directApiKey && !isDev) {
+      console.warn("Direct OpenAI key usage is disabled outside dev/test. Configure the Supabase proxy to enable LLM events.");
+    } else {
+      console.warn("No LLM credentials configured — skipping dynamic event generation.");
+    }
     return null;
   }
 
@@ -99,7 +160,12 @@ ${historyLog}`;
       textResult = textResult.replace(/^```json\n?/i, '').replace(/^```\n?/, '').replace(/\n?```$/, '');
     }
 
-    return JSON.parse(textResult);
+    const parsed = JSON.parse(textResult);
+    const validationError = validateEventPayload(parsed);
+    if (validationError) {
+      throw new Error(`Invalid LLM event payload: ${validationError}`);
+    }
+    return parsed;
 
   } catch (error) {
     console.error("LLM Error Logs:", error);
