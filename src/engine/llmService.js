@@ -7,9 +7,15 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const directApiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
 const useProxy = !!(supabaseUrl && supabaseKey);
-const isDev = import.meta.env.DEV || import.meta.env.MODE === 'test';
-const canUseDirectKey = !!(directApiKey && isDev);
+const isNonProd = !import.meta.env.PROD;
+const canUseDirectKey = !!(directApiKey && isNonProd);
 
+// Bank effects can be larger; cap them to match events.json validation limits.
+const MAX_BANK_EFFECT = 100000;
+// Stat effects mirror the 0-100 stat range used throughout the game.
+const MAX_STAT_EFFECT = 100;
+
+// "flags" effects carry string markers (e.g., "promoted", "broke") consumed by game state.
 const VALID_EFFECT_KEYS = new Set([
   'health', 'happiness', 'smarts', 'looks', 'bank',
   'athleticism', 'karma', 'acting', 'voice', 'modeling', 'grades', 'flags'
@@ -45,8 +51,9 @@ function validateEventPayload(payload) {
       }
 
       if (key === 'flags') {
-        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-          return 'Flags must be an object';
+        const flagsError = validateFlags(value);
+        if (flagsError) {
+          return flagsError;
         }
         continue;
       }
@@ -55,7 +62,7 @@ function validateEventPayload(payload) {
         return `Effect "${key}" must be a finite number`;
       }
 
-      const limit = key === 'bank' ? 100000 : 100;
+      const limit = key === 'bank' ? MAX_BANK_EFFECT : MAX_STAT_EFFECT;
       if (Math.abs(value) > limit) {
         return `Effect "${key}" exceeds safe range`;
       }
@@ -65,10 +72,20 @@ function validateEventPayload(payload) {
   return null;
 }
 
+function validateFlags(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return 'Flags must be a non-empty array of strings';
+  }
+  if (value.some(flag => typeof flag !== 'string' || flag.trim().length === 0)) {
+    return 'Flags must be a non-empty array of strings';
+  }
+  return null;
+}
+
 export async function generateDynamicEvent(state, actionContext) {
   if (!useProxy && !canUseDirectKey) {
-    if (directApiKey && !isDev) {
-      console.warn("Direct OpenAI key usage is disabled outside dev/test. Configure the Supabase proxy to enable LLM events.");
+    if (directApiKey && !isNonProd) {
+      console.warn("Direct OpenAI key usage is disabled in production to prevent API key exposure in bundles. Configure the Supabase proxy to enable LLM events.");
     } else {
       console.warn("No LLM credentials configured — skipping dynamic event generation.");
     }
