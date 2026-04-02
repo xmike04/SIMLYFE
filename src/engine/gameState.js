@@ -818,7 +818,7 @@ export function useGameState() {
     let eventTriggered = false;
     const dynamicEvent = await generateDynamicEvent({
       character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory,
-      narrativeMode, relationships, pets, city: character?.city, education: nextEducation,
+      narrativeMode, relationships, pets, city: getCityById(character?.city)?.name ?? null, education: nextEducation,
       economyPhase: nextEconomy?.phase,
     });
 
@@ -1330,17 +1330,21 @@ export function useGameState() {
     if (isDead || currentEvent || isAging) return;
     setIsAging(true);
     try {
-      const stateDump = { character, age, bank, stats, career, history, narrativeMode, relationships, pets, city: character?.city, education, economyPhase: economyCycle?.phase };
+      const cityName = getCityById(character?.city)?.name ?? null;
+      const stateDump = { character, age, bank, stats, career, history, narrativeMode, relationships, pets, city: cityName, education, economyPhase: economyCycle?.phase };
       const parsed = await generateDynamicEvent(stateDump, context);
-      
+
       if (parsed && parsed.choices && parsed.description) {
-         setCurrentEvent(parsed);
+        setCurrentEvent(parsed);
       } else {
-         throw new Error("Invalid schema");
+        // LLM unavailable — fall back to a static event for this age
+        const fallback = eventsData.filter(e => age >= e.minAge && age <= e.maxAge);
+        if (fallback.length > 0) {
+          setCurrentEvent(fallback[Math.floor(Math.random() * fallback.length)]);
+        }
       }
     } catch (e) {
-      console.error(e);
-      setHistory(prev => [...prev, { age, text: `Activity (${context}): Nothing interesting happened.` }]);
+      console.error("triggerActivityEvent:", e);
     }
     setIsAging(false);
   };

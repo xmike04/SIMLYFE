@@ -37,7 +37,7 @@ export async function generateDynamicEvent(state, actionContext) {
       return parts.length ? parts.join(', ') : 'No formal education';
     })();
 
-    const locationLine = city ? `${city}, ${state.character.country}` : state.character.country;
+    const locationLine = city ?? state.character.country;
 
     const relationshipsLine = relationships.length
       ? relationships.slice(0, 5).map(r => `${r.type} ${r.name} (age ${r.age}, bond: ${r.relation ?? 0}/100)`).join('; ')
@@ -139,10 +139,7 @@ ${historyLog}`;
     return JSON.parse(textResult);
 
   } catch (error) {
-    console.error("LLM Error Logs:", error);
-    return {
-      description: `LLM ERROR: ${error.message}`,
-      choices: [{ text: "Understood", effects: {} }]
-    };
+    console.error("LLM Error:", error.message);
+    return null;
   }
 }

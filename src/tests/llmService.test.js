@@ -101,7 +101,7 @@ describe('generateDynamicEvent', () => {
     expect(result.description).toBe('A wrapped event.');
   });
 
-  it('returns error event object on API error status', async () => {
+  it('returns null on API error status', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -109,27 +109,24 @@ describe('generateDynamicEvent', () => {
       json: async () => ({ error: { message: 'Rate limit exceeded' } }),
     });
     const result = await generateDynamicEvent(makeState());
-    expect(result).not.toBeNull();
-    expect(result.description).toMatch(/LLM ERROR/i);
-    expect(result.choices).toHaveLength(1);
-    expect(result.choices[0].text).toBe('Understood');
+    expect(result).toBeNull();
   });
 
-  it('returns error event object on network failure', async () => {
+  it('returns null on network failure', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
     const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
+    expect(result).toBeNull();
   });
 
-  it('returns error event on malformed JSON from API', async () => {
+  it('returns null on malformed JSON from API', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ choices: [{ message: { content: 'not valid json at all {{{' } }] }),
     });
     const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
+    expect(result).toBeNull();
   });
 
   it('includes actionContext in prompt when provided', async () => {
@@ -239,7 +236,7 @@ describe('generateDynamicEvent — proxy path', () => {
     expect(capturedHeaders['Authorization']).toContain('my-anon-key');
   });
 
-  it('returns error event when proxy returns non-ok status', async () => {
+  it('returns null when proxy returns non-ok status', async () => {
     const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'test-anon');
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -247,7 +244,7 @@ describe('generateDynamicEvent — proxy path', () => {
       json: async () => ({ error: 'Internal server error' }),
     });
     const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
+    expect(result).toBeNull();
   });
 });
 
