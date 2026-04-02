@@ -4,7 +4,7 @@ description: Test and verify the React application
 
 # Testing Workflow
 
-This workflow ensures code changes have not introduced syntax, linting, or bundle compilation errors in the Vite React application.
+This workflow ensures code changes have not introduced syntax, linting, bundle, or logic errors in the SIMLYFE Vite React application.
 
 1. Ensure all dependencies are correctly installed.
 // turbo
@@ -14,6 +14,10 @@ npm install
 // turbo
 npm run lint
 
-3. Build the application for production to verify successful compilation and hook dependency arrays.
+3. Run the full unit test suite (engine mechanics, LLM service, config data, market, smoke).
+// turbo
+npm test
+
+4. Build the application for production to verify successful compilation and hook dependency arrays.
 // turbo
 npm run build

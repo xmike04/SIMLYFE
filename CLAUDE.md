@@ -31,12 +31,20 @@ SIMLYFE/
 │   ├── components/         # React UI components
 │   │   ├── ActionSheet.jsx       # Reusable bottom-sheet modal wrapper
 │   │   ├── CharacterCreation.jsx # New-game form (name, gender, country)
-│   │   ├── MainGame.jsx          # Core game UI (~1926 lines, all gameplay)
+│   │   ├── MainGame.jsx          # Core game UI (~483 lines, orchestrates sheets)
 │   │   ├── EventModal.jsx        # Full-screen event choice popup
 │   │   ├── DeathScreen.jsx       # End-of-life summary screen
-│   │   └── sheets/
-│   │       ├── AssetsSheet.jsx       # Assets & store browsing sheet
-│   │       └── RelationshipsSheet.jsx # Relationship management sheet
+│   │   ├── SplashScreen.jsx      # Initial loading/splash screen
+│   │   └── sheets/               # Extracted feature sheets (all gameplay panels)
+│   │       ├── JobSheet.jsx          # Job search & career management
+│   │       ├── AssetsSheet.jsx       # Assets & store browsing
+│   │       ├── RelationshipsSheet.jsx # Relationship management
+│   │       ├── DoctorSheet.jsx       # Healthcare & medical actions
+│   │       ├── LotterySheet.jsx      # Lottery tickets
+│   │       ├── CasinoSheet.jsx       # Gambling / casino
+│   │       ├── DatingSheet.jsx       # Dating app & romance
+│   │       ├── WillsSheet.jsx        # Estate planning & wills
+│   │       └── PetsSheet.jsx         # Pet catalog & ownership
 │   ├── config/             # Static game data & config
 │   │   ├── activities.js         # Activity categories and sub-menus
 │   │   ├── specialCareers.js     # 11 special career paths with actions
@@ -44,16 +52,19 @@ SIMLYFE/
 │   │   ├── assetCatalog.js       # 4 asset categories: realEstate, vehicles, luxury, investments
 │   │   ├── storeCatalog.js       # Branded store listings per asset category, tier-gated
 │   │   ├── investmentMarket.js   # 5 tradeable instrument types: crypto, stocks, penny, bonds, funds
+│   │   ├── petCatalog.js         # Pet types, costs, and stat effects
+│   │   ├── cityData.js           # City/country data for character creation
 │   │   └── firebase.js           # Firebase init — reads from VITE_FIREBASE_* env vars
 │   ├── engine/             # Core game logic
-│   │   ├── gameState.js          # useGameState() hook — all game state & methods
+│   │   ├── gameState.js          # useGameState() hook — all game state & methods (~1687 lines)
 │   │   ├── llmService.js         # LLM proxy (Supabase) + dev fallback (direct OpenAI)
 │   │   ├── events.json           # Static fallback events library
 │   │   └── careers.json          # Job definitions (salary, effects, min age)
 │   ├── tests/              # Vitest test suite
-│   │   ├── engine.mechanics.test.js  # Pure game-logic mirrors (200+ assertions)
+│   │   ├── engine.mechanics.test.js  # Pure game-logic mirrors (350+ assertions)
 │   │   ├── llmService.test.js        # LLM flow + schema validation
-│   │   ├── config.data.test.js       # Activity/career data shape checks
+│   │   ├── config.data.test.js       # Activity/career/asset data shape checks
+│   │   ├── market.test.js            # Investment market mechanics
 │   │   ├── App.test.jsx              # Smoke test for App render
 │   │   └── setup.js                  # Global mocks (firebase, llmService)
 │   ├── assets/             # Static images
@@ -64,10 +75,20 @@ SIMLYFE/
 │   └── functions/
 │       └── generate-event/
 │           └── index.ts          # Deno edge function — proxies OpenAI call server-side
-├── public/
+├── scripts/                # Utility scripts (not wired into npm)
+│   ├── migrateData.js            # One-off data migration helper
+│   └── test-llm.js               # Manual LLM endpoint tester
+├── public/                 # Static assets served as-is
+│   ├── favicon.svg
+│   ├── icons.svg
+│   └── manifest.json
+├── _agents/                # Project workflow definitions
+│   └── workflows/
+│       └── test-app.md           # Testing workflow guide
 ├── index.html              # Vite entry HTML
 ├── package.json
 ├── vite.config.js
+├── eslint.config.js
 └── .gitignore
 ```
 
@@ -292,9 +313,10 @@ Tests live in `src/tests/`. Four files, each targeting a distinct layer:
 
 | File | What it tests |
 |---|---|
-| `engine.mechanics.test.js` | Pure game-logic functions mirrored from `gameState.js`: stat clamping, death formula, age-up degradation, career income, startup equity, property market, lottery/gambling/day-trading, startLife validity, relationship helpers (200+ assertions) |
+| `engine.mechanics.test.js` | Pure game-logic functions mirrored from `gameState.js`: stat clamping, death formula, age-up degradation, career income, startup equity, property market, lottery/gambling/day-trading, startLife validity, relationship helpers (350+ assertions) |
 | `llmService.test.js` | `generateDynamicEvent` — proxy path, dev-fallback path, malformed JSON handling; full schema validation of `events.json` and `careers.json` |
-| `config.data.test.js` | Shape and consistency of `ACTIVITY_CATEGORIES`, `ACTIVITY_MENUS`, and `SPECIAL_CAREERS` |
+| `config.data.test.js` | Shape and consistency of `ACTIVITY_CATEGORIES`, `ACTIVITY_MENUS`, `SPECIAL_CAREERS`, asset catalog, and store catalog |
+| `market.test.js` | Investment market mechanics: crypto volatility, bond coupons, fund returns, economy phase modifiers |
 | `App.test.jsx` | Smoke test — verifies the app renders without crashing |
 
 **Key conventions:**
@@ -309,12 +331,11 @@ Tests live in `src/tests/`. Four files, each targeting a distinct layer:
 ## Known Issues / TODOs
 
 - **`firebase-admin` in client bundle**: Admin SDK should only run server-side; it's in `dependencies`, which may increase bundle size
-- **`MainGame.jsx` size**: Now ~650 lines after extracting `JobSheet`, `AssetsSheet`, and `RelationshipsSheet` — but Doctor, Lottery, Casino, Debug, Dating App, and Wills sheets are still inline `<ActionSheet>` blocks and should be extracted to `sheets/`
-- **`gameState.js` size**: At ~1415 lines, `useGameState()` returns 50+ values and functions — consider breaking into smaller focused hooks (e.g. `useCareer`, `useEducation`, `useInvestments`)
-- **`sheets/` extraction is partial**: `JobSheet`, `AssetsSheet`, and `RelationshipsSheet` have been extracted; Doctor, Lottery, Casino, Debug, Dating App, and Wills remain inline in `MainGame.jsx`
+- **`gameState.js` size**: At ~1687 lines, `useGameState()` returns 50+ values and functions — consider breaking into smaller focused hooks (e.g. `useCareer`, `useEducation`, `useInvestments`)
 - **Test mirror drift**: Engine tests in `engine.mechanics.test.js` copy logic from `gameState.js` as pure functions — these mirrors will silently diverge if the originals change and no shared module is extracted
 - **No E2E or integration tests**: Only unit tests exist; there are no browser-level or component integration tests
 - **Supabase edge function has no authentication beyond anon key**: Anyone with the project URL and anon key can invoke the edge function and trigger OpenAI calls at the project's expense
+- **`scripts/` not wired into npm**: `migrateData.js` and `test-llm.js` must be run manually with `node scripts/<file>.js`
 - **Death probability**: Currently guarantees death at age 100 — this may be intentional
 
 ---
