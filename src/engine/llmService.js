@@ -179,6 +179,7 @@ ${historyLog}`;
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${supabaseKey}`,
+          "apikey": supabaseKey,
         },
         body: JSON.stringify({ messages, max_tokens: maxTokens, temperature: 0.8 }),
       });
