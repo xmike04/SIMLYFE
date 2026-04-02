@@ -32,6 +32,6 @@ Run this whenever the game shows an error event, a blank event modal, or events 
 
 ## Tips & tricks
 - Check Supabase edge function logs in the dashboard first — they show the raw OpenAI response and any thrown errors before they reach the client.
-- The most common failure modes: (1) missing `apikey` header, (2) OpenAI rate limit surfacing as malformed JSON, (3) markdown fences not stripped.
+- The most common failure modes: (1) missing `apikey` header, (2) OpenAI rate limit surfacing as malformed JSON, (3) markdown fences not stripped, (4) model name `gpt-4.1-nano` not available on the account tier.
 - If `VITE_SUPABASE_URL` is set but `VITE_SUPABASE_ANON_KEY` is missing, the proxy call silently uses `undefined` as the key — this looks like an auth error in the logs.
 - Run with `/debug-event` any time you change `llmService.js` or redeploy the edge function.

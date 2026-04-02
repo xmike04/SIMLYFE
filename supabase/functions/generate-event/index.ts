@@ -29,10 +29,10 @@ serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4.1-nano",
         response_format: { type: "json_object" },
         messages: payload.messages,
-        max_tokens: payload.max_tokens ?? 400,
+        max_tokens: payload.max_tokens ?? 200,
         temperature: payload.temperature ?? 0.9,
       }),
     });

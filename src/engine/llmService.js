@@ -124,28 +124,25 @@ export async function generateDynamicEvent(state, actionContext) {
     const alivePets = pets.filter(p => p.isAlive);
 
     const wordCountInstruction = narrativeMode
-      ? 'Write 2-3 sentences of vivid narrative prose in second-person present tense ("You walk into..."). Make it feel like a novel extract. No word limit.'
-      : 'Keep the description strictly under 50 words.';
+      ? 'HARD LIMIT: description = exactly 2 sentences max, 35 words max. Second-person present tense. Vivid and visceral.'
+      : 'HARD LIMIT: description = exactly 1-2 sentences, 35 words max. No exceptions.';
 
-    let promptText = `You are the core Event Engine for a dark, hyper-realistic text-based life simulator.
-Based on the character's exact demographics, age, recent history, and crucially their STATS, generate a single highly creative, age-appropriate, logically consistent annual life event.
+    let promptText = `You are the Event Engine for a dark life simulator. Generate ONE punchy life event.
 
-CRITICAL CONSTRAINT: ${wordCountInstruction}
+DESCRIPTION RULE: ${wordCountInstruction} Write like a viral push notification — specific, shocking, or funny. Hook them in the first 5 words. No filler.
 
-CRITICAL STAT ENFORCEMENT:
-You act as a ruthless Dungeon Master. You MUST explicitly evaluate the user's stats before determining the outcome of their action.
-- Athleticism ranges from 0-100. If they attempt Pro Sports, rigorous training, or physical combat with low Athleticism, THEY MUST FAIL horribly.
-- Karma ranges from 0 (Pure Evil/Criminal) to 100 (Saint/Innocent). If they attempt to join the Mafia, deal drugs, or commit crimes with high Karma, the criminals won't trust them and THEY MUST FAIL (e.g. getting beaten up, robbed, or shot). If they have low Karma, they succeed in the criminal underworld.
-- If they fail a specialized career action due to poor stats, generate severe negative effects (e.g., {"health": -30, "bank": -500}) and explicitly narrate their specific inadequacy in the description.
-- If they successfully practice a skill (like taking lessons or working out), output choices that explicitly increase the relevant stat (e.g., {"athleticism": 5}).
+STAT RULES (enforce ruthlessly):
+- Low Athleticism → fails physical actions badly ({"health": -20, "bank": -200})
+- High Karma (80+) → fails crime attempts, gets beaten/robbed
+- Low Karma (20-) → succeeds in criminal underworld
+- Match outcomes to stats. Failure = harsh consequences narrated bluntly.
 
-CRITICAL: You MUST return strictly and exclusively raw JSON without any markdown formatting wrappers.
-The JSON object MUST have this exact schema:
+OUTPUT: Raw JSON only, no markdown.
 {
-  "description": "The event description",
+  "description": "...",
   "choices": [
-    { "text": "Choice 1 text (short)", "effects": { "health": -10, "bank": 50, "athleticism": 2, "karma": -5 } },
-    { "text": "Choice 2 text (short)", "effects": { "happiness": 20 } }
+    { "text": "short label", "effects": { "health": -10, "bank": 50 } },
+    { "text": "short label", "effects": { "happiness": 20 } }
   ]
 }
 
@@ -169,7 +166,7 @@ ${historyLog}`;
     }
 
     const messages = [{ role: "user", content: promptText }];
-    const maxTokens = narrativeMode ? 700 : 400;
+    const maxTokens = narrativeMode ? 400 : 200;
 
     let response;
     if (useProxy) {
@@ -181,7 +178,7 @@ ${historyLog}`;
           "Authorization": `Bearer ${supabaseKey}`,
           "apikey": supabaseKey,
         },
-        body: JSON.stringify({ messages, max_tokens: maxTokens, temperature: 0.8 }),
+        body: JSON.stringify({ messages, max_tokens: maxTokens, temperature: 0.9 }),
       });
     } else {
       // Dev fallback: direct OpenAI call (key visible in bundle — dev only)
@@ -192,10 +189,10 @@ ${historyLog}`;
           "Authorization": `Bearer ${directApiKey}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-4.1-nano",
           messages,
           max_tokens: maxTokens,
-          temperature: 0.8,
+          temperature: 0.9,
           response_format: { type: "json_object" },
         }),
       });

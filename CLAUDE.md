@@ -16,7 +16,7 @@
 | State management | Custom `useGameState` hook (no Redux/Zustand) |
 | Cloud backend | Firebase Firestore (saves) + Firebase Auth (anonymous) |
 | LLM proxy | Supabase Edge Function (`supabase/functions/generate-event/`) |
-| LLM client | `@supabase/supabase-js` — proxied call to OpenAI GPT-4o-mini |
+| LLM client | `@supabase/supabase-js` — proxied call to OpenAI GPT-4.1-nano (120 token cap, 1–2 sentence hard limit) |
 | AI events (dev fallback) | Direct OpenAI call via `VITE_OPENAI_API_KEY` |
 | Planned (unused) | `@google/generative-ai` (Gemini SDK is installed but not wired up) |
 | Linting | ESLint 9 flat config with React Hooks plugin |
@@ -128,7 +128,7 @@ Key state variables:
 
 The edge function lives at `supabase/functions/generate-event/index.ts` and is a thin Deno proxy: it reads `OPENAI_API_KEY` from Supabase secrets and forwards the request to `gpt-4o-mini`.
 
-The prompt includes character stats, recent history (last 5 entries), and an optional `actionContext` string. The expected JSON response schema:
+The prompt includes character stats, recent history (last 5 entries), and an optional `actionContext` string. Responses are capped at **120 tokens** (150 in narrative mode) and the prompt enforces a **hard 1–2 sentence, 20-word max** on the description to keep events punchy and fast. The expected JSON response schema:
 
 ```json
 {
