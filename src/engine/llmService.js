@@ -222,7 +222,10 @@ ${historyLog}`;
     return parsed;
 
   } catch (error) {
-    console.error("LLM Error:", error.message);
-    return null;
+    console.error("LLM Error:", error);
+    return {
+      description: `LLM ERROR: ${error.message}`,
+      choices: [{ text: "Understood", effects: {} }],
+    };
   }
 }
