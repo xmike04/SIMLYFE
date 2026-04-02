@@ -54,10 +54,12 @@ export const ACTIVITY_MENUS = {
 
   // ── Pets ─────────────────────────────────────────────────────────────────────
   'pets': [
-    { text: 'Adopt a Dog',       context: 'Went to the shelter and adopted a dog',              baseEffects: { happiness: 8 } },
-    { text: 'Adopt a Cat',       context: 'Went to the shelter and adopted a cat',              baseEffects: { happiness: 5 } },
-    { text: 'Buy an Exotic Pet', context: 'Bought a highly unusual exotic pet',    cost: 2000,  baseEffects: { happiness: 10 } },
-    { text: 'Volunteer at Shelter', context: 'Volunteered to help animals at the shelter',     baseEffects: { happiness: 6, karma: 3 } },
+    { text: 'Adopt a Dog ($500)',       context: 'Went to the shelter and adopted a dog',       specialAction: 'adoptPet', speciesId: 'dog' },
+    { text: 'Adopt a Cat ($200)',       context: 'Went to the shelter and adopted a cat',       specialAction: 'adoptPet', speciesId: 'cat' },
+    { text: 'Adopt a Rabbit ($100)',    context: 'Went to the shelter and adopted a rabbit',    specialAction: 'adoptPet', speciesId: 'rabbit' },
+    { text: 'Buy an Exotic Pet ($2k)',  context: 'Bought a highly unusual exotic pet',          specialAction: 'adoptPet', speciesId: 'exotic' },
+    { text: 'Manage My Pets',          context: 'Checked in on all my pets',                   specialAction: 'open_pets_ui' },
+    { text: 'Volunteer at Shelter',    context: 'Volunteered to help animals at the shelter',  baseEffects: { happiness: 6, karma: 3 } },
   ],
 
   // ── Movies ───────────────────────────────────────────────────────────────────
@@ -160,11 +162,31 @@ export const ACTIVITY_MENUS = {
 
   // ── Emigrate ─────────────────────────────────────────────────────────────────
   'emigrate': [
-    { text: 'Move to Europe',   context: 'Attempted to legally emigrate to a European country',     cost: 3000 },
-    { text: 'Move to Asia',     context: 'Attempted to legally emigrate to an Asian country',       cost: 2000 },
-    { text: 'Move to America',  context: 'Attempted to legally emigrate to North America',          cost: 3000 },
-    { text: 'Flee Illegally',   context: 'Paid a smuggler to illegally cross into a new country',   cost: 1000,
-      statGuard: { stat: 'karma', op: 'lte', value: 50 } },
+    { text: 'New York City 🇺🇸',   specialAction: 'emigrate', cityId: 'nyc',         context: 'Moved to New York City, USA' },
+    { text: 'San Francisco 🇺🇸',   specialAction: 'emigrate', cityId: 'sf',          context: 'Moved to San Francisco, USA' },
+    { text: 'Austin 🇺🇸',          specialAction: 'emigrate', cityId: 'austin',      context: 'Moved to Austin, Texas, USA' },
+    { text: 'Chicago 🇺🇸',         specialAction: 'emigrate', cityId: 'chicago',     context: 'Moved to Chicago, USA' },
+    { text: 'Miami 🇺🇸',           specialAction: 'emigrate', cityId: 'miami',       context: 'Moved to Miami, USA' },
+    { text: 'London 🇬🇧',          specialAction: 'emigrate', cityId: 'london',      context: 'Moved to London, UK' },
+    { text: 'Manchester 🇬🇧',      specialAction: 'emigrate', cityId: 'manchester',  context: 'Moved to Manchester, UK' },
+    { text: 'Toronto 🇨🇦',         specialAction: 'emigrate', cityId: 'toronto',     context: 'Moved to Toronto, Canada' },
+    { text: 'Vancouver 🇨🇦',       specialAction: 'emigrate', cityId: 'vancouver',   context: 'Moved to Vancouver, Canada' },
+    { text: 'Montreal 🇨🇦',        specialAction: 'emigrate', cityId: 'montreal',    context: 'Moved to Montreal, Canada' },
+    { text: 'Sydney 🇦🇺',          specialAction: 'emigrate', cityId: 'sydney',      context: 'Moved to Sydney, Australia' },
+    { text: 'Melbourne 🇦🇺',       specialAction: 'emigrate', cityId: 'melbourne',   context: 'Moved to Melbourne, Australia' },
+    { text: 'Tokyo 🇯🇵',           specialAction: 'emigrate', cityId: 'tokyo',       context: 'Moved to Tokyo, Japan' },
+    { text: 'Osaka 🇯🇵',           specialAction: 'emigrate', cityId: 'osaka',       context: 'Moved to Osaka, Japan' },
+    { text: 'Berlin 🇩🇪',          specialAction: 'emigrate', cityId: 'berlin',      context: 'Moved to Berlin, Germany' },
+    { text: 'Munich 🇩🇪',          specialAction: 'emigrate', cityId: 'munich',      context: 'Moved to Munich, Germany' },
+    { text: 'Paris 🇫🇷',           specialAction: 'emigrate', cityId: 'paris',       context: 'Moved to Paris, France' },
+    { text: 'São Paulo 🇧🇷',       specialAction: 'emigrate', cityId: 'sao_paulo',   context: 'Moved to São Paulo, Brazil' },
+    { text: 'Rio de Janeiro 🇧🇷',  specialAction: 'emigrate', cityId: 'rio',         context: 'Moved to Rio de Janeiro, Brazil' },
+    { text: 'Mumbai 🇮🇳',          specialAction: 'emigrate', cityId: 'mumbai',      context: 'Moved to Mumbai, India' },
+    { text: 'Bangalore 🇮🇳',       specialAction: 'emigrate', cityId: 'bangalore',   context: 'Moved to Bangalore, India' },
+    { text: 'Seoul 🇰🇷',           specialAction: 'emigrate', cityId: 'seoul',       context: 'Moved to Seoul, South Korea' },
+    { text: 'Mexico City 🇲🇽',     specialAction: 'emigrate', cityId: 'mexico_city', context: 'Moved to Mexico City, Mexico' },
+    { text: 'Lagos 🇳🇬',           specialAction: 'emigrate', cityId: 'lagos',       context: 'Moved to Lagos, Nigeria' },
+    { text: 'Cape Town 🇿🇦',       specialAction: 'emigrate', cityId: 'cape_town',   context: 'Moved to Cape Town, South Africa' },
   ],
 
   // ── Rehab ────────────────────────────────────────────────────────────────────

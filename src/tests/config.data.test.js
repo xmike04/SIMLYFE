@@ -94,6 +94,9 @@ describe('ACTIVITY_MENUS', () => {
     'open_dating_ui', 'open_wills_ui',
     'networking_mixer',
     'startStartup',
+    'adoptPet',
+    'open_pets_ui',
+    'emigrate',
   ]);
 
   it('is a plain object', () => {

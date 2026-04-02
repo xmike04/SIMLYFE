@@ -2985,3 +2985,187 @@ describe('§14 sellInvestment — pure-function mirror', () => {
     expect(proceeds).toBe(130_000 - cgt);
   });
 });
+
+// ─── 10. Pet Lifecycle ─────────────────────────────────────────────────────────
+
+describe('Pet lifecycle', () => {
+  function processPetYear(pet, petDef) {
+    const newAge = pet.age + 1;
+    const deathChance = newAge >= petDef.lifespanMax ? 1.0 :
+      newAge >= petDef.lifespanMin
+        ? (newAge - petDef.lifespanMin) / (petDef.lifespanMax - petDef.lifespanMin) * 0.3
+        : 0;
+    return { newAge, deathChance, annualCost: petDef.annualMaintenanceCost };
+  }
+
+  const dogDef = {
+    annualMaintenanceCost: 800,
+    happinessBonus: 5,
+    lifespanMin: 10,
+    lifespanMax: 15,
+  };
+
+  it('ages pet by 1 each year', () => {
+    const result = processPetYear({ age: 3, isAlive: true }, dogDef);
+    expect(result.newAge).toBe(4);
+  });
+
+  it('has 0 death chance before minimum lifespan', () => {
+    const result = processPetYear({ age: 5, isAlive: true }, dogDef);
+    expect(result.deathChance).toBe(0);
+  });
+
+  it('has 100% death chance at maximum lifespan', () => {
+    const result = processPetYear({ age: 14, isAlive: true }, dogDef);
+    expect(result.deathChance).toBe(1.0);
+  });
+
+  it('has partial death chance between min and max lifespan', () => {
+    const result = processPetYear({ age: 11, isAlive: true }, dogDef);
+    // age 12 (11+1=12), lifespanMin=10, lifespanMax=15 → (12-10)/(15-10)*0.3 = 0.12
+    expect(result.deathChance).toBeGreaterThan(0);
+    expect(result.deathChance).toBeLessThan(1);
+  });
+
+  it('deducts annual maintenance cost', () => {
+    const result = processPetYear({ age: 3, isAlive: true }, dogDef);
+    expect(result.annualCost).toBe(800);
+  });
+});
+
+// ─── 11. City Salary Multiplier ───────────────────────────────────────────────
+
+describe('City salary multiplier', () => {
+  function calculateAdjustedSalary(baseSalary, cityMultiplier) {
+    return baseSalary * (cityMultiplier ?? 1.0);
+  }
+
+  function calculateAdjustedLifestyleCost(baseCost, colMultiplier) {
+    return baseCost * (colMultiplier ?? 1.0);
+  }
+
+  it('applies 1.3x NYC multiplier to salary', () => {
+    expect(calculateAdjustedSalary(50000, 1.3)).toBe(65000);
+  });
+
+  it('applies 0.5x Lagos multiplier to salary', () => {
+    expect(calculateAdjustedSalary(50000, 0.5)).toBe(25000);
+  });
+
+  it('defaults to 1.0 multiplier when no city', () => {
+    expect(calculateAdjustedSalary(50000, null)).toBe(50000);
+    expect(calculateAdjustedSalary(50000, undefined)).toBe(50000);
+  });
+
+  it('applies COL multiplier to lifestyle cost', () => {
+    expect(calculateAdjustedLifestyleCost(10000, 1.4)).toBe(14000);
+  });
+
+  it('COL defaults to 1.0 when no city', () => {
+    expect(calculateAdjustedLifestyleCost(10000, null)).toBe(10000);
+  });
+
+  it('higher COL city increases lifestyle cost', () => {
+    const base = 10000;
+    const sfResult = calculateAdjustedLifestyleCost(base, 1.5);
+    const lagosResult = calculateAdjustedLifestyleCost(base, 0.3);
+    expect(sfResult).toBeGreaterThan(base);
+    expect(lagosResult).toBeLessThan(base);
+  });
+});
+
+// ─── 12. Custody Battle ───────────────────────────────────────────────────────
+
+describe('Custody battle', () => {
+  function resolveCustodyFight(randomValue) {
+    return randomValue < 0.8 ? 'won' : 'lost';
+  }
+
+  function calculateChildSupport(amount, years) {
+    return amount * years;
+  }
+
+  it('wins full custody when random < 0.8', () => {
+    expect(resolveCustodyFight(0.0)).toBe('won');
+    expect(resolveCustodyFight(0.5)).toBe('won');
+    expect(resolveCustodyFight(0.79)).toBe('won');
+  });
+
+  it('loses custody when random >= 0.8', () => {
+    expect(resolveCustodyFight(0.8)).toBe('lost');
+    expect(resolveCustodyFight(0.99)).toBe('lost');
+  });
+
+  it('wins 80% of the time on average', () => {
+    let wins = 0;
+    const trials = 10000;
+    for (let i = 0; i < trials; i++) {
+      if (resolveCustodyFight(Math.random()) === 'won') wins++;
+    }
+    const winRate = wins / trials;
+    expect(winRate).toBeGreaterThan(0.75);
+    expect(winRate).toBeLessThan(0.85);
+  });
+
+  it('calculates correct annual child support', () => {
+    expect(calculateChildSupport(200, 12)).toBe(2400);
+  });
+
+  it('scales linearly with different monthly amounts', () => {
+    expect(calculateChildSupport(500, 12)).toBe(6000);
+    expect(calculateChildSupport(150, 6)).toBe(900);
+  });
+});
+
+// ─── 13. NPC Autonomy ─────────────────────────────────────────────────────────
+
+describe('NPC Autonomy', () => {
+  function checkNpcJobEvent(npcAge, hasJob, randomValue) {
+    if (hasJob) return false;
+    if (npcAge < 22 || npcAge > 45) return false;
+    return randomValue < 0.05;
+  }
+
+  function checkNpcMarriageEvent(npcAge, hasSpouse, randomValue) {
+    if (hasSpouse) return false;
+    if (npcAge < 25 || npcAge > 50) return false;
+    return randomValue < 0.04;
+  }
+
+  function checkNpcSicknessChance(npcAge) {
+    if (npcAge < 40) return 0;
+    return 0.03 + (Math.max(0, npcAge - 40) * 0.002);
+  }
+
+  it('triggers job event at 5% rate for eligible NPCs', () => {
+    // Below threshold — no event
+    expect(checkNpcJobEvent(30, false, 0.051)).toBe(false);
+    // At threshold — event fires
+    expect(checkNpcJobEvent(30, false, 0.04)).toBe(true);
+  });
+
+  it('does not trigger job event if NPC already has job', () => {
+    expect(checkNpcJobEvent(30, true, 0.001)).toBe(false);
+  });
+
+  it('does not trigger job event outside age range', () => {
+    expect(checkNpcJobEvent(20, false, 0.001)).toBe(false);
+    expect(checkNpcJobEvent(50, false, 0.001)).toBe(false);
+  });
+
+  it('triggers marriage at 4% rate for eligible NPCs', () => {
+    expect(checkNpcMarriageEvent(30, false, 0.039)).toBe(true);
+    expect(checkNpcMarriageEvent(30, false, 0.041)).toBe(false);
+  });
+
+  it('does not trigger marriage if NPC already married', () => {
+    expect(checkNpcMarriageEvent(30, true, 0.001)).toBe(false);
+  });
+
+  it('sickness chance increases with age past 40', () => {
+    expect(checkNpcSicknessChance(35)).toBe(0);
+    expect(checkNpcSicknessChance(40)).toBe(0.03);
+    expect(checkNpcSicknessChance(60)).toBeGreaterThan(checkNpcSicknessChance(40));
+    expect(checkNpcSicknessChance(80)).toBeGreaterThan(checkNpcSicknessChance(60));
+  });
+});

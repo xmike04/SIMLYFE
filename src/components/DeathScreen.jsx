@@ -10,6 +10,14 @@ const STAT_META = [
   { key: 'karma',       label: 'Karma',       color: 'var(--karma-color)' },
 ];
 
+const EPITAPH_MAP = {
+  health:    'They lived hard and died on their own terms.',
+  happiness: 'They found joy where others found none.',
+  smarts:    'They always had the answer — eventually.',
+  looks:     'They turned heads to the very end.',
+  karma:     'They tried to do right. Mostly.',
+};
+
 export default function DeathScreen({ engine }) {
   const { character, age, bank, history, stats, properties, belongings, career, relationships } = engine;
 
@@ -21,12 +29,23 @@ export default function DeathScreen({ engine }) {
   const investmentBelongings = (belongings ?? []).filter(b => b.subType);
   const spouse = (relationships ?? []).find(r => r.relation === 'Spouse' || r.relation === 'spouse');
 
+  const statValues = {
+    health: stats?.health ?? 0,
+    happiness: stats?.happiness ?? 0,
+    smarts: stats?.smarts ?? 0,
+    looks: stats?.looks ?? 0,
+    karma: stats?.karma ?? 0,
+  };
+  const dominantStat = Object.entries(statValues).sort(([,a],[,b]) => b - a)[0][0];
+  const epitaph = EPITAPH_MAP[dominantStat] ?? 'They lived. That was enough.';
+
   return (
     <div className="flex-center animate-fade-in" style={{ height: '100%', padding: '20px', overflowY: 'auto' }}>
       <div className="glass-panel text-center" style={{ width: '100%', border: '1px solid var(--health-color)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--health-color)' }} />
-        <h2 className="mb-4 mt-2" style={{ color: 'var(--health-color)', fontSize: '2rem' }}>R.I.P.</h2>
+        <h2 className="mb-4 mt-2" style={{ color: 'var(--health-color)', fontSize: '2rem' }}>The End.</h2>
         <h3 className="mb-2" style={{ fontSize: '1.5rem' }}>{character?.name}</h3>
+        <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '4px' }}>{epitaph}</p>
         <p className="mb-1" style={{ fontSize: '1.1rem' }}>You died at age <b>{age}</b>.</p>
 
         {/* Wealth tier badge */}
@@ -108,7 +127,7 @@ export default function DeathScreen({ engine }) {
         {/* Final event */}
         <div className="mb-6" style={{ background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px', textAlign: 'left' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Final Event
+            Last Words
           </p>
           <p style={{ fontSize: '0.95rem' }}>
             {history?.[history.length - 1]?.text || "Passed away peacefully."}
@@ -116,7 +135,7 @@ export default function DeathScreen({ engine }) {
         </div>
 
         <button className="btn" onClick={() => window.location.reload()}>
-          Start New Life
+          Live Again
         </button>
       </div>
     </div>

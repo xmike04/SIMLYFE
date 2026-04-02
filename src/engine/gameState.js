@@ -5,12 +5,17 @@ import { db, auth } from '../config/firebase';
 import { generateDynamicEvent } from './llmService';
 import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
 import { calculateCapitalGainsTax, estimateInvestmentReturn, getAllAssets } from '../config/assetCatalog';
+import { PET_CATALOG } from '../config/petCatalog.js';
+import { getCityById } from '../config/cityData.js';
 
 import staticEvents from './events.json';
 import staticCareers from './careers.json';
 
 const INITIAL_STATS = { health: 80, happiness: 80, smarts: 50, looks: 50, grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0 };
 const NAMES = ["James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda", "David", "Elizabeth", "William", "Barbara", "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah", "Charles", "Karen"];
+const NPC_JOB_LABELS = ['teacher', 'nurse', 'accountant', 'engineer', 'chef',
+                        'electrician', 'journalist', 'manager', 'therapist', 'designer'];
+const NPC_STARTER_JOBS = ['barista', 'intern', 'junior developer', 'sales rep', 'assistant'];
 
 export const DEGREE_CONFIG = {
   highSchool: { years: 0,  annualCost: 0,     requires: null,         happinessEffect: 0   },
@@ -55,6 +60,8 @@ export function useGameState() {
   const [careerMeta, setCareerMeta] = useState(INITIAL_CAREER_META);
   const [networking, setNetworking] = useState(0);
   const [economyCycle, setEconomyCycle] = useState(INITIAL_ECONOMY);
+  const [narrativeMode, setNarrativeMode] = useState(false);
+  const [pets, setPets] = useState([]);
 
   // 1. Initialize anonymous auth and load cloud datastores if configured
   useEffect(() => {
@@ -81,6 +88,7 @@ export function useGameState() {
               if (data.careerMeta) setCareerMeta({ ...INITIAL_CAREER_META, ...data.careerMeta });
               if (data.networking !== undefined) setNetworking(data.networking);
               if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
+              if (data.pets) setPets(data.pets);
             }
           } catch (e) {
             console.error("Failed to load save:", e);
@@ -110,8 +118,9 @@ export function useGameState() {
     }
   }, [userId]);
 
-  const startLife = (name, gender, country) => {
-    const newChar = { name, gender, country };
+  const startLife = (name, gender, country, cityId) => {
+    const city = getCityById(cityId);
+    const newChar = { name, gender, country, city: cityId ?? null };
     const initialStats = {
       health: 80 + Math.floor(Math.random() * 20),
       happiness: 80 + Math.floor(Math.random() * 20),
@@ -151,7 +160,8 @@ export function useGameState() {
     }
     setRelationships(initialFamily);
     
-    const initialHistory = [{ age: 0, text: `You were born in ${country}. You are a ${gender} named ${name}.` }];
+    const cityLabel = city ? `${city.name}, ${country}` : country;
+    const initialHistory = [{ age: 0, text: `You were born in ${cityLabel}. You are a ${gender} named ${name}.` }];
     setHistory(initialHistory);
     setCurrentEvent(null);
 
@@ -188,7 +198,40 @@ export function useGameState() {
 
   const handleChoice = (choice) => {
     if (choice.effects) applyEffects(choice.effects);
-    
+
+    if (currentEvent?.isCustodyBattle && choice.custodyOutcome) {
+      const { exId, childIds } = currentEvent;
+      const childLabel = childIds.length > 1 ? 'children' : 'child';
+
+      if (choice.custodyOutcome === 'fight') {
+        const won = Math.random() < 0.8;
+        if (won) {
+          setHistory(prev => [...prev, { age, text: `Legal: You won full custody of your ${childLabel}. The judge ruled in your favor.` }]);
+        } else {
+          setHistory(prev => [...prev, { age, text: `Legal: You lost the custody battle. The judge awarded full custody to your ex.` }]);
+          setRelationships(prev => {
+            const next = prev.map(r => childIds.includes(r.id) ? { ...r, custodyWith: 'ex' } : r);
+            syncToCloud({ relationships: next });
+            return next;
+          });
+        }
+      } else if (choice.custodyOutcome === 'negotiate') {
+        setHistory(prev => [...prev, { age, text: `Legal: Joint custody agreed. You pay $2,400/yr in child support.` }]);
+        setRelationships(prev => {
+          const next = prev.map(r => r.id === exId ? { ...r, childSupport: 2400 } : r);
+          syncToCloud({ relationships: next });
+          return next;
+        });
+      } else if (choice.custodyOutcome === 'surrender') {
+        setHistory(prev => [...prev, { age, text: `Legal: You signed away custody. You may see them on holidays.` }]);
+        setRelationships(prev => {
+          const next = prev.map(r => childIds.includes(r.id) ? { ...r, custodyWith: 'ex' } : r);
+          syncToCloud({ relationships: next });
+          return next;
+        });
+      }
+    }
+
     setHistory((prev) => {
       const updated = [...prev, { age, text: `Event: ${currentEvent.description} -> You chose: ${choice.text}` }];
       syncToCloud({ history: updated }); // sync incremental choice
@@ -357,7 +400,9 @@ export function useGameState() {
           businessHistory += ` Valuation: $${newEquity}. Dividend: $${Math.floor(newEquity * 0.1)}.`;
         }
       } else {
-        const grossSalary = nextCareer.salary;
+        const currentCity = getCityById(character?.city);
+        const salaryMultiplier = currentCity?.salaryMultiplier ?? 1.0;
+        const grossSalary = Math.round(nextCareer.salary * salaryMultiplier);
         const tax = calculateIncomeTax(grossSalary, nextBank);
         const netSalary = grossSalary - tax;
         nextBank += netSalary;
@@ -369,15 +414,18 @@ export function useGameState() {
     }
 
     // ── Lifestyle cost (wealth tier expectation) ──────────────────────────────
+    const currentCity = getCityById(character?.city);
+    const colMultiplier = currentCity?.colMultiplier ?? 1.0;
     const currentTier = getWealthTier(nextBank);
     let lifestyleHistoryStr = null;
     if (currentTier.lifestyleCost > 0) {
-      nextBank -= currentTier.lifestyleCost;
+      const adjustedLifestyleCost = Math.round(currentTier.lifestyleCost * colMultiplier);
+      nextBank -= adjustedLifestyleCost;
       if (nextBank < 0) {
         nextStats.happiness = Math.max(0, nextStats.happiness - currentTier.happinessPenalty);
-        lifestyleHistoryStr = `Lifestyle: You can't maintain your ${currentTier.label} status. Went into debt paying $${currentTier.lifestyleCost.toLocaleString()} in lifestyle costs. −${currentTier.happinessPenalty} Happiness.`;
+        lifestyleHistoryStr = `Lifestyle: You can't maintain your ${currentTier.label} status. Went into debt paying $${adjustedLifestyleCost.toLocaleString()} in lifestyle costs. −${currentTier.happinessPenalty} Happiness.`;
       } else {
-        lifestyleHistoryStr = `Lifestyle: Spent $${currentTier.lifestyleCost.toLocaleString()} maintaining your ${currentTier.label} lifestyle.`;
+        lifestyleHistoryStr = `Lifestyle: Spent $${adjustedLifestyleCost.toLocaleString()} maintaining your ${currentTier.label} lifestyle.`;
       }
     }
 
@@ -583,6 +631,51 @@ export function useGameState() {
     if (marketCrash && properties.length > 0) marketHistoryStr = "Economy: The housing market crashed! Real estate shed 30% of its value.";
     if (marketBoom && properties.length > 0) marketHistoryStr = "Economy: A booming housing market skyrocketed your property values!";
 
+    // ── Child support obligations ─────────────────────────────────────────────
+    let childSupportTotal = 0;
+    let childSupportHistoryStr = null;
+    relationships.forEach(r => {
+      if (r.childSupport && r.childSupport > 0) childSupportTotal += r.childSupport;
+    });
+    if (childSupportTotal > 0) {
+      nextBank -= childSupportTotal;
+      childSupportHistoryStr = `Family: Child support payments: -$${childSupportTotal.toLocaleString()}`;
+    }
+
+    // ── Pet lifecycle ─────────────────────────────────────────────────────────
+    let petHappinessBonus = 0;
+    let petMaintenanceCost = 0;
+    const petDeathMessages = [];
+
+    const petUpdates = pets.map(pet => {
+      if (!pet.isAlive) return pet;
+      const petDef = PET_CATALOG[pet.speciesId];
+      if (!petDef) return pet;
+
+      const newAge = pet.age + 1;
+      petMaintenanceCost += petDef.annualMaintenanceCost;
+      petHappinessBonus += petDef.happinessBonus;
+
+      const deathChance = newAge >= petDef.lifespanMax ? 1.0
+        : newAge >= petDef.lifespanMin
+          ? (newAge - petDef.lifespanMin) / (petDef.lifespanMax - petDef.lifespanMin) * 0.3
+          : 0;
+
+      if (Math.random() < deathChance) {
+        petDeathMessages.push(`Your ${petDef.species} ${pet.name} passed away at age ${newAge}. You'll miss them dearly.`);
+        return { ...pet, age: newAge, isAlive: false };
+      }
+      return { ...pet, age: newAge };
+    });
+
+    nextBank -= petMaintenanceCost;
+    if (petHappinessBonus > 0) {
+      nextStats.happiness = Math.min(100, nextStats.happiness + petHappinessBonus);
+    }
+    nextStats.happiness = Math.max(0, nextStats.happiness - petDeathMessages.length * 5);
+
+    setPets(petUpdates);
+
     setAge(nextAge);
     setStats(nextStats);
     setBank(nextBank);
@@ -656,6 +749,58 @@ export function useGameState() {
       relationshipEvents.push(`Relationships: The jealousy of maintaining ${activeLovers.length} simultaneous partners is taking a toll.`);
     }
 
+    // === NPC Autonomy Pass ===
+    nextRelationships = nextRelationships.map(rel => {
+      if (rel.isAlive === false) return rel;
+      if (rel.status === 'ex') return rel;
+
+      let updated = { ...rel };
+      const npcAge = rel.age ?? 0;
+
+      // Job events (aged 22-45, no job yet)
+      if (!updated.npcJob && npcAge >= 22 && npcAge <= 45) {
+        if (Math.random() < 0.05) {
+          const job = NPC_JOB_LABELS[Math.floor(Math.random() * NPC_JOB_LABELS.length)];
+          updated.npcJob = job;
+          relationshipEvents.push(`📱 ${rel.name} landed a job as a ${job}.`);
+        }
+      }
+
+      // Marriage events (aged 25-50, not yet married)
+      if (!updated.npcSpouse && npcAge >= 25 && npcAge <= 50) {
+        if (Math.random() < 0.04) {
+          updated.npcSpouse = true;
+          relationshipEvents.push(`💍 ${rel.name} got married. You heard about it on social media.`);
+        }
+      }
+
+      // Illness events (aged 40+, probability scales with age)
+      if (!updated.npcSick && npcAge >= 40) {
+        const sickChance = 0.03 + Math.max(0, npcAge - 40) * 0.002;
+        if (Math.random() < sickChance) {
+          updated.npcSick = true;
+          updated.relation = Math.max(0, (updated.relation ?? 50) - 5);
+          relationshipEvents.push(`🏥 ${rel.name} was diagnosed with a health condition and has become more withdrawn.`);
+        }
+      }
+
+      // Children growing up
+      const isNpcChild = rel.relation === 'child' || rel.relation === 'son' || rel.relation === 'daughter'
+        || rel.type === 'Child' || rel.type === 'Son' || rel.type === 'Daughter';
+      if (isNpcChild && rel.custodyWith !== 'ex') {
+        if (npcAge === 18) {
+          updated.status = 'family_adult';
+          relationshipEvents.push(`🎓 Your child ${rel.name} has turned 18 and left for college.`);
+        } else if (npcAge === 22 && !updated.npcJob) {
+          const job = NPC_STARTER_JOBS[Math.floor(Math.random() * NPC_STARTER_JOBS.length)];
+          updated.npcJob = job;
+          relationshipEvents.push(`🎉 Your child ${rel.name} got their first job as a ${job}.`);
+        }
+      }
+
+      return updated;
+    });
+
     setRelationships(nextRelationships);
 
     const died = checkDeath(nextStats, nextAge);
@@ -672,7 +817,9 @@ export function useGameState() {
 
     let eventTriggered = false;
     const dynamicEvent = await generateDynamicEvent({
-      character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory
+      character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory,
+      narrativeMode, relationships, pets, city: character?.city, education: nextEducation,
+      economyPhase: nextEconomy?.phase,
     });
 
     if (dynamicEvent && dynamicEvent.description && dynamicEvent.choices) {
@@ -701,15 +848,22 @@ export function useGameState() {
     if (reviewHistory)   updatedHistory.push({ age: nextAge, text: reviewHistory });
     if (upkeepHistoryStr) updatedHistory.push({ age: nextAge, text: upkeepHistoryStr });
     if (marketHistoryStr) updatedHistory.push({ age: nextAge, text: marketHistoryStr });
+    if (childSupportHistoryStr) updatedHistory.push({ age: nextAge, text: childSupportHistoryStr });
     for (const relEvent of relationshipEvents) {
       updatedHistory.push({ age: nextAge, text: relEvent });
+    }
+    for (const petMsg of petDeathMessages) {
+      updatedHistory.push({ age: nextAge, text: petMsg });
+    }
+    if (petMaintenanceCost > 0) {
+      updatedHistory.push({ age: nextAge, text: `Pets: Spent $${petMaintenanceCost.toLocaleString()} on pet care this year.` });
     }
 
     setHistory(updatedHistory);
 
-    syncToCloud({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings });
+    syncToCloud({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
     setIsAging(false);
-  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, triggerRandomEvent, checkDeath, syncToCloud, isAging, character, relationships, properties, belongings, runPerformanceReview, careersData]);
+  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, triggerRandomEvent, checkDeath, syncToCloud, isAging, character, relationships, properties, belongings, runPerformanceReview, careersData, pets]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
 
@@ -1023,6 +1177,49 @@ export function useGameState() {
     if (wasMarried) {
       divorceCostAmount = Math.min(50000, Math.max(5000, Math.floor(bank * 0.15)));
       newBank = bank - divorceCostAmount;
+
+      const playerChildren = relationships.filter(r => r.isAlive && r.type === 'Child');
+      if (playerChildren.length > 0) {
+        const childNamesStr = playerChildren.map(c => c.name).join(', ');
+        setCurrentEvent({
+          id: 'custody_battle',
+          isCustodyBattle: true,
+          exId: rel.id,
+          childIds: playerChildren.map(c => c.id),
+          description: `Your divorce from ${rel.name} has turned contentious. They're fighting for full custody of ${childNamesStr}. How do you respond?`,
+          choices: [
+            {
+              text: 'Fight for full custody (hire lawyer, -$10,000)',
+              effects: { bank: -10000 },
+              custodyOutcome: 'fight',
+            },
+            {
+              text: 'Negotiate joint custody (-$3,000, $2,400/yr child support)',
+              effects: { bank: -3000 },
+              custodyOutcome: 'negotiate',
+            },
+            {
+              text: 'Let them have the kids',
+              effects: { happiness: -20 },
+              custodyOutcome: 'surrender',
+            },
+          ],
+        });
+        setBank(newBank);
+        setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
+        setRelationships(prev => {
+          const next = prev.map(r => r.id === rel.id ? { ...r, status: 'ex' } : r);
+          syncToCloud({ relationships: next, bank: newBank });
+          return next;
+        });
+        setHistory(prev => {
+          const updated = [...prev, { age, text: `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.` }];
+          syncToCloud({ history: updated });
+          return updated;
+        });
+        return 'ok';
+      }
+
       setBank(newBank);
     }
     setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
@@ -1133,7 +1330,7 @@ export function useGameState() {
     if (isDead || currentEvent || isAging) return;
     setIsAging(true);
     try {
-      const stateDump = { character, age, bank, stats, career, history };
+      const stateDump = { character, age, bank, stats, career, history, narrativeMode, relationships, pets, city: character?.city, education, economyPhase: economyCycle?.phase };
       const parsed = await generateDynamicEvent(stateDump, context);
       
       if (parsed && parsed.choices && parsed.description) {
@@ -1146,6 +1343,51 @@ export function useGameState() {
       setHistory(prev => [...prev, { age, text: `Activity (${context}): Nothing interesting happened.` }]);
     }
     setIsAging(false);
+  };
+
+  const adoptPet = (speciesId) => {
+    const petDef = PET_CATALOG[speciesId];
+    if (!petDef) return;
+    if (bank < petDef.adoptCost) {
+      setHistory(prev => [...prev, { age, text: `Pets: You can't afford to adopt a ${petDef.species} ($${petDef.adoptCost.toLocaleString()}).` }]);
+      return;
+    }
+    const petName = petDef.namePool[Math.floor(Math.random() * petDef.namePool.length)];
+    const newPet = {
+      id: Date.now().toString(),
+      speciesId,
+      name: petName,
+      age: 0,
+      health: 80,
+      isAlive: true,
+    };
+    const nextPets = [...pets, newPet];
+    setBank(prev => prev - petDef.adoptCost);
+    setPets(nextPets);
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Pets: You adopted a ${petDef.species} named ${petName}! 🐾` }];
+      syncToCloud({ history: updated, pets: nextPets });
+      return updated;
+    });
+  };
+
+  const visitVet = (petId) => {
+    const vetCost = 150;
+    if (bank < vetCost) {
+      setHistory(prev => [...prev, { age, text: `Pets: You can't afford the vet visit ($${vetCost}).` }]);
+      return;
+    }
+    setBank(prev => prev - vetCost);
+    setPets(prev => {
+      const next = prev.map(p => p.id === petId ? { ...p, health: Math.min(100, p.health + 20) } : p);
+      syncToCloud({ pets: next });
+      return next;
+    });
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `Pets: Vet visit — +20 health. Cost: $${vetCost}.` }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
   };
 
   const buyAsset = (category, item) => {
@@ -1312,6 +1554,27 @@ export function useGameState() {
     });
   };
 
+  const emigrate = (cityId) => {
+    const city = getCityById(cityId);
+    if (!city) return;
+    if (bank < city.moveCost) {
+      setHistory(prev => [...prev, { age, text: `You can't afford to move to ${city.name} (costs $${city.moveCost.toLocaleString()}).` }]);
+      return;
+    }
+    const newBank = bank - city.moveCost;
+    setBank(newBank);
+    setCharacter(prev => {
+      const next = { ...prev, city: cityId, country: city.country };
+      syncToCloud({ character: next, bank: newBank });
+      return next;
+    });
+    setHistory(prev => {
+      const updated = [...prev, { age, text: `✈️ You moved to ${city.name}, ${city.country}. New chapter begins.` }];
+      syncToCloud({ history: updated });
+      return updated;
+    });
+  };
+
   const debugGrantDegree = (degreeType) => {
     setEducation(prev => {
       const next = { ...prev, [degreeType]: true };
@@ -1375,6 +1638,9 @@ export function useGameState() {
     relationships,
     belongings,
     properties,
+    pets,
+    adoptPet,
+    visitVet,
     buyAsset,
     sellAsset,
     debugModifyBank,
@@ -1390,6 +1656,7 @@ export function useGameState() {
     checkCareerEligibility,
     enrollInDegree,
     attendNetworkingEvent,
+    emigrate,
     performActivity,
     modifyRelationship,
     modifyProperty,
@@ -1410,6 +1677,8 @@ export function useGameState() {
     meetFriend,
     buyInvestment,
     sellInvestment,
-    triggerActivityEvent
+    triggerActivityEvent,
+    narrativeMode,
+    setNarrativeMode,
   };
 }

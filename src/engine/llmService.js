@@ -14,13 +14,45 @@ export async function generateDynamicEvent(state, actionContext) {
     return null;
   }
 
+  const {
+    narrativeMode = false,
+    relationships = [],
+    pets = [],
+    city,
+    education,
+    economyPhase,
+  } = state;
+
   try {
     const historyLog = state.history.slice(-5).map(h => `Age ${h.age}: ${h.text}`).join('\n');
+
+    const educationLine = (() => {
+      if (!education) return 'No formal education';
+      const parts = [];
+      if (education.highSchool) parts.push('High School');
+      if (education.associate) parts.push("Associate's");
+      if (education.bachelor) parts.push("Bachelor's");
+      if (education.master) parts.push("Master's");
+      if (education.phd) parts.push('PhD');
+      return parts.length ? parts.join(', ') : 'No formal education';
+    })();
+
+    const locationLine = city ? `${city}, ${state.character.country}` : state.character.country;
+
+    const relationshipsLine = relationships.length
+      ? relationships.slice(0, 5).map(r => `${r.type} ${r.name} (age ${r.age}, bond: ${r.relation ?? 0}/100)`).join('; ')
+      : 'none';
+
+    const alivePets = pets.filter(p => p.isAlive);
+
+    const wordCountInstruction = narrativeMode
+      ? 'Write 2-3 sentences of vivid narrative prose in second-person present tense ("You walk into..."). Make it feel like a novel extract. No word limit.'
+      : 'Keep the description strictly under 50 words.';
 
     let promptText = `You are the core Event Engine for a dark, hyper-realistic text-based life simulator.
 Based on the character's exact demographics, age, recent history, and crucially their STATS, generate a single highly creative, age-appropriate, logically consistent annual life event.
 
-CRITICAL CONSTRAINT: The event description MUST be extremely concise, strictly under 50 words! Keep it punchy like a text message since players rapidly tap through years.
+CRITICAL CONSTRAINT: ${wordCountInstruction}
 
 CRITICAL STAT ENFORCEMENT:
 You act as a ruthless Dungeon Master. You MUST explicitly evaluate the user's stats before determining the outcome of their action.
@@ -32,7 +64,7 @@ You act as a ruthless Dungeon Master. You MUST explicitly evaluate the user's st
 CRITICAL: You MUST return strictly and exclusively raw JSON without any markdown formatting wrappers.
 The JSON object MUST have this exact schema:
 {
-  "description": "The concise event description (under 50 words)",
+  "description": "The event description",
   "choices": [
     { "text": "Choice 1 text (short)", "effects": { "health": -10, "bank": 50, "athleticism": 2, "karma": -5 } },
     { "text": "Choice 2 text (short)", "effects": { "happiness": 20 } }
@@ -41,12 +73,15 @@ The JSON object MUST have this exact schema:
 
 Current State:
 Name: ${state.character.name} (${state.character.gender})
-Location: ${state.character.country}
+Location: ${locationLine}
 Age: ${state.age}
 Stats: Health ${state.stats.health || 0}%, Happiness ${state.stats.happiness || 0}%, Smarts ${state.stats.smarts || 0}%, Looks ${state.stats.looks || 0}%, Athleticism ${state.stats.athleticism || 0}%, Karma ${state.stats.karma || 0}%
 Hidden Skills: Acting ${state.stats.acting || 0}%, Voice ${state.stats.voice || 0}%, Modeling ${state.stats.modeling || 0}%
 Net Worth: $${state.bank}
 Job: ${state.career ? state.career.title : 'Unemployed'}
+Education: ${educationLine}
+Economy: ${economyPhase ?? 'normal'} phase
+Key Relationships: ${relationshipsLine}${alivePets.length ? `\nPets: ${alivePets.map(p => p.name).join(', ')}` : ''}
 
 Recent History logs (last 5):
 ${historyLog}`;
@@ -56,6 +91,7 @@ ${historyLog}`;
     }
 
     const messages = [{ role: "user", content: promptText }];
+    const maxTokens = narrativeMode ? 700 : 400;
 
     let response;
     if (useProxy) {
@@ -66,7 +102,7 @@ ${historyLog}`;
           "Content-Type": "application/json",
           "Authorization": `Bearer ${supabaseKey}`,
         },
-        body: JSON.stringify({ messages, max_tokens: 400, temperature: 0.8 }),
+        body: JSON.stringify({ messages, max_tokens: maxTokens, temperature: 0.8 }),
       });
     } else {
       // Dev fallback: direct OpenAI call (key visible in bundle — dev only)
@@ -79,6 +115,7 @@ ${historyLog}`;
         body: JSON.stringify({
           model: "gpt-4o-mini",
           messages,
+          max_tokens: maxTokens,
           temperature: 0.8,
           response_format: { type: "json_object" },
         }),

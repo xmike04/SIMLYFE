@@ -2,9 +2,16 @@ import React, { useRef, useEffect, useState } from 'react';
 import ActionSheet from './ActionSheet';
 import { ACTIVITY_CATEGORIES, ACTIVITY_MENUS } from '../config/activities';
 import { getWealthTier } from '../config/wealthTiers';
+import { getCityById } from '../config/cityData.js';
 import AssetsSheet from './sheets/AssetsSheet';
 import RelationshipsSheet from './sheets/RelationshipsSheet';
 import JobSheet from './sheets/JobSheet';
+import DoctorSheet from './sheets/DoctorSheet';
+import LotterySheet from './sheets/LotterySheet';
+import CasinoSheet from './sheets/CasinoSheet';
+import DatingSheet from './sheets/DatingSheet';
+import WillsSheet from './sheets/WillsSheet';
+import PetsSheet from './sheets/PetsSheet';
 
 const SECTOR_META = {
   tech:          { icon: '💻', label: 'Tech' },
@@ -34,7 +41,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, debugGrantDegree, debugSetEconomy, debugAddNetworking } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -68,87 +75,11 @@ export default function MainGame({ engine }) {
   };
   const [activityMenu, setActivityMenu] = useState(null);
 
-  const [datingPrefAge, setDatingPrefAge] = useState('18-25');
-  const [datingPrefGender, setDatingPrefGender] = useState('Any');
-  const [datingMatch, setDatingMatch] = useState(null);
-  const [willDistribution, setWillDistribution] = useState({});
-
-  const closeSheet = () => { setActiveSheet(null); setActivityMenu(null); setDatingMatch(null); };
-
-  const handleSearchMatch = () => {
-    if (bank < 20) return;
-    debugModifyBank(-20);
-    
-    let genAge = 18 + Math.floor(Math.random() * 8);
-    if (datingPrefAge === '26-35') genAge = 26 + Math.floor(Math.random() * 10);
-    if (datingPrefAge === '36-50') genAge = 36 + Math.floor(Math.random() * 15);
-    if (datingPrefAge === '50+') genAge = 50 + Math.floor(Math.random() * 30);
-    
-    let genGender = datingPrefGender === 'Any' ? (Math.random() > 0.5 ? 'Male' : 'Female') : datingPrefGender;
-    
-    const namesM = ["Chris", "Alex", "Jordan", "Taylor", "Matt", "Ryan", "Josh", "Brandon", "Tyler", "Kevin", "Jacob"];
-    const namesF = ["Jessica", "Ashley", "Amanda", "Sarah", "Jennifer", "Brittany", "Megan", "Rachel", "Lauren", "Emily"];
-    const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis"];
-    
-    const firstNames = genGender === 'Male' ? namesM : namesF;
-    const gName = `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${lastNames[Math.floor(Math.random() * lastNames.length)]}`;
-    
-    setDatingMatch({
-      id: `rel_${Date.now()}_lover`,
-      type: 'Lover',
-      name: gName,
-      gender: genGender,
-      age: genAge,
-      looks: 30 + Math.floor(Math.random() * 70),
-      smarts: 30 + Math.floor(Math.random() * 70),
-      relation: 40 + Math.floor(Math.random() * 40)
-    });
-  };
-
-  const handleAskOut = () => {
-    const success = Math.random() < ((datingMatch.looks / 150) + (stats.looks / 150));
-    if (success) {
-       addRelationship(datingMatch);
-       triggerActivityEvent(`Went on a successful date from a dating app with ${datingMatch.name}. We are now dating!`);
-    } else {
-       triggerActivityEvent(`Asked ${datingMatch.name} out on a date from a dating app, but got rejected horribly.`);
-    }
-    setDatingMatch(null);
-    closeSheet();
-  };
-
-  useEffect(() => {
-    if (activeSheet === 'wills') {
-       const initialDist = {};
-       relationships.forEach(r => initialDist[r.id] = 0);
-       setWillDistribution(initialDist);
-    }
-  }, [activeSheet, relationships]);
-
-  const handleCompleteWill = () => {
-    const totalAllocated = Object.values(willDistribution).reduce((sum, val) => sum + (parseInt(val) || 0), 0);
-    let str = "";
-    if (totalAllocated === 0) {
-      str = "Drafted a standard will explicitly spreading all assets and money evenly across my entire family and lovers.";
-    } else {
-      const details = relationships
-         .filter(r => (parseInt(willDistribution[r.id]) || 0) > 0)
-         .map(r => `${willDistribution[r.id]}% to my ${r.type.toLowerCase()} ${r.name}`);
-      
-      str = `Drafted a highly specific will leaving: ${details.join(', ')}. The family members who got left out or received little might have feelings about this.`;
-    }
-    triggerActivityEvent(str);
-    closeSheet();
-  };
+  const closeSheet = () => { setActiveSheet(null); setActivityMenu(null); };
 
   useEffect(() => {
     historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history]);
-
-  const handleActivity = (id, name, effects) => {
-    performActivity(id, name, effects);
-    setActiveSheet(null);
-  };
 
   return (
     <div className="flex-column animate-slide-up" style={{ height: '100%', padding: '10px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -163,7 +94,7 @@ export default function MainGame({ engine }) {
       {/* Header Profile */}
       <div className="glass-panel text-center mb-1" style={{ padding: '0.8rem', flexShrink: 0, position: 'relative' }}>
         <h2 style={{ fontSize: '1.2rem', margin: 0 }}>{character.name} <span style={{ cursor: 'pointer', fontSize: '1rem' }} onClick={() => setActiveSheet('debug')}>🐛</span></h2>
-        <p style={{ fontSize: '0.85rem', color: 'var(--accent-primary)' }}>Age: {age} • {character.country}</p>
+        <p style={{ fontSize: '0.85rem', color: 'var(--accent-primary)' }}>Age: {age} • {character?.city ? `${getCityById(character.city)?.name ?? character.city}, ${character.country}` : character?.country}</p>
         <div style={{ position: 'absolute', top: '10px', right: '15px', color: '#10b981', fontWeight: 'bold', fontSize: '1rem' }}>
           ${bank.toLocaleString()}
         </div>
@@ -206,6 +137,23 @@ export default function MainGame({ engine }) {
             </div>
           ) : null;
         })()}
+        <button
+          onClick={() => setNarrativeMode(!narrativeMode)}
+          style={{
+            display: 'block',
+            margin: '6px auto 0',
+            background: narrativeMode ? 'rgba(124, 58, 237, 0.3)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${narrativeMode ? 'rgba(124, 58, 237, 0.6)' : 'rgba(255,255,255,0.15)'}`,
+            borderRadius: '20px',
+            padding: '4px 10px',
+            fontSize: '0.75rem',
+            color: narrativeMode ? '#a855f7' : 'var(--text-secondary)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          {narrativeMode ? '📖 Prose' : '⚡ Quick'}
+        </button>
       </div>
 
       {/* History Log (Middle) */}
@@ -323,7 +271,10 @@ export default function MainGame({ engine }) {
         const handleActivityClick = (opt) => {
           if (opt.specialAction === 'open_wills_ui') { setActiveSheet('wills'); setActivityMenu(null); return; }
           if (opt.specialAction === 'open_dating_ui') { setActiveSheet('dating'); setActivityMenu(null); return; }
+          if (opt.specialAction === 'open_pets_ui') { setActiveSheet('pets'); setActivityMenu(null); return; }
           if (opt.specialAction === 'networking_mixer') { attendNetworkingEvent(); closeSheet(); return; }
+          if (opt.specialAction === 'adoptPet') { adoptPet(opt.speciesId); closeSheet(); return; }
+          if (opt.specialAction === 'emigrate') { emigrate(opt.cityId); closeSheet(); return; }
           if (opt.specialAction) { handleSpecialSkill(opt.specialAction, opt.context); return; }
           // Route through unified performActivity
           const result = performActivity(opt, activityMenu);
@@ -374,7 +325,13 @@ export default function MainGame({ engine }) {
           {activityMenu && ACTIVITY_MENUS[activityMenu] && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {ACTIVITY_MENUS[activityMenu].map((opt, i) => {
-                const { locked, reason } = resolveItemState(opt);
+                const cityData = opt.specialAction === 'emigrate' && opt.cityId ? getCityById(opt.cityId) : null;
+                const isCurrentCity = cityData && character?.city === opt.cityId;
+                const cityMoveCost = cityData?.moveCost ?? 0;
+                const canAffordMove = !cityData || bank >= cityMoveCost;
+                const { locked: baseLocked, reason: baseReason } = resolveItemState(opt);
+                const locked = baseLocked || isCurrentCity || !canAffordMove;
+                const reason = isCurrentCity ? 'Current city' : !canAffordMove ? `Need $${cityMoveCost.toLocaleString()}` : baseReason;
                 const cost = opt.cost ?? 0;
                 const isYearlyDone = reason === '✓ Done this year';
                 return (
@@ -382,9 +339,15 @@ export default function MainGame({ engine }) {
                     style={{ padding: '1rem', textAlign: 'left', background: opt.bg || 'rgba(255,255,255,0.05)', opacity: locked ? (isYearlyDone ? 0.4 : 0.55) : 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <strong>{opt.text}</strong>
-                      {cost > 0 && <span style={{ fontSize: '0.75rem', color: '#ef4444', flexShrink: 0, marginLeft: '8px' }}>-${cost.toLocaleString()}</span>}
+                      {cityData && <span style={{ fontSize: '0.75rem', color: '#ef4444', flexShrink: 0, marginLeft: '8px' }}>-${cityMoveCost.toLocaleString()}</span>}
+                      {!cityData && cost > 0 && <span style={{ fontSize: '0.75rem', color: '#ef4444', flexShrink: 0, marginLeft: '8px' }}>-${cost.toLocaleString()}</span>}
                     </div>
-                    {opt.baseEffects && !locked && (
+                    {cityData && !locked && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        {cityData.description} • Salary ×{cityData.salaryMultiplier} • CoL ×{cityData.colMultiplier}
+                      </div>
+                    )}
+                    {opt.baseEffects && !locked && !cityData && (
                       <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                         {Object.entries(opt.baseEffects).filter(([,v]) => v !== 0).map(([k, v]) =>
                           `${v > 0 ? '+' : ''}${v} ${k}`
@@ -404,70 +367,17 @@ export default function MainGame({ engine }) {
 
       {/* ── Doctor sheet ── */}
       {activeSheet === 'doctor' && (
-        <ActionSheet title="Doctor" onClose={closeSheet}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {[
-              { key: 'checkup',    label: 'General Checkup',  cost: 100,  desc: '+15 Health, +3 Happiness',  color: 'rgba(59,130,246,0.1)' },
-              { key: 'therapy',    label: 'Therapy Session',  cost: 200,  desc: '+5 Health, +20 Happiness',  color: 'rgba(139,92,246,0.1)' },
-              { key: 'specialist', label: 'Specialist Visit', cost: 500,  desc: '+25 Health, +5 Happiness',  color: 'rgba(16,185,129,0.1)' },
-              { key: 'surgery',    label: 'Minor Surgery',    cost: 5000, desc: '+40 Health, -5 Happiness',  color: 'rgba(239,68,68,0.1)' },
-            ].map(v => (
-              <button key={v.key} className="glass-panel" disabled={bank < v.cost}
-                onClick={() => { visitDoctor(v.key); closeSheet(); }}
-                style={{ padding: '1rem', textAlign: 'left', background: v.color, opacity: bank < v.cost ? 0.55 : 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>{v.label}</strong>
-                  <span style={{ fontSize: '0.75rem', color: '#ef4444' }}>-${v.cost.toLocaleString()}</span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{v.desc}</div>
-                {bank < v.cost && <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '2px' }}>Need ${v.cost.toLocaleString()}</div>}
-              </button>
-            ))}
-          </div>
-        </ActionSheet>
+        <DoctorSheet bank={bank} visitDoctor={visitDoctor} onClose={closeSheet} />
       )}
 
       {/* ── Lottery sheet ── */}
       {activeSheet === 'lottery' && (
-        <ActionSheet title="Lottery" onClose={closeSheet}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ padding: '0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
-              Jackpot: <strong style={{ color: '#10b981' }}>$10,000,000</strong> • Odds: 1 in 100,000
-            </div>
-            {[1, 5, 10, 50].map(n => (
-              <button key={n} className="glass-panel" disabled={bank < n * 5}
-                onClick={() => { playLottery(n); closeSheet(); }}
-                style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16,185,129,0.1)', opacity: bank < n * 5 ? 0.55 : 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>Buy {n} Ticket{n > 1 ? 's' : ''}</strong>
-                  <span style={{ fontSize: '0.75rem', color: '#ef4444' }}>-${(n * 5).toLocaleString()}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </ActionSheet>
+        <LotterySheet bank={bank} playLottery={playLottery} onClose={closeSheet} />
       )}
 
       {/* ── Casino sheet ── */}
       {activeSheet === 'casino' && (
-        <ActionSheet title="Casino" onClose={closeSheet}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ padding: '0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
-              45% win 2× • 25% get half back • 30% lose all
-            </div>
-            {[100, 500, 1000, 5000, 10000].map(amt => (
-              <button key={amt} className="glass-panel" disabled={bank < amt}
-                onClick={() => { goGamble(amt); closeSheet(); }}
-                style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16,185,129,0.1)', opacity: bank < amt ? 0.55 : 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <strong>Bet ${amt.toLocaleString()}</strong>
-                  <span style={{ fontSize: '0.75rem', color: '#10b981' }}>Win: ${(amt * 2).toLocaleString()}</span>
-                </div>
-                {bank < amt && <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: '2px' }}>Insufficient funds</div>}
-              </button>
-            ))}
-          </div>
-        </ActionSheet>
+        <CasinoSheet bank={bank} goGamble={goGamble} onClose={closeSheet} />
       )}
 
       {activeSheet === 'debug' && (
@@ -542,108 +452,31 @@ export default function MainGame({ engine }) {
 
 
       {activeSheet === 'dating' && (
-        <ActionSheet title="Dating App" onClose={closeSheet}>
-           {!datingMatch ? (
-             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-               <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(255,255,255,0.05)' }}>
-                 <h4 style={{ margin: '0 0 15px 0', color: 'var(--text-secondary)' }}>Search Preferences</h4>
-                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-                   <span>Age Group:</span>
-                   <select value={datingPrefAge} onChange={e => setDatingPrefAge(e.target.value)} style={{ background: '#1e1e1e', color: 'white', border: '1px solid rgba(255,255,255,0.2)', padding: '6px', borderRadius: '4px' }}>
-                     <option value="18-25">18-25</option>
-                     <option value="26-35">26-35</option>
-                     <option value="36-50">36-50</option>
-                     <option value="50+">50+</option>
-                   </select>
-                 </div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                   <span>Gender:</span>
-                   <select value={datingPrefGender} onChange={e => setDatingPrefGender(e.target.value)} style={{ background: '#1e1e1e', color: 'white', border: '1px solid rgba(255,255,255,0.2)', padding: '6px', borderRadius: '4px' }}>
-                     <option value="Any">Any</option>
-                     <option value="Male">Male</option>
-                     <option value="Female">Female</option>
-                   </select>
-                 </div>
-               </div>
-               <button className="glass-panel" disabled={bank < 20} onClick={handleSearchMatch} style={{ padding: '1.2rem', textAlign: 'center', background: 'rgba(236, 72, 153, 0.2)', fontSize: '1.1rem' }}>
-                 <strong>🔍 Search Matches (-$20)</strong>
-               </button>
-             </div>
-           ) : (
-             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', alignItems: 'center' }}>
-               <div className="glass-panel" style={{ padding: '2rem', width: '100%', textAlign: 'center', position: 'relative', background: 'rgba(255,255,255,0.05)' }}>
-                 <button onClick={() => setDatingMatch(null)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '1.2rem', cursor: 'pointer' }}>✖</button>
-                 <div style={{ fontSize: '4rem', marginBottom: '10px' }}>{datingMatch.gender === 'Female' ? '👩' : '👨'}</div>
-                 <h2 style={{ margin: '0 0 5px 0' }}>{datingMatch.name}, {datingMatch.age}</h2>
-                 <p style={{ color: 'var(--text-secondary)', margin: '0 0 20px 0' }}>{datingMatch.gender}</p>
-                 
-                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', textAlign: 'left', background: 'rgba(0,0,0,0.3)', padding: '15px', borderRadius: '8px' }}>
-                   <div>
-                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Looks</span>
-                     <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: 'var(--looks-color)' }}>{datingMatch.looks} <span style={{fontSize:'0.8rem', opacity:0.6}}>/100</span></div>
-                   </div>
-                   <div>
-                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Smarts</span>
-                     <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: 'var(--smarts-color)' }}>{datingMatch.smarts} <span style={{fontSize:'0.8rem', opacity:0.6}}>/100</span></div>
-                   </div>
-                 </div>
-               </div>
-               
-               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', width: '100%' }}>
-                 <button className="glass-panel" onClick={() => setDatingMatch(null)} style={{ padding: '1rem', background: 'rgba(255,255,255,0.1)' }}><strong>Pass</strong></button>
-                 <button className="glass-panel" onClick={handleAskOut} style={{ padding: '1rem', background: 'rgba(236, 72, 153, 0.4)' }}><strong>Ask Out 💌</strong></button>
-               </div>
-             </div>
-           )}
-        </ActionSheet>
+        <DatingSheet
+          bank={bank}
+          stats={stats}
+          debugModifyBank={debugModifyBank}
+          addRelationship={addRelationship}
+          triggerActivityEvent={triggerActivityEvent}
+          onClose={closeSheet}
+        />
       )}
 
       {activeSheet === 'wills' && (
-        <ActionSheet title="Will & Testament" onClose={closeSheet}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: '0', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px' }}>
-              Allocate percentages of your estate and belongings to your relationships. Remaining estate will be automatically heavily taxed or donated upon your death.
-            </p>
-            {relationships.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.5, fontStyle: 'italic' }}>You have no recorded relationships to bequeath assets to.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '350px', overflowY: 'auto', paddingRight: '5px' }}>
-                {relationships.map(rel => (
-                  <div key={rel.id} className="glass-panel" style={{ padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.05)' }}>
-                    <div>
-                      <strong>{rel.name}</strong> <span style={{ opacity: 0.7, fontSize: '0.8rem', marginLeft: '5px', color:'var(--text-muted)' }}>({rel.type})</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <input 
-                        type="number" 
-                        min="0" max="100" 
-                        value={willDistribution[rel.id]} 
-                        onChange={(e) => setWillDistribution(prev => ({...prev, [rel.id]: e.target.value}))}
-                        style={{ width: '60px', background: 'var(--bg-card)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '6px', borderRadius: '4px', textAlign: 'right' }} 
-                      />%
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <div style={{ marginTop: '10px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>Total Allocated:</span>
-              <strong style={{ fontSize: '1.2rem', color: (Object.values(willDistribution).reduce((sum, val) => sum + (parseInt(val) || 0), 0) > 100) ? '#ef4444' : '#34d399' }}>
-                {Object.values(willDistribution).reduce((sum, val) => sum + (parseInt(val) || 0), 0)}%
-              </strong>
-            </div>
+        <WillsSheet
+          relationships={relationships}
+          triggerActivityEvent={triggerActivityEvent}
+          onClose={closeSheet}
+        />
+      )}
 
-            <button 
-              className="glass-panel" 
-              disabled={Object.values(willDistribution).reduce((sum, val) => sum + (parseInt(val) || 0), 0) > 100}
-              onClick={handleCompleteWill} 
-              style={{ padding: '1rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.2)', marginTop: '10px' }}
-            >
-              <strong>Finalize Trust</strong>
-            </button>
-          </div>
-        </ActionSheet>
+      {activeSheet === 'pets' && (
+        <PetsSheet
+          pets={pets}
+          visitVet={visitVet}
+          bank={bank}
+          onClose={closeSheet}
+        />
       )}
     </div>
   );
