@@ -905,7 +905,6 @@ export function useGameState() {
     });
   };
 
-
   const chooseCareer = (jobId) => {
     if (jobId === null) {
       setCareer(null);
