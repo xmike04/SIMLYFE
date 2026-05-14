@@ -38,6 +38,12 @@ const minimalValidEvent = {
   choices: [{ text: 'Ok', effects: {} }],
 };
 
+const expectErrorEvent = (event, message) => {
+  expect(event.description).toContain('LLM ERROR');
+  expect(event.description).toContain(message);
+  expect(event.choices).toEqual([{ text: 'Understood', effects: {} }]);
+};
+
 // ─── Helpers: load llmService with specific env vars ─────────────────────────
 // Module-level consts (apiKey, supabaseUrl) require reset + re-import to change.
 
@@ -106,7 +112,7 @@ describe('generateDynamicEvent', () => {
     expect(result.description).toBe('A wrapped event.');
   });
 
-  it('returns null on API error status', async () => {
+  it('returns error event on API error status', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -114,24 +120,24 @@ describe('generateDynamicEvent', () => {
       json: async () => ({ error: { message: 'Rate limit exceeded' } }),
     });
     const result = await generateDynamicEvent(makeState());
-    expect(result).toBeNull();
+    expectErrorEvent(result, 'API Error 429');
   });
 
-  it('returns null on network failure', async () => {
+  it('returns error event on network failure', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
     const result = await generateDynamicEvent(makeState());
-    expect(result).toBeNull();
+    expectErrorEvent(result, 'Network error');
   });
 
-  it('returns null on malformed JSON from API', async () => {
+  it('returns error event on malformed JSON from API', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ choices: [{ message: { content: 'not valid json at all {{{' } }] }),
     });
     const result = await generateDynamicEvent(makeState());
-    expect(result).toBeNull();
+    expectErrorEvent(result, 'Unexpected token');
   });
 
   it('returns error event when description is empty', async () => {
@@ -212,7 +218,7 @@ describe('generateDynamicEvent', () => {
     expect(capturedBody.messages[0].content).toContain('Went to the gym');
   });
 
-  it('uses gpt-4o-mini model', async () => {
+  it('uses gpt-4.1-nano model', async () => {
     const generateDynamicEvent = await loadService('sk-test');
     let capturedBody = null;
     global.fetch = vi.fn().mockImplementation((url, opts) => {
@@ -223,7 +229,7 @@ describe('generateDynamicEvent', () => {
       });
     });
     await generateDynamicEvent(makeState());
-    expect(capturedBody.model).toBe('gpt-4o-mini');
+    expect(capturedBody.model).toBe('gpt-4.1-nano');
   });
 
   it('includes character stats in prompt', async () => {
@@ -305,7 +311,7 @@ describe('generateDynamicEvent — proxy path', () => {
     expect(capturedHeaders['Authorization']).toContain('my-anon-key');
   });
 
-  it('returns null when proxy returns non-ok status', async () => {
+  it('returns error event when proxy returns non-ok status', async () => {
     const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'test-anon');
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -313,7 +319,7 @@ describe('generateDynamicEvent — proxy path', () => {
       json: async () => ({ error: 'Internal server error' }),
     });
     const result = await generateDynamicEvent(makeState());
-    expect(result).toBeNull();
+    expectErrorEvent(result, 'API Error 500');
   });
 });
 
