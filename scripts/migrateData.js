@@ -1,6 +1,3 @@
-/* global process */
-import { initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -19,11 +16,24 @@ if (!fs.existsSync(serviceAccountPath)) {
 
 const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 
-initializeApp({
-  credential: cert(serviceAccount)
-});
+let db;
 
-const db = getFirestore();
+async function initAdminFirestore() {
+  try {
+    const [{ initializeApp, cert }, { getFirestore }] = await Promise.all([
+      import('firebase-admin/app'),
+      import('firebase-admin/firestore'),
+    ]);
+    initializeApp({ credential: cert(serviceAccount) });
+    db = getFirestore();
+  } catch (error) {
+    if (error.code === 'ERR_MODULE_NOT_FOUND') {
+      console.error('Missing firebase-admin. Run `npm install --no-save firebase-admin` before this one-off migration script.');
+      process.exit(1);
+    }
+    throw error;
+  }
+}
 
 async function migrateCollection(jsonRelativePath, collectionName) {
   const dataPath = path.join(process.cwd(), jsonRelativePath);
@@ -47,6 +57,7 @@ async function migrateCollection(jsonRelativePath, collectionName) {
 
 async function run() {
   console.log("Starting Firebase migration...");
+  await initAdminFirestore();
   await migrateCollection('src/engine/events.json', 'events');
   await migrateCollection('src/engine/careers.json', 'careers');
   console.log("Data migration complete!");

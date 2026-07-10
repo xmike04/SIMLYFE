@@ -89,7 +89,12 @@ export async function generateDynamicEvent(state, actionContext) {
     } else {
       console.warn("No LLM credentials configured — skipping dynamic event generation.");
     }
-    return null;
+    return {
+      description: directApiKey && !isNonProd
+        ? "LLM ERROR: Direct OpenAI keys are disabled in production. Configure the Supabase proxy."
+        : "LLM ERROR: No LLM credentials configured. Add Supabase proxy environment variables.",
+      choices: [{ text: "Understood", effects: {} }],
+    };
   }
 
   const {

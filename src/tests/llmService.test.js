@@ -2,13 +2,13 @@
  * llmService.test.js
  *
  * Tests for the LLM event generation service and the static JSON data files
- * it falls back to. Covers:
+ * it validates. Covers:
  *   1. generateDynamicEvent — API flow, prompt construction, JSON parsing
  *   2. Static events.json — schema validation, no duplicates, sane values
  *   3. Static careers.json — schema validation, no duplicates, sane values
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import staticEvents from '../engine/events.json';
 import staticCareers from '../engine/careers.json';
 
@@ -77,7 +77,7 @@ describe('generateDynamicEvent', () => {
   it('returns null when API key is missing', async () => {
     const generateDynamicEvent = await loadService(''); // empty key
     const result = await generateDynamicEvent(makeState());
-    expect(result).toBeNull();
+    expectErrorEvent(result, 'No LLM credentials configured');
   });
 
   it('parses a valid JSON response correctly', async () => {
@@ -278,7 +278,7 @@ describe('generateDynamicEvent — proxy path', () => {
   it('returns null when neither direct key nor Supabase vars are set', async () => {
     const generateDynamicEvent = await loadServiceProxy('', '');
     const result = await generateDynamicEvent(makeState());
-    expect(result).toBeNull();
+    expectErrorEvent(result, 'No LLM credentials configured');
   });
 
   it('calls Supabase edge function URL (not openai.com) when proxy is configured', async () => {

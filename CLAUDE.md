@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**SIMLYFE** is a mobile-first, browser-based life simulation game built with React 19 and Vite. Players create a character and age them one year at a time, navigating careers, relationships, finances, and AI-generated life events from birth to death. The UI uses a dark glassmorphism aesthetic. Cloud saves are powered by Firebase, AI events are proxied through a Supabase Edge Function, and LLM calls use OpenAI GPT-4o-mini.
+**SIMLYFE** is a mobile-first, browser-based life simulation game built with React 19 and Vite. Players create a character and age them one year at a time, navigating careers, relationships, finances, and AI-generated life events from birth to death. The UI uses a dark glassmorphism aesthetic. Optional cloud saves are powered by Firebase, AI events are proxied through a Supabase Edge Function, and LLM calls use OpenAI GPT-4.1-nano.
 
 ---
 
@@ -14,11 +14,10 @@
 | Bundler | Vite 8 with React/Oxc plugin |
 | Styling | Pure CSS with CSS custom properties (no Tailwind/UI libs) |
 | State management | Custom `useGameState` hook (no Redux/Zustand) |
-| Cloud backend | Firebase Firestore (saves) + Firebase Auth (anonymous) |
+| Cloud backend | Optional Firebase Firestore (saves) + Firebase Auth (anonymous), lazy-loaded after mount |
 | LLM proxy | Supabase Edge Function (`supabase/functions/generate-event/`) |
-| LLM client | `@supabase/supabase-js` — proxied call to OpenAI GPT-4.1-nano (120 token cap, 1–2 sentence hard limit) |
+| LLM client | `fetch` — proxied call to OpenAI GPT-4.1-nano (200 token cap, 1–2 sentence hard limit) |
 | AI events (dev fallback) | Direct OpenAI call via `VITE_OPENAI_API_KEY` |
-| Planned (unused) | `@google/generative-ai` (Gemini SDK is installed but not wired up) |
 | Linting | ESLint 9 flat config with React Hooks plugin |
 
 ---
@@ -58,7 +57,7 @@ SIMLYFE/
 │   ├── engine/             # Core game logic
 │   │   ├── gameState.js          # useGameState() hook — all game state & methods (~1687 lines)
 │   │   ├── llmService.js         # LLM proxy (Supabase) + dev fallback (direct OpenAI)
-│   │   ├── events.json           # Static fallback events library
+│   │   ├── events.json           # Static event catalog validated by tests
 │   │   └── careers.json          # Job definitions (salary, effects, min age)
 │   ├── tests/              # Vitest test suite
 │   │   ├── engine.mechanics.test.js  # Pure game-logic mirrors (350+ assertions)
@@ -126,9 +125,9 @@ Key state variables:
 
 `src/engine/llmService.js` routes LLM calls through a Supabase Edge Function when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set. This keeps `OPENAI_API_KEY` server-side. If only `VITE_OPENAI_API_KEY` is set, the service falls back to calling OpenAI directly (dev mode — key exposed in bundle).
 
-The edge function lives at `supabase/functions/generate-event/index.ts` and is a thin Deno proxy: it reads `OPENAI_API_KEY` from Supabase secrets and forwards the request to `gpt-4o-mini`.
+The edge function lives at `supabase/functions/generate-event/index.ts` and is a thin Deno proxy: it reads `OPENAI_API_KEY` from Supabase secrets, validates the request shape, and forwards the request to `gpt-4.1-nano`.
 
-The prompt includes character stats, recent history (last 5 entries), and an optional `actionContext` string. Responses are capped at **120 tokens** (150 in narrative mode) and the prompt enforces a **hard 1–2 sentence, 20-word max** on the description to keep events punchy and fast. The expected JSON response schema:
+The prompt includes character stats, recent history (last 5 entries), and an optional `actionContext` string. Responses are capped at **200 tokens** (400 in narrative mode) and the prompt enforces a **hard 1–2 sentence, 35-word max** on the description to keep events punchy and fast. The expected JSON response schema:
 
 ```json
 {
@@ -171,7 +170,7 @@ Anonymous Firebase Auth is used to create a persistent user ID. On every state c
 - **Standard jobs**: Add to `src/engine/careers.json` with `salary`, `happinessEffect`, `healthEffect`, `minAge`, `type` (`part_time` or `full_time`)
 - **Special careers**: Add to `src/config/specialCareers.js` — each career has an array of `actions`, each with `label`, `context` (LLM prompt text), optional `cost`, and optional `specialAction`
 
-### Adding New Events (static fallback)
+### Adding New Events (static catalog)
 Add to `src/engine/events.json`. Each event needs: `id`, `description`, `ageRange` (`[min, max]`), and `choices[]` with `text` and `effects`.
 
 ### Styling
@@ -288,6 +287,7 @@ Assets have `upkeep` (deducted annually), `statEffects` (applied passively each 
 | `VITE_FIREBASE_STORAGE_BUCKET` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_APP_ID` | Firebase credentials | `.env.local` |
+| `VITE_ENABLE_DEV_TOOLS` | Optional debug sheet gate (`false` by default) | `.env.local` |
 | `OPENAI_API_KEY` | Set as Supabase secret (server-side only — not in `.env.local`) | Supabase dashboard |
 
 **Security note:** When `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` are set, the OpenAI key stays server-side in the edge function. The `VITE_OPENAI_API_KEY` fallback is for local dev only and must not be used in production.
@@ -330,12 +330,10 @@ Tests live in `src/tests/`. Four files, each targeting a distinct layer:
 
 ## Known Issues / TODOs
 
-- **`firebase-admin` in client bundle**: Admin SDK should only run server-side; it's in `dependencies`, which may increase bundle size
 - **`gameState.js` size**: At ~1687 lines, `useGameState()` returns 50+ values and functions — consider breaking into smaller focused hooks (e.g. `useCareer`, `useEducation`, `useInvestments`)
 - **Test mirror drift**: Engine tests in `engine.mechanics.test.js` copy logic from `gameState.js` as pure functions — these mirrors will silently diverge if the originals change and no shared module is extracted
-- **No E2E or integration tests**: Only unit tests exist; there are no browser-level or component integration tests
 - **Supabase edge function has no authentication beyond anon key**: Anyone with the project URL and anon key can invoke the edge function and trigger OpenAI calls at the project's expense
-- **`scripts/` not wired into npm**: `migrateData.js` and `test-llm.js` must be run manually with `node scripts/<file>.js`
+- **`scripts/` not wired into npm**: `migrateData.js` and `test-llm.js` must be run manually with `node scripts/<file>.js`; the Firestore migration script also needs `npm install --no-save firebase-admin`
 - **Death probability**: Currently guarantees death at age 100 — this may be intentional
 
 ---

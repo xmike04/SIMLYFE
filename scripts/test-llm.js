@@ -1,53 +1,48 @@
-/* global process */
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import fs from 'fs';
 import path from 'path';
 
 const envPath = path.join(process.cwd(), '.env.local');
-const envContent = fs.readFileSync(envPath, 'utf-8');
-const keyMatch = envContent.match(/VITE_GEMINI_API_KEY=(.*)/);
-const apiKey = keyMatch ? keyMatch[1].trim() : null;
+const envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
 
-if (!apiKey) {
-    console.error("No API key found in .env.local");
-    process.exit(1);
+function readEnv(name) {
+  const match = envContent.match(new RegExp(`^${name}=(.*)$`, 'm'));
+  return match ? match[1].trim() : process.env[name];
 }
 
-const genAI = new GoogleGenerativeAI(apiKey);
-const generationConfig = {
-  temperature: 0.8,
-  responseMimeType: "application/json",
-  responseSchema: {
-    type: SchemaType.OBJECT,
-    properties: {
-      description: { type: SchemaType.STRING },
-      choices: {
-        type: SchemaType.ARRAY,
-        items: {
-          type: SchemaType.OBJECT,
-          properties: {
-             text: { type: SchemaType.STRING },
-             effects: { type: SchemaType.OBJECT }
-          }
-        }
-      }
-    }
+const supabaseUrl = readEnv('VITE_SUPABASE_URL');
+const supabaseKey = readEnv('VITE_SUPABASE_ANON_KEY');
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env.local.');
+  process.exit(1);
+}
+
+const messages = [{
+  role: 'user',
+  content: `Generate one JSON life event for a 22 year old SIMLYFE character.
+Return raw JSON only with description and choices fields.`,
+}];
+
+try {
+  const response = await fetch(`${supabaseUrl}/functions/v1/generate-event`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${supabaseKey}`,
+      'apikey': supabaseKey,
+    },
+    body: JSON.stringify({ messages, max_tokens: 200, temperature: 0.9 }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Edge function returned ${response.status}: ${JSON.stringify(data)}`);
   }
-};
 
-async function test() {
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent({
-            contents: [{ role: "user", parts: [{ text: "Generate an event for a 2 year old." }] }],
-            generationConfig
-        });
-        console.log("SUCCESS:");
-        console.log(result.response.text());
-    } catch(e) {
-        console.error("ERROR:");
-        console.error(e);
-        console.error(e.message);
-    }
+  console.log('SUCCESS:');
+  console.log(JSON.stringify(data, null, 2));
+} catch (error) {
+  console.error('ERROR:');
+  console.error(error.message);
+  process.exit(1);
 }
-test();

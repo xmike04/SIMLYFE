@@ -18,7 +18,7 @@
  *   9. Relationship helpers
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // ─── Helpers mirrored from gameState.js so we can unit-test them ──────────────
 // When the source changes, update these mirrors and the corresponding tests.
@@ -47,17 +47,6 @@ function applyEffects(stats, bank, effects) {
   const newBank = bank + (effects.bank ?? 0);
   const newFlags = effects.flags ?? [];
   return { stats: newStats, bank: newBank, flags: newFlags };
-}
-
-function checkDeath(stats, age) {
-  if (stats.health <= 0) return true;
-  if (age >= 60) {
-    // CORRECT formula: base 60, guaranteed death at 100
-    const chance = (age - 60) / 40;
-    // For deterministic tests we pass a seeded random via argument
-    return false; // deterministic path only; see probabilistic tests below
-  }
-  return false;
 }
 
 function checkDeathWithRandom(stats, age, randomValue) {
@@ -2317,12 +2306,12 @@ describe('§13.2 Wealth tier × income tax × lifestyle cost pipeline', () => {
 describe('§13.3 Asset × wealth tier × CGT integration', () => {
   it('studio apartment appreciates 3% per year correctly', () => {
     const studio = { id: 'studio_apt', currentValue: 50_000, appreciationRate: 1.03 };
-    expect(Math.floor(50_000 * 1.03)).toBe(51_500);
+    expect(Math.floor(studio.currentValue * studio.appreciationRate)).toBe(51_500);
   });
 
   it('vehicle depreciates 15% per year correctly', () => {
     const clunker = { id: 'used_clunker', currentValue: 3_000, appreciationRate: 0.80 };
-    expect(Math.floor(3_000 * 0.80)).toBe(2_400);
+    expect(Math.floor(clunker.currentValue * clunker.appreciationRate)).toBe(2_400);
   });
 
   it('CGT: selling at loss returns 0 tax', () => {
@@ -2824,6 +2813,7 @@ describe('§13.10 Full pipeline integration: wealth tier + assets + investments 
     const lifestyleCost = gwt(bank).lifestyleCost; // $3k for middle
     const yearEnd = bank - divorceCost - lifestyleCost;
     expect(divorceCost).toBe(12_000);
+    expect(stockLoss).toBe(30_000);
     expect(yearEnd).toBe(80_000 - 12_000 - 3_000); // $65k remaining
     expect(gwt(yearEnd).id).toBe('middle'); // still middle
   });

@@ -28,6 +28,8 @@ const SECTOR_META = {
   service:       { icon: '🛎️', label: 'Service' },
 };
 
+const ENABLE_DEV_TOOLS = import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true';
+
 const StatBar = ({ label, value, color }) => (
   <div style={{ marginBottom: '6px' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '2px' }}>
@@ -41,7 +43,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, executeTrade, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -93,7 +95,12 @@ export default function MainGame({ engine }) {
       )}
       {/* Header Profile */}
       <div className="glass-panel text-center mb-1" style={{ padding: '0.8rem', flexShrink: 0, position: 'relative' }}>
-        <h2 style={{ fontSize: '1.2rem', margin: 0 }}>{character.name} <span style={{ cursor: 'pointer', fontSize: '1rem' }} onClick={() => setActiveSheet('debug')}>🐛</span></h2>
+        <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
+          {character.name}
+          {ENABLE_DEV_TOOLS && (
+            <span style={{ cursor: 'pointer', fontSize: '1rem', marginLeft: '6px' }} onClick={() => setActiveSheet('debug')}>🐛</span>
+          )}
+        </h2>
         <p style={{ fontSize: '0.85rem', color: 'var(--accent-primary)' }}>Age: {age} • {character?.city ? `${getCityById(character.city)?.name ?? character.city}, ${character.country}` : character?.country}</p>
         <div style={{ position: 'absolute', top: '10px', right: '15px', color: '#10b981', fontWeight: 'bold', fontSize: '1rem' }}>
           ${bank.toLocaleString()}
@@ -380,7 +387,7 @@ export default function MainGame({ engine }) {
         <CasinoSheet bank={bank} goGamble={goGamble} onClose={closeSheet} />
       )}
 
-      {activeSheet === 'debug' && (
+      {ENABLE_DEV_TOOLS && activeSheet === 'debug' && (
         <ActionSheet title="Dev Tools" onClose={closeSheet}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <button className="glass-panel" onClick={() => { debugModifyBank(1000000); closeSheet(); }} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16, 185, 129, 0.2)' }}>

@@ -1,14 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
-import { signInAnonymously } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
-import { db, auth } from '../config/firebase';
 import { generateDynamicEvent } from './llmService';
 import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
 import { calculateCapitalGainsTax, estimateInvestmentReturn, getAllAssets } from '../config/assetCatalog';
 import { PET_CATALOG } from '../config/petCatalog.js';
 import { getCityById } from '../config/cityData.js';
 
-import staticEvents from './events.json';
 import staticCareers from './careers.json';
 
 const INITIAL_STATS = { health: 80, happiness: 80, smarts: 50, looks: 50, grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0 };
@@ -38,8 +34,7 @@ const INITIAL_CAREER_META = { yearsInRole: 0, isOnPIP: false, financialStressFla
 const INITIAL_ECONOMY = { year: 0, phase: 'normal', yearsInPhase: 0 };
 
 export function useGameState() {
-  const [userId, setUserId] = useState(null);
-  const [eventsData, setEventsData] = useState(staticEvents);
+  const [cloudSync, setCloudSync] = useState(null);
   const [careersData, setCareersData] = useState(staticCareers);
 
   const [character, setCharacter] = useState(null);
@@ -65,58 +60,77 @@ export function useGameState() {
 
   // 1. Initialize anonymous auth and load cloud datastores if configured
   useEffect(() => {
-    if (auth && db) {
-      signInAnonymously(auth)
-        .then(async cred => {
-          setUserId(cred.user.uid);
-          try {
-            const saveRef = doc(db, 'users', cred.user.uid, 'saves', 'currentLife');
-            const saveSnap = await getDoc(saveRef);
-            if (saveSnap.exists()) {
-              const data = saveSnap.data();
-              if (data.character) setCharacter(data.character);
-              if (data.age !== undefined) setAge(data.age);
-              if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
-              if (data.bank !== undefined) setBank(data.bank);
-              if (data.history) setHistory(data.history);
-              if (data.isDead !== undefined) setIsDead(data.isDead);
-              if (data.career !== undefined) setCareer(data.career);
-              if (data.relationships) setRelationships(data.relationships);
-              if (data.belongings) setBelongings(data.belongings);
-              if (data.properties) setProperties(data.properties);
-              if (data.education) setEducation({ ...INITIAL_EDUCATION, ...data.education });
-              if (data.careerMeta) setCareerMeta({ ...INITIAL_CAREER_META, ...data.careerMeta });
-              if (data.networking !== undefined) setNetworking(data.networking);
-              if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
-              if (data.pets) setPets(data.pets);
-            }
-          } catch (e) {
-            console.error("Failed to load save:", e);
+    let cancelled = false;
+
+    async function initCloudSync() {
+      try {
+        const [
+          firebaseConfig,
+          authApi,
+          firestoreApi,
+        ] = await Promise.all([
+          import('../config/firebase'),
+          import('firebase/auth'),
+          import('firebase/firestore'),
+        ]);
+
+        const { auth, db } = firebaseConfig;
+        if (!auth || !db || cancelled) return;
+
+        const { signInAnonymously } = authApi;
+        const { doc, setDoc, getDoc, collection, getDocs } = firestoreApi;
+        const cred = await signInAnonymously(auth);
+        if (cancelled) return;
+
+        setCloudSync({ db, userId: cred.user.uid, doc, setDoc });
+
+        try {
+          const saveRef = doc(db, 'users', cred.user.uid, 'saves', 'currentLife');
+          const saveSnap = await getDoc(saveRef);
+          if (!cancelled && saveSnap.exists()) {
+            const data = saveSnap.data();
+            if (data.character) setCharacter(data.character);
+            if (data.age !== undefined) setAge(data.age);
+            if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
+            if (data.bank !== undefined) setBank(data.bank);
+            if (data.history) setHistory(data.history);
+            if (data.isDead !== undefined) setIsDead(data.isDead);
+            if (data.career !== undefined) setCareer(data.career);
+            if (data.relationships) setRelationships(data.relationships);
+            if (data.belongings) setBelongings(data.belongings);
+            if (data.properties) setProperties(data.properties);
+            if (data.education) setEducation({ ...INITIAL_EDUCATION, ...data.education });
+            if (data.careerMeta) setCareerMeta({ ...INITIAL_CAREER_META, ...data.careerMeta });
+            if (data.networking !== undefined) setNetworking(data.networking);
+            if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
+            if (data.pets) setPets(data.pets);
           }
-        })
-        .catch(err => console.error("Firebase Auth Error:", err));
+        } catch (e) {
+          console.error("Failed to load save:", e);
+        }
 
-      // Attempt to load remote events & careers instead of static
-      getDocs(collection(db, 'events')).then(snapshot => {
-        if (!snapshot.empty) setEventsData(snapshot.docs.map(skip => skip.data()));
-      }).catch(console.error);
-
-      getDocs(collection(db, 'careers')).then(snapshot => {
-        if (!snapshot.empty) setCareersData(snapshot.docs.map(skip => skip.data()));
-      }).catch(console.error);
+        getDocs(collection(db, 'careers')).then(snapshot => {
+          if (!cancelled && !snapshot.empty) setCareersData(snapshot.docs.map(skip => skip.data()));
+        }).catch(console.error);
+      } catch (err) {
+        console.error("Firebase Auth Error:", err);
+      }
     }
+
+    initCloudSync();
+    return () => { cancelled = true; };
   }, []);
 
   // 2. Sync to Cloud
   const syncToCloud = useCallback(async (stateData) => {
-    if (!db || !userId) return;
+    if (!cloudSync) return;
     try {
-      const saveRef = doc(db, 'users', userId, 'saves', 'currentLife');
-      await setDoc(saveRef, stateData, { merge: true });
+      const saveRef = cloudSync.doc(cloudSync.db, 'users', cloudSync.userId, 'saves', 'currentLife');
+      await cloudSync.setDoc(saveRef, stateData, { merge: true });
     } catch (e) {
       console.error("Cloud sync failed:", e);
     }
-  }, [userId]);
+  }, [cloudSync]);
 
   const startLife = (name, gender, country, cityId) => {
     const city = getCityById(cityId);
@@ -239,18 +253,6 @@ export function useGameState() {
     });
     setCurrentEvent(null);
   };
-
-  const triggerRandomEvent = useCallback((nextAge) => {
-    const possibleEvents = eventsData.filter(e => nextAge >= e.minAge && nextAge <= e.maxAge);
-    if (possibleEvents.length > 0) {
-      if (Math.random() > 0.4 || nextAge < 4) {
-        const evt = possibleEvents[Math.floor(Math.random() * possibleEvents.length)];
-        setCurrentEvent(evt);
-        return true;
-      }
-    }
-    return false;
-  }, [eventsData]);
 
   const runPerformanceReview = useCallback((currentStats, currentCareer, currentMeta, currentNetworking, currentEconomy) => {
     let roll = 0.5;
@@ -834,7 +836,11 @@ export function useGameState() {
       setCurrentEvent(safeEvent);
       eventTriggered = true;
     } else {
-      eventTriggered = triggerRandomEvent(nextAge);
+      setCurrentEvent({
+        description: 'LLM ERROR: Dynamic event generation returned no event.',
+        choices: [{ text: 'Understood', effects: {} }],
+      });
+      eventTriggered = true;
     }
 
     if (!eventTriggered) {
@@ -863,7 +869,7 @@ export function useGameState() {
 
     syncToCloud({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
     setIsAging(false);
-  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, triggerRandomEvent, checkDeath, syncToCloud, isAging, character, relationships, properties, belongings, runPerformanceReview, careersData, pets]);
+  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, syncToCloud, isAging, character, relationships, properties, belongings, runPerformanceReview, careersData, pets, activitiesThisYear, narrativeMode]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
 
@@ -1336,11 +1342,10 @@ export function useGameState() {
       if (parsed && parsed.choices && parsed.description) {
         setCurrentEvent(parsed);
       } else {
-        // LLM unavailable — fall back to a static event for this age
-        const fallback = eventsData.filter(e => age >= e.minAge && age <= e.maxAge);
-        if (fallback.length > 0) {
-          setCurrentEvent(fallback[Math.floor(Math.random() * fallback.length)]);
-        }
+        setCurrentEvent({
+          description: 'LLM ERROR: Dynamic activity event generation returned no event.',
+          choices: [{ text: 'Understood', effects: {} }],
+        });
       }
     } catch (e) {
       console.error("triggerActivityEvent:", e);

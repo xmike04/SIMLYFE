@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="0.55" stop-color="#111827"/>
+      <stop offset="1" stop-color="#052e2b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#10b981"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="168" cy="166" r="220" fill="#7c3aed" opacity="0.22"/>
+  <circle cx="1020" cy="470" r="260" fill="#10b981" opacity="0.16"/>
+  <rect x="72" y="70" width="1056" height="490" rx="36" fill="rgba(15, 23, 42, 0.72)" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+  <g transform="translate(860 205) scale(0.82)" filter="url(#glow)">
+    <path d="M0 96 158 4c18-10 39-10 57 0l158 92c18 10 18 36 0 46l-158 92c-18 10-39 10-57 0L0 142c-18-10-18-36 0-46Z" fill="#111827" stroke="#c4b5fd" stroke-width="4"/>
+    <path d="M-2 205 158 112c18-10 39-10 57 0l160 93c18 10 18 36 0 46l-160 93c-18 10-39 10-57 0L-2 251c-18-10-18-36 0-46Z" fill="url(#accent)" opacity="0.9"/>
+    <path d="M32 208 178 124c7-4 15-4 22 0l146 84c7 4 7 14 0 18l-146 84c-7 4-15 4-22 0L32 226c-7-4-7-14 0-18Z" fill="#0f172a" opacity="0.78"/>
+  </g>
+  <text x="116" y="176" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="88" font-weight="800" letter-spacing="8">SIMLYFE</text>
+  <text x="122" y="248" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="600">AI-powered life simulation with teeth.</text>
+  <text x="122" y="320" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="760">Careers. Relationships. Wealth.</text>
+  <text x="122" y="374" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="760">Consequences.</text>
+  <text x="122" y="433" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="27" font-weight="500">A mobile-first React/Vite game built around dynamic events,</text>
+  <text x="122" y="470" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="27" font-weight="500">portfolio mechanics, and visible production tradeoffs.</text>
+  <g transform="translate(122 496)">
+    <rect width="178" height="46" rx="23" fill="rgba(124, 58, 237, 0.24)" stroke="rgba(196,181,253,0.5)"/>
+    <text x="28" y="30" fill="#ede9fe" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">React 19</text>
+    <rect x="198" width="152" height="46" rx="23" fill="rgba(16,185,129,0.22)" stroke="rgba(110,231,183,0.48)"/>
+    <text x="226" y="30" fill="#d1fae5" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">Vite 8</text>
+    <rect x="370" width="236" height="46" rx="23" fill="rgba(56,189,248,0.18)" stroke="rgba(125,211,252,0.42)"/>
+    <text x="398" y="30" fill="#e0f2fe" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700">Supabase + OpenAI</text>
+  </g>
+</svg>

@@ -4,9 +4,11 @@
   "description": "AI-powered life simulator. No paywalls.",
   "start_url": "/",
   "display": "standalone",
+  "scope": "/",
   "background_color": "#0f172a",
   "theme_color": "#7c3aed",
   "orientation": "portrait",
+  "categories": ["games", "entertainment", "simulation"],
   "icons": [
     { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]

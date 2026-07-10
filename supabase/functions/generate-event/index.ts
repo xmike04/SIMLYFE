@@ -11,8 +11,29 @@ serve(async (req: Request) => {
     return new Response("ok", { headers: CORS_HEADERS });
   }
 
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const payload = await req.json();
+    const messages = Array.isArray(payload?.messages) ? payload.messages : null;
+    const maxTokens = Number.isFinite(payload?.max_tokens)
+      ? Math.min(Math.max(Math.floor(payload.max_tokens), 1), 500)
+      : 200;
+    const temperature = Number.isFinite(payload?.temperature)
+      ? Math.min(Math.max(payload.temperature, 0), 1.2)
+      : 0.9;
+
+    if (!messages || messages.length === 0) {
+      return new Response(JSON.stringify({ error: "messages must be a non-empty array" }), {
+        status: 400,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
 
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) {
@@ -31,9 +52,9 @@ serve(async (req: Request) => {
       body: JSON.stringify({
         model: "gpt-4.1-nano",
         response_format: { type: "json_object" },
-        messages: payload.messages,
-        max_tokens: payload.max_tokens ?? 200,
-        temperature: payload.temperature ?? 0.9,
+        messages,
+        max_tokens: maxTokens,
+        temperature,
       }),
     });
 

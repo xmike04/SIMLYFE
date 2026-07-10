@@ -36,22 +36,27 @@ export default function CharacterCreation({ onStartLife }) {
   return (
     <div className="flex-center animate-fade-in" style={{ height: '100%', padding: '20px' }}>
       <div className="glass-panel" style={{ width: '100%' }}>
-        <h2 className="mb-4 text-center">Your Story Starts Here</h2>
+        <h2 className="mb-1 text-center">Start a Life</h2>
+        <p className="mb-4 text-center" style={{ fontSize: '0.9rem' }}>
+          Choose a starting point. SIMLYFE will do the damage from there.
+        </p>
         <form onSubmit={handleSubmit} className="flex-column">
           <div>
-            <label className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>First & Last Name</label>
+            <label htmlFor="character-name" className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>First and Last Name</label>
             <input
+              id="character-name"
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="e.g. John Doe"
+              placeholder="Alex Morgan"
               style={inputStyle}
               required
             />
           </div>
           <div>
-            <label className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Gender</label>
+            <label htmlFor="character-gender" className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Gender</label>
             <select
+              id="character-gender"
               value={gender}
               onChange={e => setGender(e.target.value)}
               style={inputStyle}
@@ -62,8 +67,9 @@ export default function CharacterCreation({ onStartLife }) {
             </select>
           </div>
           <div>
-            <label className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Country</label>
+            <label htmlFor="character-country" className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Country</label>
             <select
+              id="character-country"
               value={country}
               onChange={handleCountryChange}
               style={inputStyle}
@@ -84,8 +90,9 @@ export default function CharacterCreation({ onStartLife }) {
             </select>
           </div>
           <div>
-            <label className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>City</label>
+            <label htmlFor="character-city" className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>City</label>
             <select
+              id="character-city"
               value={selectedCity}
               onChange={e => setSelectedCity(e.target.value)}
               style={inputStyle}
@@ -95,7 +102,7 @@ export default function CharacterCreation({ onStartLife }) {
               ))}
             </select>
           </div>
-          <button type="submit" className="btn mt-4">Start My Life</button>
+          <button type="submit" className="btn mt-4">Start Life</button>
         </form>
       </div>
     </div>
