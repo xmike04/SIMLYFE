@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
 // Silence firebase console warnings in tests
 vi.mock('../config/firebase', () => ({

@@ -1,353 +1,726 @@
 /**
  * llmService.test.js
  *
- * Tests for the LLM event generation service and the static JSON data files
- * it validates. Covers:
- *   1. generateDynamicEvent — API flow, prompt construction, JSON parsing
- *   2. Static events.json — schema validation, no duplicates, sane values
- *   3. Static careers.json — schema validation, no duplicates, sane values
+ * Tests the authenticated, typed browser-to-edge LLM boundary as well as the
+ * static event and career data contracts.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import staticEvents from '../engine/events.json';
 import staticCareers from '../engine/careers.json';
 
-// Tell Vitest not to auto-mock llmService for this file
 vi.unmock('../engine/llmService');
 
-// ─── Helper state fixture ─────────────────────────────────────────────────────
+const originalFetch = globalThis.fetch;
 
 const makeState = (overrides = {}) => ({
   character: { name: 'Test User', gender: 'Male', country: 'USA' },
   age: 25,
   stats: {
-    health: 80, happiness: 70, smarts: 60, looks: 55,
-    athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0,
+    health: 80,
+    happiness: 70,
+    smarts: 60,
+    looks: 55,
+    athleticism: 50,
+    karma: 50,
+    acting: 4,
+    voice: 3,
+    modeling: 2,
+    grades: 75,
   },
   bank: 5000,
-  career: { title: 'Software Engineer' },
+  career: { id: 'software-engineer', title: 'Software Engineer' },
   history: [
+    { age: 23, text: 'You went on vacation.' },
     { age: 24, text: 'You worked hard.' },
-    { age: 23, text: 'You went on a vacation.' },
   ],
+  relationships: [
+    {
+      id: 'relationship-1',
+      name: 'Alex',
+      type: 'Friend',
+      age: 26,
+      relation: 80,
+      status: 'active',
+      isAlive: true,
+    },
+  ],
+  pets: [
+    {
+      id: 'pet-1',
+      name: 'Pixel',
+      speciesId: 'cat',
+      age: 3,
+      isAlive: true,
+    },
+  ],
+  city: 'Chicago',
+  education: {
+    highSchool: true,
+    associate: false,
+    bachelor: true,
+    master: false,
+    phd: false,
+    currentDegree: { type: 'master', yearsInProgram: 1 },
+  },
+  economyPhase: 'normal',
+  narrativeMode: false,
   ...overrides,
 });
 
-const minimalValidEvent = {
-  description: 'x',
-  choices: [{ text: 'Ok', effects: {} }],
+const makeMaximumProjectionState = unit => {
+  const fill = length => unit.repeat(length);
+  return makeState({
+    character: { name: fill(80), gender: fill(40), country: fill(80) },
+    bank: 1_000_000_000_000,
+    career: { id: fill(80), title: fill(120) },
+    history: Array.from({ length: 5 }, (_, index) => ({ age: index, text: fill(300) })),
+    relationships: Array.from({ length: 5 }, (_, index) => ({
+      id: fill(80),
+      name: fill(80),
+      type: fill(40),
+      age: index,
+      relation: 100,
+      status: fill(40),
+      isAlive: true,
+    })),
+    pets: Array.from({ length: 5 }, (_, index) => ({
+      id: fill(80),
+      name: fill(80),
+      speciesId: fill(40),
+      age: index,
+      isAlive: true,
+    })),
+    city: fill(100),
+    education: {
+      highSchool: true,
+      associate: true,
+      bachelor: true,
+      master: true,
+      phd: true,
+      currentDegree: { type: fill(40) },
+    },
+    economyPhase: 'recession',
+  });
 };
 
-const expectErrorEvent = (event, message) => {
-  expect(event.description).toContain('LLM ERROR');
-  expect(event.description).toContain(message);
-  expect(event.choices).toEqual([{ text: 'Understood', effects: {} }]);
+const validEvent = {
+  description: 'You stumble across a hidden opportunity.',
+  choices: [
+    { text: 'Take it', effects: { bank: 200 } },
+    { text: 'Ignore it', effects: {} },
+  ],
 };
 
-// ─── Helpers: load llmService with specific env vars ─────────────────────────
-// Module-level consts (apiKey, supabaseUrl) require reset + re-import to change.
+const validMeta = {
+  requestId: 'request-123',
+  model: 'gpt-5-nano',
+  latencyMs: 125,
+  usage: {
+    inputTokens: 800,
+    outputTokens: 80,
+    totalTokens: 880,
+  },
+};
 
-async function loadService(apiKey = '') {
-  vi.resetModules();
-  vi.stubEnv('VITE_OPENAI_API_KEY', apiKey);
-  vi.stubEnv('VITE_SUPABASE_URL', '');         // ensure direct path
-  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE', '');
-  vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
-  const mod = await import('../engine/llmService');
-  return mod.generateDynamicEvent;
-}
+const successEnvelope = (event = validEvent, meta = validMeta) => ({ event, meta });
 
-async function loadServiceProxy(supabaseUrl = 'https://test.supabase.co', publishableKey = 'publishable-key') {
-  vi.resetModules();
-  vi.stubEnv('VITE_OPENAI_API_KEY', '');
-  vi.stubEnv('VITE_SUPABASE_URL', supabaseUrl);
-  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE', publishableKey);
-  vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
-  const mod = await import('../engine/llmService');
-  return mod.generateDynamicEvent;
-}
-
-async function loadServiceProxyLegacyAnon(supabaseUrl = 'https://test.supabase.co', anonKey = 'anon-key') {
-  vi.resetModules();
-  vi.stubEnv('VITE_OPENAI_API_KEY', '');
-  vi.stubEnv('VITE_SUPABASE_URL', supabaseUrl);
-  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE', '');
-  vi.stubEnv('VITE_SUPABASE_ANON_KEY', anonKey);
-  const mod = await import('../engine/llmService');
-  return mod.generateDynamicEvent;
-}
-
-// ─── 1. generateDynamicEvent — unit tests via fetch mock ─────────────────────
-
-describe('generateDynamicEvent', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.restoreAllMocks();
-    vi.resetModules();
-  });
-
-  it('returns null when API key is missing', async () => {
-    const generateDynamicEvent = await loadService(''); // empty key
-    const result = await generateDynamicEvent(makeState());
-    expectErrorEvent(result, 'No LLM credentials configured');
-  });
-
-  it('parses a valid JSON response correctly', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    const mockEvent = {
-      description: 'You stumble across a hidden opportunity.',
-      choices: [
-        { text: 'Take it', effects: { bank: 200 } },
-        { text: 'Ignore it', effects: {} },
-      ],
-    };
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(mockEvent) } }] }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expect(result.description).toBe(mockEvent.description);
-    expect(result.choices).toHaveLength(2);
-    expect(result.choices[0].effects.bank).toBe(200);
-  });
-
-  it('strips markdown code fences before JSON parse', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    const mockEvent = { description: 'A wrapped event.', choices: [{ text: 'OK', effects: {} }] };
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: '```json\n' + JSON.stringify(mockEvent) + '\n```' } }],
-      }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expect(result.description).toBe('A wrapped event.');
-  });
-
-  it('returns error event on API error status', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 429,
-      json: async () => ({ error: { message: 'Rate limit exceeded' } }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expectErrorEvent(result, 'API Error 429');
-  });
-
-  it('returns error event on network failure', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
-    const result = await generateDynamicEvent(makeState());
-    expectErrorEvent(result, 'Network error');
-  });
-
-  it('returns error event on malformed JSON from API', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: 'not valid json at all {{{' } }] }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expectErrorEvent(result, 'Unexpected token');
-  });
-
-  it('returns error event when description is empty', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    const invalidEvent = { description: '', choices: minimalValidEvent.choices };
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(invalidEvent) } }] }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
-  });
-
-  it('returns error event when choices are empty', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    const invalidEvent = { description: 'Empty choices.', choices: [] };
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(invalidEvent) } }] }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
-  });
-
-  it('returns error event when effect keys are unknown', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    const invalidEvent = {
-      description: 'An odd event.',
-      choices: [{ text: 'Take it', effects: { hacking: 5 } }],
-    };
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(invalidEvent) } }] }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
-  });
-
-  it('returns error event when effect values are not numbers', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    const invalidEvent = {
-      description: 'A questionable offer.',
-      choices: [{ text: 'Accept', effects: { bank: 'NaN' } }],
-    };
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(invalidEvent) } }] }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
-  });
-
-  it('returns error event when flags are not string arrays', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    const invalidEvent = {
-      description: 'A flagged event.',
-      choices: [{ text: 'Continue', effects: { flags: 'bad' } }],
-    };
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ choices: [{ message: { content: JSON.stringify(invalidEvent) } }] }),
-    });
-    const result = await generateDynamicEvent(makeState());
-    expect(result.description).toMatch(/LLM ERROR/i);
-  });
-
-  it('includes actionContext in prompt when provided', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    let capturedBody = null;
-    global.fetch = vi.fn().mockImplementation((url, opts) => {
-      capturedBody = JSON.parse(opts.body);
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
-      });
-    });
-    await generateDynamicEvent(makeState(), 'Went to the gym');
-    expect(capturedBody.messages[0].content).toContain('Went to the gym');
-  });
-
-  it('uses gpt-4.1-nano model', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    let capturedBody = null;
-    global.fetch = vi.fn().mockImplementation((url, opts) => {
-      capturedBody = JSON.parse(opts.body);
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
-      });
-    });
-    await generateDynamicEvent(makeState());
-    expect(capturedBody.model).toBe('gpt-4.1-nano');
-  });
-
-  it('includes character stats in prompt', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    let capturedBody = null;
-    global.fetch = vi.fn().mockImplementation((url, opts) => {
-      capturedBody = JSON.parse(opts.body);
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
-      });
-    });
-    await generateDynamicEvent(makeState({ age: 42 }));
-    const prompt = capturedBody.messages[0].content;
-    expect(prompt).toContain('42');
-    expect(prompt).toContain('Test User');
-  });
-
-  it('only sends last 5 history entries in prompt', async () => {
-    const generateDynamicEvent = await loadService('sk-test');
-    let capturedBody = null;
-    global.fetch = vi.fn().mockImplementation((url, opts) => {
-      capturedBody = JSON.parse(opts.body);
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
-      });
-    });
-    const longHistory = Array.from({ length: 10 }, (_, i) => ({ age: i, text: `Entry ${i}` }));
-    await generateDynamicEvent(makeState({ history: longHistory }));
-    const prompt = capturedBody.messages[0].content;
-    expect(prompt).toContain('Entry 9');
-    expect(prompt).not.toContain('Entry 0');
-  });
+const responseWith = (data, options = {}) => ({
+  ok: options.ok ?? true,
+  status: options.status ?? 200,
+  json: vi.fn().mockResolvedValue(data),
 });
 
-// ─── 1b. Proxy path tests ─────────────────────────────────────────────────────
+const makeUser = (token = 'firebase-id-token') => ({
+  getIdToken: vi.fn().mockResolvedValue(token),
+});
 
-describe('generateDynamicEvent — proxy path', () => {
+async function loadService({
+  supabaseUrl = 'https://test.supabase.co',
+  publishableKey = '',
+  anonKey = 'supabase-anon-key',
+  currentUser,
+  authConfigured = true,
+  directKey = 'browser-direct-key-must-never-be-used',
+} = {}) {
+  vi.resetModules();
+  vi.stubEnv('VITE_SUPABASE_URL', supabaseUrl);
+  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE', publishableKey);
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', anonKey);
+  vi.stubEnv('VITE_OPENAI_API_KEY', directKey);
+
+  const resolvedUser = currentUser === undefined ? makeUser() : currentUser;
+  const { setFirebaseIdTokenProvider } = await import('../engine/firebaseToken');
+  setFirebaseIdTokenProvider(
+    authConfigured && resolvedUser
+      ? () => resolvedUser.getIdToken()
+      : null,
+  );
+
+  const service = await import('../engine/llmService');
+  return { ...service, currentUser: resolvedUser };
+}
+
+function expectErrorEvent(event, expectedText, leakedText) {
+  expect(event.description).toMatch(/^LLM ERROR:/);
+  expect(event.description).toContain(expectedText);
+  expect(event.choices).toEqual([{ text: 'Understood', effects: {} }]);
+  if (leakedText) expect(JSON.stringify(event)).not.toContain(leakedText);
+}
+
+describe('generateDynamicEvent', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+  });
+
   afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.resetModules();
   });
 
-  it('returns null when neither direct key nor Supabase vars are set', async () => {
-    const generateDynamicEvent = await loadServiceProxy('', '');
+  it('surfaces a sanitized error event when the proxy is not configured', async () => {
+    globalThis.fetch = vi.fn();
+    const { generateDynamicEvent } = await loadService({
+      supabaseUrl: '',
+      anonKey: '',
+      directKey: 'browser-direct-secret',
+    });
+
     const result = await generateDynamicEvent(makeState());
-    expectErrorEvent(result, 'No LLM credentials configured');
+
+    expectErrorEvent(result, 'Event generation failed');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('calls Supabase edge function URL (not openai.com) when proxy is configured', async () => {
-    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'test-anon');
-    let capturedUrl = null;
-    global.fetch = vi.fn().mockImplementation((url) => {
-      capturedUrl = url;
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
-      });
+  it('surfaces a sanitized authentication error when Firebase Auth is unavailable', async () => {
+    globalThis.fetch = vi.fn();
+    const { generateDynamicEvent } = await loadService({ authConfigured: false });
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'session could not be verified');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a sanitized authentication error when there is no current user', async () => {
+    globalThis.fetch = vi.fn();
+    const { generateDynamicEvent } = await loadService({ currentUser: null });
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'session could not be verified');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not leak Firebase token retrieval errors to the player', async () => {
+    const user = {
+      getIdToken: vi.fn().mockRejectedValue(new Error('refresh token secret leaked')),
+    };
+    const { generateDynamicEvent } = await loadService({ currentUser: user });
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'session could not be verified', 'refresh token secret leaked');
+  });
+
+  it('requires a non-empty Firebase ID token', async () => {
+    globalThis.fetch = vi.fn();
+    const { generateDynamicEvent } = await loadService({ currentUser: makeUser('') });
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'session could not be verified');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('calls only the configured Supabase edge endpoint', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent } = await loadService({
+      supabaseUrl: 'https://project.supabase.co',
+      directKey: 'browser-direct-secret',
     });
+
     await generateDynamicEvent(makeState());
-    expect(capturedUrl).toContain('supabase.co');
-    expect(capturedUrl).toContain('generate-event');
-    expect(capturedUrl).not.toContain('openai.com');
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch.mock.calls[0][0]).toBe(
+      'https://project.supabase.co/functions/v1/generate-event',
+    );
+    expect(globalThis.fetch.mock.calls[0][0]).not.toContain('openai.com');
   });
 
-  it('sends Authorization header with publishable key when using proxy', async () => {
-    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'my-publishable-key');
-    let capturedHeaders = null;
-    global.fetch = vi.fn().mockImplementation((url, opts) => {
-      capturedHeaders = opts.headers;
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
-      });
+  it('uses the Firebase ID token as bearer and the Supabase key only as apikey', async () => {
+    const user = makeUser('firebase-user-token');
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent } = await loadService({
+      anonKey: 'public-anon-key',
+      currentUser: user,
     });
-    await generateDynamicEvent(makeState());
-    expect(capturedHeaders['Authorization']).toContain('my-publishable-key');
-    expect(capturedHeaders.apikey).toBe('my-publishable-key');
-  });
 
-  it('supports legacy anon key fallback when publishable key is absent', async () => {
-    const generateDynamicEvent = await loadServiceProxyLegacyAnon('https://myproject.supabase.co', 'my-legacy-anon-key');
-    let capturedHeaders = null;
-    global.fetch = vi.fn().mockImplementation((url, opts) => {
-      capturedHeaders = opts.headers;
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
-      });
+    await generateDynamicEvent(makeState());
+
+    expect(user.getIdToken).toHaveBeenCalledTimes(1);
+    const options = globalThis.fetch.mock.calls[0][1];
+    expect(options.headers).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer firebase-user-token',
+      apikey: 'public-anon-key',
     });
-    await generateDynamicEvent(makeState());
-    expect(capturedHeaders['Authorization']).toContain('my-legacy-anon-key');
-    expect(capturedHeaders.apikey).toBe('my-legacy-anon-key');
+    expect(options.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it('returns error event when proxy returns non-ok status', async () => {
-    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'test-anon');
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
+  it('prefers the current Supabase publishable key over the legacy anon key', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent } = await loadService({
+      publishableKey: 'current-publishable-key',
+      anonKey: 'legacy-anon-key',
+    });
+
+    await generateDynamicEvent(makeState());
+
+    expect(globalThis.fetch.mock.calls[0][1].headers.apikey).toBe('current-publishable-key');
+  });
+
+  it('sends only the typed state projection, action context, and narrative mode', async () => {
+    const history = Array.from(
+      { length: 8 },
+      (_, index) => ({ age: 18 + index, text: 'History entry ' + index }),
+    );
+    const relationships = Array.from(
+      { length: 7 },
+      (_, index) => ({
+        id: 'r-' + index,
+        name: 'Person ' + index,
+        type: 'Friend',
+        age: 30 + index,
+        relation: 50 + index,
+        status: 'active',
+        isAlive: true,
+      }),
+    );
+    const pets = [
+      { id: 'dead-pet', name: 'Ghost', speciesId: 'dog', age: 12, isAlive: false },
+      ...Array.from(
+        { length: 6 },
+        (_, index) => ({
+          id: 'pet-' + index,
+          name: 'Pet ' + index,
+          speciesId: index === 0 ? 'cat' : 'dog',
+          age: index,
+          isAlive: true,
+        }),
+      ),
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent } = await loadService();
+    await generateDynamicEvent(
+      makeState({ history, relationships, pets, narrativeMode: true }),
+      '  Went to the gym  ',
+    );
+
+    const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+    expect(Object.keys(body)).toEqual(['state', 'actionContext', 'narrativeMode']);
+    expect(Object.keys(body.state)).toEqual([
+      'character',
+      'age',
+      'stats',
+      'bank',
+      'career',
+      'recentHistory',
+      'relationships',
+      'pets',
+      'city',
+      'education',
+      'economyPhase',
+    ]);
+    expect(body.actionContext).toBe('Went to the gym');
+    expect(body.narrativeMode).toBe(true);
+    expect(body.state.character).toEqual({
+      name: 'Test User',
+      gender: 'Male',
+      country: 'USA',
+    });
+    expect(body.state.recentHistory.map(entry => entry.text)).toEqual([
+      'History entry 3',
+      'History entry 4',
+      'History entry 5',
+      'History entry 6',
+      'History entry 7',
+    ]);
+    expect(body.state.relationships).toHaveLength(5);
+    expect(body.state.pets).toHaveLength(5);
+    expect(body.state.pets[0]).toMatchObject({ name: 'Pet 0', type: 'cat', isAlive: true });
+    expect(body.state.pets.find(pet => pet.name === 'Ghost')).toBeUndefined();
+    expect(body.state.education.currentDegree).toBe('master');
+
+    for (const forbidden of ['messages', 'model', 'temperature', 'max_tokens', 'maxTokens']) {
+      expect(body).not.toHaveProperty(forbidden);
+    }
+    expect(globalThis.fetch.mock.calls[0][1].body).not.toContain('browser-direct-secret');
+  });
+
+  it('bounds projected identifiers, labels, and bank balance to the edge contract', async () => {
+    const longText = 'x'.repeat(200);
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent } = await loadService();
+
+    await generateDynamicEvent(makeState({
+      character: { name: longText, gender: 'Female', country: longText },
+      bank: Number.MAX_SAFE_INTEGER,
+      career: { id: longText, title: longText },
+      relationships: [{
+        id: longText,
+        name: longText,
+        type: longText,
+        age: 200,
+        relation: 200,
+        status: longText,
+        isAlive: true,
+      }],
+      pets: [{
+        id: longText,
+        name: longText,
+        speciesId: longText,
+        age: 200,
+        isAlive: true,
+      }],
+    }));
+
+    const projection = JSON.parse(globalThis.fetch.mock.calls[0][1].body).state;
+    expect(projection.character.name).toHaveLength(80);
+    expect(projection.character.country).toHaveLength(80);
+    expect(projection.career.id).toHaveLength(80);
+    expect(projection.career.title).toHaveLength(120);
+    expect(projection.relationships[0]).toMatchObject({ age: 130, relation: 100 });
+    expect(projection.relationships[0].id).toHaveLength(80);
+    expect(projection.relationships[0].name).toHaveLength(80);
+    expect(projection.relationships[0].type).toHaveLength(40);
+    expect(projection.relationships[0].status).toHaveLength(40);
+    expect(projection.pets[0]).toMatchObject({ age: 80 });
+    expect(projection.pets[0].id).toHaveLength(80);
+    expect(projection.pets[0].name).toHaveLength(80);
+    expect(projection.pets[0].type).toHaveLength(40);
+    expect(projection.bank).toBe(1_000_000_000_000);
+  });
+
+  it('keeps a maximum three-byte Unicode projection within the 16 KiB edge budget', async () => {
+    const unit = '界';
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent } = await loadService();
+
+    const result = await generateDynamicEvent(
+      makeMaximumProjectionState(unit),
+      unit.repeat(400),
+    );
+
+    expect(result.description).toBe(validEvent.description);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const body = globalThis.fetch.mock.calls[0][1].body;
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(16 * 1024);
+    const parsed = JSON.parse(body);
+    expect(parsed.actionContext).toHaveLength(400);
+    expect(parsed.state.recentHistory[0].text).toHaveLength(300);
+  });
+
+  it('rejects an oversized serialized projection before fetch without leaking content', async () => {
+    const malformedUnit = String.fromCharCode(0xD800);
+    globalThis.fetch = vi.fn();
+    const { generateDynamicEvent, setLlmDiagnosticsHandler } = await loadService();
+    const diagnostics = [];
+    setLlmDiagnosticsHandler(event => diagnostics.push(event));
+
+    const result = await generateDynamicEvent(
+      makeMaximumProjectionState(malformedUnit),
+      malformedUnit.repeat(400),
+    );
+
+    expectErrorEvent(result, 'Event generation failed');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(diagnostics.at(-1)).toMatchObject({ type: 'failure', code: 'service' });
+    expect(JSON.stringify(diagnostics)).not.toContain('\\ud800');
+  });
+
+  it('uses null for an absent action context', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent } = await loadService();
+
+    await generateDynamicEvent(makeState());
+
+    const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+    expect(body.actionContext).toBeNull();
+  });
+
+  it('returns the direct validated event and sanitized metadata', async () => {
+    const meta = {
+      ...validMeta,
+      usage: {
+        ...validMeta.usage,
+        providerInternalCounter: 999,
+      },
+    };
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope(validEvent, meta)));
+    const { generateDynamicEvent } = await loadService();
+
+    const result = await generateDynamicEvent(makeState());
+
+    expect(result).toEqual({
+      ...validEvent,
+      meta: validMeta,
+    });
+  });
+
+  it.each([
+    [
+      'a raw OpenAI response',
+      { choices: [{ message: { content: JSON.stringify(validEvent) } }] },
+    ],
+    [
+      'a missing metadata envelope',
+      { event: validEvent },
+    ],
+    [
+      'an extra event property',
+      successEnvelope({ ...validEvent, privilegedAction: 'custody_change' }),
+    ],
+    [
+      'an extra choice property',
+      successEnvelope({
+        ...validEvent,
+        choices: [{ text: 'Continue', effects: {}, custodyChange: true }],
+      }),
+    ],
+    [
+      'an empty description',
+      successEnvelope({ description: '', choices: validEvent.choices }),
+    ],
+    [
+      'empty choices',
+      successEnvelope({ description: 'No options.', choices: [] }),
+    ],
+    [
+      'an unknown effect',
+      successEnvelope({
+        description: 'An invalid effect.',
+        choices: [{ text: 'Continue', effects: { hacking: 5 } }],
+      }),
+    ],
+    [
+      'a non-numeric effect',
+      successEnvelope({
+        description: 'An invalid amount.',
+        choices: [{ text: 'Continue', effects: { bank: 'NaN' } }],
+      }),
+    ],
+    [
+      'invalid flags',
+      successEnvelope({
+        description: 'An invalid flag.',
+        choices: [{ text: 'Continue', effects: { flags: 'secret' } }],
+      }),
+    ],
+    [
+      'a description beyond the 35-word edge boundary',
+      successEnvelope({
+        description: Array.from({ length: 36 }, () => 'word').join(' '),
+        choices: [{ text: 'Continue', effects: {} }],
+      }),
+    ],
+    [
+      'more than three choices',
+      successEnvelope({
+        description: 'Too many choices.',
+        choices: Array.from({ length: 4 }, (_, index) => ({
+          text: 'Choice ' + index,
+          effects: {},
+        })),
+      }),
+    ],
+    [
+      'a flag outside the edge identifier contract',
+      successEnvelope({
+        description: 'An invalid flag format.',
+        choices: [{ text: 'Continue', effects: { flags: ['Not-Lowercase'] } }],
+      }),
+    ],
+  ])('rejects %s with a sanitized schema error', async (_label, payload) => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(payload));
+    const { generateDynamicEvent } = await loadService();
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'invalid response');
+    expect(JSON.stringify(result)).not.toContain('custody_change');
+  });
+
+  it('sanitizes API errors without exposing provider response details', async () => {
+    const providerSecret = 'provider org secret and quota detail';
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(
+      { error: { code: 'provider_error', message: providerSecret } },
+      { ok: false, status: 500 },
+    ));
+    const { generateDynamicEvent, setLlmDiagnosticsHandler } = await loadService();
+    const diagnostics = [];
+    setLlmDiagnosticsHandler(event => diagnostics.push(event));
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'Event generation failed', providerSecret);
+    expect(JSON.stringify(diagnostics)).not.toContain(providerSecret);
+    expect(diagnostics.at(-1)).toMatchObject({
+      source: 'llmService',
+      type: 'failure',
+      code: 'service',
       status: 500,
-      json: async () => ({ error: 'Internal server error' }),
     });
+  });
+
+  it.each([401, 403])('maps HTTP %s to a sanitized authentication error', async status => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(
+      { error: { code: 'unauthorized', message: 'sensitive auth detail' } },
+      { ok: false, status },
+    ));
+    const { generateDynamicEvent } = await loadService();
+
     const result = await generateDynamicEvent(makeState());
-    expectErrorEvent(result, 'API Error 500');
+
+    expectErrorEvent(result, 'session could not be verified', 'sensitive auth detail');
+  });
+
+  it('maps HTTP 429 to a sanitized rate-limit error and diagnostic', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(
+      { error: { code: 'provider_error', message: 'raw rate limit text' } },
+      { ok: false, status: 429 },
+    ));
+    const { generateDynamicEvent, setLlmDiagnosticsHandler } = await loadService();
+    const diagnostics = [];
+    setLlmDiagnosticsHandler(event => diagnostics.push(event));
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'try again shortly', 'raw rate limit text');
+    expect(diagnostics.at(-1)).toMatchObject({ type: 'failure', code: 'rate_limited' });
+  });
+
+  it('honors the sanitized edge RATE_LIMITED error code', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(
+      { error: { code: 'RATE_LIMITED', message: 'do not surface me' } },
+      { ok: false, status: 400 },
+    ));
+    const { generateDynamicEvent } = await loadService();
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'try again shortly', 'do not surface me');
+  });
+
+  it('sanitizes network failures', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new Error('DNS failure included a private hostname'),
+    );
+    const { generateDynamicEvent, setLlmDiagnosticsHandler } = await loadService();
+    const diagnostics = [];
+    setLlmDiagnosticsHandler(event => diagnostics.push(event));
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'temporarily unavailable', 'private hostname');
+    expect(JSON.stringify(diagnostics)).not.toContain('private hostname');
+    expect(diagnostics.at(-1)).toMatchObject({ type: 'failure', code: 'network' });
+  });
+
+  it('sanitizes malformed JSON responses', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockRejectedValue(new SyntaxError('raw response body secret')),
+    });
+    const { generateDynamicEvent } = await loadService();
+
+    const result = await generateDynamicEvent(makeState());
+
+    expectErrorEvent(result, 'invalid response', 'raw response body secret');
+  });
+
+  it('times out a hung Firebase token refresh within the same client budget', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi.fn();
+    const user = {
+      getIdToken: vi.fn(() => new Promise(() => {})),
+    };
+    const { generateDynamicEvent, setLlmDiagnosticsHandler } = await loadService({ currentUser: user });
+    const diagnostics = [];
+    setLlmDiagnosticsHandler(event => diagnostics.push(event));
+
+    const pendingResult = generateDynamicEvent(makeState());
+    await vi.advanceTimersByTimeAsync(20000);
+    const result = await pendingResult;
+
+    expectErrorEvent(result, 'timed out');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(diagnostics.at(-1)).toMatchObject({
+      type: 'failure',
+      code: 'timeout',
+      latencyMs: 20000,
+    });
+  });
+
+  it('aborts requests after the client timeout', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi.fn((_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('provider timeout internals');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }));
+    const { generateDynamicEvent, setLlmDiagnosticsHandler } = await loadService();
+    const diagnostics = [];
+    setLlmDiagnosticsHandler(event => diagnostics.push(event));
+
+    const pendingResult = generateDynamicEvent(makeState());
+    await vi.advanceTimersByTimeAsync(20000);
+    const result = await pendingResult;
+
+    expectErrorEvent(result, 'timed out', 'provider timeout internals');
+    expect(globalThis.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(diagnostics.at(-1)).toMatchObject({
+      type: 'failure',
+      code: 'timeout',
+      latencyMs: 20000,
+    });
+  });
+
+  it('emits redacted success diagnostics and ignores diagnostics handler failures', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(responseWith(successEnvelope()));
+    const { generateDynamicEvent, setLlmDiagnosticsHandler } = await loadService();
+    const diagnostics = [];
+    setLlmDiagnosticsHandler(event => diagnostics.push(event));
+
+    const firstResult = await generateDynamicEvent(makeState(), 'private action context');
+
+    expect(firstResult.description).toBe(validEvent.description);
+    expect(diagnostics).toEqual([{
+      source: 'llmService',
+      type: 'success',
+      requestId: validMeta.requestId,
+      model: validMeta.model,
+      latencyMs: validMeta.latencyMs,
+      usage: validMeta.usage,
+    }]);
+    expect(JSON.stringify(diagnostics)).not.toContain('private action context');
+    expect(JSON.stringify(diagnostics)).not.toContain('firebase-id-token');
+
+    setLlmDiagnosticsHandler(() => {
+      throw new Error('telemetry unavailable');
+    });
+    const secondResult = await generateDynamicEvent(makeState());
+    expect(secondResult.description).toBe(validEvent.description);
   });
 });
 

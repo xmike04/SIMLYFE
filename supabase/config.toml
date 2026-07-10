@@ -1,0 +1,6 @@
+project_id = "simlyfe"
+
+[functions.generate-event]
+# The gateway cannot validate Firebase ID tokens. The function verifies Firebase
+# RS256 signatures, issuer, audience, timestamps, and subject before any model call.
+verify_jwt = false

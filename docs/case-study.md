@@ -23,9 +23,10 @@ flowchart TD
   Player["Player"] --> App["React/Vite app"]
   App --> State["useGameState hook"]
   State --> UI["Sheets and modals"]
-  State --> Supabase["Supabase Edge Function"]
-  Supabase --> OpenAI["OpenAI gpt-4.1-nano"]
   State --> Firebase["Firebase anonymous auth + Firestore"]
+  Firebase -->|"short-lived ID token"| State
+  State -->|"typed state + Firebase bearer"| Supabase["Supabase Edge Function"]
+  Supabase --> OpenAI["OpenAI gpt-4.1-nano"]
   State --> Catalogs["Static catalogs: careers, assets, cities, pets"]
   App --> Vercel["Vercel static deployment"]
 ```
@@ -42,16 +43,17 @@ All gameplay state stays in `useGameState()`. The UI is split into gameplay shee
 
 ## Production Audit Findings
 
-- Live production was `simlyfe.vercel.app`, backed by Vercel project `xmike04s-projects/simlyfe`.
-- The READY production deployment was commit `3175658`, while GitHub `main` had advanced to `50da95e`; newer production deploy attempts were canceled.
-- The repository contained a stale tracked `.claude/worktrees/agent-a34a54a7` gitlink that broke `git status` and caused lint to scan generated build output.
-- `/og-image.png` was referenced by metadata but returned `404` in production.
-- Firebase credentials were not present locally, so cloud saves must be documented as optional unless production env confirms them.
+- Live production is `simlyfe.vercel.app`, backed by Vercel project `xmike04s-projects/simlyfe`.
+- The portfolio deployment was promoted from commit `4fbc4ca`; the combined security update must pass preview validation before it replaces that production deployment.
+- Portfolio hardening removed a stale tracked worktree gitlink, excluded generated output from lint, and added the previously missing social image.
+- The Vercel project did not yet contain Firebase browser configuration during the audit, so authenticated AI events and cloud saves require an environment rollout before production promotion.
 
 ## Reliability and Security
 
-- `VITE_OPENAI_API_KEY` is local-only; production should use `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE`.
-- The Supabase edge function validates request method, messages, token limits, and temperature before forwarding.
+- The browser has no direct OpenAI path. It sends a Firebase ID token plus a Supabase public gateway key to one proxy endpoint.
+- The edge function verifies exact origins and Firebase signatures, accepts only a bounded typed state projection, and owns the prompt, model, temperature, strict output schema, and token ceiling.
+- Durable per-identity and project-wide quotas, body/operation deadlines, cancellation, and no-retry behavior bound cost amplification.
+- Both edge and browser validate the normalized event envelope; diagnostics and player-facing errors discard raw provider, credential, prompt, and player-state details.
 - Debug tooling is gated behind `VITE_ENABLE_DEV_TOOLS`; it is off by default for portfolio and production demos.
 - `.vercel/`, `.env.local`, generated worktrees, and service-account files stay out of Git.
 

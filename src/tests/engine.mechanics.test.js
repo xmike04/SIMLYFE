@@ -2806,14 +2806,12 @@ describe('§13.10 Full pipeline integration: wealth tier + assets + investments 
     expect(currentValue - cgt).toBe(430_000);
   });
 
-  it('expensive divorce + stock loss in same year can wipe out middle-class player', () => {
+  it('expensive divorce + lifestyle costs preserve the remaining wealth tier', () => {
     const bank = 80_000; // just above middle-class entry
     const divorceCost = calcDivorceCost(bank);   // 15% = $12k
-    const stockLoss = 30_000; // paper loss from stock crash
     const lifestyleCost = gwt(bank).lifestyleCost; // $3k for middle
     const yearEnd = bank - divorceCost - lifestyleCost;
     expect(divorceCost).toBe(12_000);
-    expect(stockLoss).toBe(30_000);
     expect(yearEnd).toBe(80_000 - 12_000 - 3_000); // $65k remaining
     expect(gwt(yearEnd).id).toBe('middle'); // still middle
   });
