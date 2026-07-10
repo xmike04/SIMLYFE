@@ -1,212 +1,197 @@
-# SIMLYFE — AI Assistant Guide
+# SIMLYFE Project Guide
 
 ## Project Overview
 
-**SIMLYFE** is a mobile-first, browser-based life simulation game built with React 19 and Vite. Players create a character and age them one year at a time, navigating careers, relationships, finances, and AI-generated life events from birth to death. The UI uses a dark glassmorphism aesthetic. Optional cloud saves are powered by Firebase, AI events are proxied through a Supabase Edge Function, and LLM calls use OpenAI GPT-4.1-nano.
-
----
+SIMLYFE is a mobile-first, browser-based life simulation game built with React 19 and Vite. Players create a character and age them one year at a time, navigating careers, relationships, finances, and generated life events from birth to death. The UI uses a dark glassmorphism aesthetic. Optional cloud saves are powered by Firebase, events are proxied through a Supabase Edge Function, and LLM calls use OpenAI GPT-4.1-nano.
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend framework | React 19 (functional components + hooks only) |
+| Frontend framework | React 19 functional components and hooks |
 | Bundler | Vite 8 with React/Oxc plugin |
-| Styling | Pure CSS with CSS custom properties (no Tailwind/UI libs) |
-| State management | Custom `useGameState` hook (no Redux/Zustand) |
-| Cloud backend | Optional Firebase Firestore (saves) + Firebase Auth (anonymous), lazy-loaded after mount |
-| LLM proxy | Supabase Edge Function (`supabase/functions/generate-event/`) |
-| LLM client | `fetch` — proxied call to OpenAI GPT-4.1-nano (200 token cap, 1–2 sentence hard limit) |
-| AI events (dev fallback) | Direct OpenAI call via `VITE_OPENAI_API_KEY` |
+| Styling | Pure CSS with CSS custom properties |
+| State management | Custom `useGameState` hook |
+| Cloud backend | Optional Firebase Firestore saves with anonymous Firebase Auth |
+| Event proxy | Supabase Edge Function in `supabase/functions/generate-event/` |
+| LLM client | `fetch` through the Supabase proxy, with a local direct-call fallback |
 | Linting | ESLint 9 flat config with React Hooks plugin |
 
----
+## Directory Map
 
-## Directory Structure
-
-```
+```text
 SIMLYFE/
-├── src/
-│   ├── components/         # React UI components
-│   │   ├── ActionSheet.jsx       # Reusable bottom-sheet modal wrapper
-│   │   ├── CharacterCreation.jsx # New-game form (name, gender, country)
-│   │   ├── MainGame.jsx          # Core game UI (~483 lines, orchestrates sheets)
-│   │   ├── EventModal.jsx        # Full-screen event choice popup
-│   │   ├── DeathScreen.jsx       # End-of-life summary screen
-│   │   ├── SplashScreen.jsx      # Initial loading/splash screen
-│   │   └── sheets/               # Extracted feature sheets (all gameplay panels)
-│   │       ├── JobSheet.jsx          # Job search & career management
-│   │       ├── AssetsSheet.jsx       # Assets & store browsing
-│   │       ├── RelationshipsSheet.jsx # Relationship management
-│   │       ├── DoctorSheet.jsx       # Healthcare & medical actions
-│   │       ├── LotterySheet.jsx      # Lottery tickets
-│   │       ├── CasinoSheet.jsx       # Gambling / casino
-│   │       ├── DatingSheet.jsx       # Dating app & romance
-│   │       ├── WillsSheet.jsx        # Estate planning & wills
-│   │       └── PetsSheet.jsx         # Pet catalog & ownership
-│   ├── config/             # Static game data & config
-│   │   ├── activities.js         # Activity categories and sub-menus
-│   │   ├── specialCareers.js     # 11 special career paths with actions
-│   │   ├── wealthTiers.js        # 8 wealth tiers: tax rates, lifestyle costs, gift scaling
-│   │   ├── assetCatalog.js       # 4 asset categories: realEstate, vehicles, luxury, investments
-│   │   ├── storeCatalog.js       # Branded store listings per asset category, tier-gated
-│   │   ├── investmentMarket.js   # 5 tradeable instrument types: crypto, stocks, penny, bonds, funds
-│   │   ├── petCatalog.js         # Pet types, costs, and stat effects
-│   │   ├── cityData.js           # City/country data for character creation
-│   │   └── firebase.js           # Firebase init — reads from VITE_FIREBASE_* env vars
-│   ├── engine/             # Core game logic
-│   │   ├── gameState.js          # useGameState() hook — all game state & methods (~1687 lines)
-│   │   ├── llmService.js         # LLM proxy (Supabase) + dev fallback (direct OpenAI)
-│   │   ├── events.json           # Static event catalog validated by tests
-│   │   └── careers.json          # Job definitions (salary, effects, min age)
-│   ├── tests/              # Vitest test suite
-│   │   ├── engine.mechanics.test.js  # Pure game-logic mirrors (350+ assertions)
-│   │   ├── llmService.test.js        # LLM flow + schema validation
-│   │   ├── config.data.test.js       # Activity/career/asset data shape checks
-│   │   ├── market.test.js            # Investment market mechanics
-│   │   ├── App.test.jsx              # Smoke test for App render
-│   │   └── setup.js                  # Global mocks (firebase, llmService)
-│   ├── assets/             # Static images
-│   ├── App.jsx             # Root component — simple state-based router
-│   ├── main.jsx            # React entry point (StrictMode)
-│   └── index.css           # All global styles & CSS variables
-├── supabase/
-│   └── functions/
-│       └── generate-event/
-│           └── index.ts          # Deno edge function — proxies OpenAI call server-side
-├── scripts/                # Utility scripts (not wired into npm)
-│   ├── migrateData.js            # One-off data migration helper
-│   └── test-llm.js               # Manual LLM endpoint tester
-├── public/                 # Static assets served as-is
-│   ├── favicon.svg
-│   ├── icons.svg
-│   └── manifest.json
-├── _agents/                # Project workflow definitions
-│   └── workflows/
-│       └── test-app.md           # Testing workflow guide
-├── index.html              # Vite entry HTML
-├── package.json
-├── vite.config.js
-├── eslint.config.js
-└── .gitignore
+  src/
+    components/
+      ActionSheet.jsx
+      CharacterCreation.jsx
+      MainGame.jsx
+      EventModal.jsx
+      DeathScreen.jsx
+      SplashScreen.jsx
+      sheets/
+        JobSheet.jsx
+        AssetsSheet.jsx
+        RelationshipsSheet.jsx
+        DoctorSheet.jsx
+        LotterySheet.jsx
+        CasinoSheet.jsx
+        DatingSheet.jsx
+        WillsSheet.jsx
+        PetsSheet.jsx
+    config/
+      activities.js
+      specialCareers.js
+      wealthTiers.js
+      assetCatalog.js
+      storeCatalog.js
+      investmentMarket.js
+      petCatalog.js
+      cityData.js
+      firebase.js
+    engine/
+      gameState.js
+      llmService.js
+      events.json
+      careers.json
+    tests/
+      engine.mechanics.test.js
+      llmService.test.js
+      config.data.test.js
+      market.test.js
+      App.test.jsx
+      setup.js
+    assets/
+    App.jsx
+    main.jsx
+    index.css
+  supabase/functions/generate-event/index.ts
+  scripts/migrateData.js
+  scripts/test-llm.js
+  public/favicon.svg
+  public/icons.svg
+  public/manifest.json
+  index.html
+  package.json
+  vite.config.js
+  eslint.config.js
 ```
-
----
 
 ## Architecture
 
 ### State Management
 
-All game logic lives in the custom hook `src/engine/gameState.js` (`useGameState()`). It is the single source of truth. Components are mostly presentational — they receive state and call methods from this hook.
+All game logic lives in `src/engine/gameState.js` through the `useGameState()` hook. Components are mostly presentational and receive state plus handler functions from this hook.
 
 Key state variables:
-- `character` — name, gender, country
-- `age`, `stats` (health, happiness, smarts, looks, grades, athleticism, karma 0–100)
-- `bank` — numeric bank balance in dollars
-- `career`, `salary` — current job
-- `careerMeta` — `{ yearsInRole, isOnPIP, financialStressFlag, unemploymentYearsLeft }`
-- `networking` — 0–100 score; gained from jobs and events, required for certain careers
-- `economyCycle` — `{ year, phase, yearsInPhase }` — current economy phase state
-- `education` — `{ highSchool, associate, bachelor, master, phd, currentDegree }`
-- `relationships[]` — NPCs with name, age, relation score (0–100)
-- `belongings[]`, `properties[]` — owned assets
-- `history[]` — log entries shown in the history panel
+
+- `character`: name, gender, country, and optional city
+- `age`, `stats`: health, happiness, smarts, looks, grades, athleticism, karma, acting, voice, and modeling
+- `bank`: liquid balance in dollars
+- `career`, `careerMeta`, `networking`: current work state and career progression data
+- `economyCycle`: current year, phase, and duration within the phase
+- `education`: completed or active degree state
+- `relationships`: NPCs with relationship type, age, status, and relation score
+- `belongings`, `properties`: owned assets
+- `history`: log entries shown in the history panel
 - `isDead`, `isAging`, `currentEvent`, `activitiesThisYear`
-- Hidden skill stats: `acting`, `voice`, `modeling` (not shown in UI directly)
 
 ### Component Routing
 
-`App.jsx` renders one of three views based on game state:
-1. No character → `<CharacterCreation />`
-2. `isDead` → `<DeathScreen />`
-3. Otherwise → `<MainGame />` + conditional `<EventModal />`
+`App.jsx` renders one of three views:
 
-### LLM Event System
+1. No character: `CharacterCreation`
+2. Dead character: `DeathScreen`
+3. Active life: `MainGame` plus conditional `EventModal`
 
-`src/engine/llmService.js` routes LLM calls through a Supabase Edge Function when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set. This keeps `OPENAI_API_KEY` server-side. If only `VITE_OPENAI_API_KEY` is set, the service falls back to calling OpenAI directly (dev mode — key exposed in bundle).
+### Event System
 
-The edge function lives at `supabase/functions/generate-event/index.ts` and is a thin Deno proxy: it reads `OPENAI_API_KEY` from Supabase secrets, validates the request shape, and forwards the request to `gpt-4.1-nano`.
+`src/engine/llmService.js` routes generated event calls through a Supabase Edge Function when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set. This keeps `OPENAI_API_KEY` server-side. If only `VITE_OPENAI_API_KEY` is set, the service falls back to calling OpenAI directly in local development.
 
-The prompt includes character stats, recent history (last 5 entries), and an optional `actionContext` string. Responses are capped at **200 tokens** (400 in narrative mode) and the prompt enforces a **hard 1–2 sentence, 35-word max** on the description to keep events punchy and fast. The expected JSON response schema:
+The edge function lives at `supabase/functions/generate-event/index.ts`. It reads `OPENAI_API_KEY` from Supabase secrets, validates the request shape, and forwards the request to `gpt-4.1-nano`.
+
+The prompt includes character stats, recent history, and an optional `actionContext` string. Responses are capped at 200 tokens by default, 400 in narrative mode, and the prompt asks for a 1-2 sentence description under 35 words.
+
+Expected JSON response:
 
 ```json
 {
-  "description": "Event text (under 50 words)",
+  "description": "Event text",
   "choices": [
     { "text": "Choice label", "effects": { "health": 10, "bank": -50, "happiness": 5 } }
   ]
 }
 ```
 
-The service strips markdown code fences from responses before parsing. If the call fails or returns malformed JSON, it returns an error event (no silent fallback to `events.json` — the error surfaces in the description).
+If the call fails or returns malformed JSON, the service returns an error event instead of silently falling back to static events.
 
-**Stat enforcement rules embedded in the prompt:**
-- Low athleticism → fails physical tasks
-- High karma → fails crime attempts
-- Low karma → succeeds in crime
+Prompt rules currently include:
+
+- Low athleticism should fail physical tasks.
+- High karma should fail crime attempts.
+- Low karma should succeed in crime.
 
 ### Firebase Cloud Saves
 
-Anonymous Firebase Auth is used to create a persistent user ID. On every state change, the full game state is merged into `users/{uid}/saves/currentLife` in Firestore. `firebase.js` reads credentials from `VITE_FIREBASE_*` env vars — if any are missing, `auth` and `db` are `null` and cloud saves are silently skipped.
-
----
+Anonymous Firebase Auth creates a persistent user ID. The game merges state into `users/{uid}/saves/currentLife` in Firestore. `src/config/firebase.js` reads credentials from `VITE_FIREBASE_*` environment variables. If any are missing, `auth` and `db` are `null` and cloud saves are skipped.
 
 ## Key Conventions
 
 ### Code Style
-- **React 19 functional components only** — no class components
-- **Hooks for everything** — all logic goes in `useGameState()` or local component state
-- **Inline styles + CSS classes** — `MainGame.jsx` uses heavy inline styles for dynamic values; static styles live in `index.css`
-- **No TypeScript** — the project is plain JSX; `@types/*` packages are installed but unused
-- **No external UI libraries** — all components are hand-built; keep it that way
 
-### Adding New Activities
-1. Add the category to `ACTIVITY_CATEGORIES` in `src/config/activities.js`
-2. Add the sub-menu array to `ACTIVITY_MENUS` in the same file
-3. If it needs a special UI action, add a `specialAction` string and handle it in `MainGame.jsx`
-4. If it should call the LLM, pass a descriptive `context` string — this becomes the `actionContext` in the prompt
+- React 19 functional components only.
+- Keep all shared game logic in `useGameState()` or extracted pure helpers.
+- Use inline styles for dynamic values in `MainGame.jsx`; keep static styles in `index.css`.
+- Do not add TypeScript.
+- Do not add external UI libraries.
+- Use CSS variables from `index.css`.
 
-### Adding New Careers
-- **Standard jobs**: Add to `src/engine/careers.json` with `salary`, `happinessEffect`, `healthEffect`, `minAge`, `type` (`part_time` or `full_time`)
-- **Special careers**: Add to `src/config/specialCareers.js` — each career has an array of `actions`, each with `label`, `context` (LLM prompt text), optional `cost`, and optional `specialAction`
+### Adding Activities
 
-### Adding New Events (static catalog)
-Add to `src/engine/events.json`. Each event needs: `id`, `description`, `ageRange` (`[min, max]`), and `choices[]` with `text` and `effects`.
+1. Add the category to `ACTIVITY_CATEGORIES` in `src/config/activities.js`.
+2. Add the sub-menu array to `ACTIVITY_MENUS`.
+3. If it needs a special UI action, add `specialAction` and handle it in `MainGame.jsx`.
+4. If it should trigger a generated event, pass a descriptive `context` string.
 
-### Styling
-- Use CSS variables defined in `index.css` (e.g., `var(--health-color)`, `var(--glass-bg)`)
-- Glassmorphism pattern: `background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border)`
-- Mobile-first: max container width is `480px` (desktop caps at `850px` height)
-- Stat colors are mapped: health=red, happiness=amber, smarts=green, looks=pink, athleticism=blue, karma=purple
+### Adding Careers
 
----
+- Standard jobs live in `src/engine/careers.json`.
+- Special careers live in `src/config/specialCareers.js`.
+- Special career actions should include `label`, `context`, optional `cost`, and optional `specialAction`.
+
+### Adding Static Events
+
+Add static catalog entries to `src/engine/events.json`. Each event needs `id`, `description`, `ageRange`, and `choices` with `text` plus `effects`.
 
 ## Game Mechanics Reference
 
 ### Core Loop
-1. Player clicks the green **+Age** button
-2. `ageUp()` runs: applies stat degradation, economy cycle tick, salary income, investment returns, performance review, random events, death check
-3. If an event fires, `currentEvent` is set → `EventModal` renders
-4. Player picks a choice → `handleChoice()` applies effects, logs to history
 
-### Stat Degradation (per year)
-- Health: -1 at age 30+, -2 at age 50+
-- Looks: -1 at age 50+
-- All other stats: stable unless modified by events/activities
+1. Player clicks the `+Age` button.
+2. `ageUp()` applies stat degradation, economy tick, income, investment returns, performance review, event generation, and death checks.
+3. If an event fires, `currentEvent` is set and `EventModal` renders.
+4. Player chooses an option, then `handleChoice()` applies effects and logs history.
+
+### Stat Degradation
+
+- Health loses 1 per year at age 30+, then 2 per year at age 50+.
+- Looks loses 1 per year at age 50+.
+- Other stats are stable unless changed by events or activities.
 
 ### Death Conditions
-- `health <= 0` → immediate death
-- Age 60+: probability = `(age - 60) / 40`, capped to guarantee death at age 100
+
+- Health at or below 0 causes immediate death.
+- Age 60+ uses `(age - 60) / 40` probability, capped so death is guaranteed at age 100.
 
 ### Economy Cycle
-Three phases rotate on fixed durations: `normal` (3 yrs) → `boom` (2 yrs) → `recession` (2 yrs) → `normal`. Tracked in `economyCycle` state. Phase affects all investment returns (boom adds bonus, recession adds penalty) and performance review outcomes (+5% roll in boom, −5% in recession). The current phase is visible to the player in the UI.
 
-### Wealth Tier System
-Defined in `src/config/wealthTiers.js`. 8 tiers based on liquid bank balance:
+Economy phases rotate on fixed durations: `normal` for 3 years, `boom` for 2 years, `recession` for 2 years, then back to `normal`. Phase affects investment returns and performance review outcomes.
+
+### Wealth Tiers
 
 | Tier | Min Bank | Income Tax | CGT | Lifestyle Cost/yr |
-|---|---|---|---|---|
-| Broke | −∞ | 0% | 0% | $0 |
+|---|---:|---:|---:|---:|
+| Broke | -infinity | 0% | 0% | $0 |
 | Struggling | $1k | 10% | 10% | $0 |
 | Working Class | $10k | 15% | 15% | $500 |
 | Middle Class | $50k | 22% | 20% | $3,000 |
@@ -215,128 +200,119 @@ Defined in `src/config/wealthTiers.js`. 8 tiers based on liquid bank balance:
 | Rich | $10M | 40% | 33% | $150,000 |
 | Ultra-Wealthy | $100M | 45% | 37% | $1,000,000 |
 
-Tier also drives: gift button amounts, date costs, relationship decay multiplier (higher wealth = faster decay), and a happiness penalty reflecting the burden of expectations.
+Tier affects gift amounts, date costs, relationship decay, and lifestyle pressure.
 
 ### Career System
-Standard careers in `careers.json` support tiered tracks via `nextTierId` and `promotionRequirements` (`minYearsInRole`, `minSmarts`, `minHealth`, `minKarma`). A `sector` field groups careers for UI display. Each year with a job runs `runPerformanceReview()`, which produces one of five outcomes:
+
+Standard careers use `nextTierId` and `promotionRequirements`. Each year with a job runs `runPerformanceReview()`.
 
 | Outcome | Effect |
 |---|---|
-| `promoted` | Advances to next tier if `promotionRequirements` met; otherwise treated as raise |
-| `raise` | Salary × 1.05 |
+| `promoted` | Advances to next tier if requirements are met; otherwise treated as raise |
+| `raise` | Salary x 1.05 |
 | `no_change` | No effect |
-| `pip` | Performance Improvement Plan flag set; roll penalised next year |
-| `fired` | Career set to null, 2 years unemployment, happiness −30 |
+| `pip` | Performance Improvement Plan flag set; next review is penalized |
+| `fired` | Career set to null, 2 years unemployment, happiness -30 |
 
-Review roll is based on smarts, health, karma, networking score, PIP flag, financial stress, and economy phase.
+Review roll considers smarts, health, karma, networking, PIP state, financial stress, and economy phase.
 
-### Networking System
-`networking` is a 0–100 score. Gained from attending industry mixers/conferences (`networking_mixer` activity, costs $200) and from certain career/event outcomes. Required threshold for some career tracks. Contributes to performance review roll (`+0.02` per 10 points).
+### Networking
 
-### Education / Degree System
-`DEGREE_CONFIG` (exported from `gameState.js`) defines a pipeline: `highSchool` → `associate` (2 yrs, $10k/yr) → `bachelor` (4 yrs, $20k/yr) → `master` (2 yrs, $30k/yr) → `phd` (4 yrs, free, −20 happiness). Annual tuition is deducted from bank each year while enrolled. Completion unlocks certain career tracks and grants stat bonuses.
+`networking` is a 0-100 score. It is gained from industry mixers, conferences, jobs, and events. Certain career tracks require a minimum networking score.
 
-### Asset & Store Catalog
-`src/config/assetCatalog.js` defines purchasable assets in four categories:
-- **realEstate** — appreciates 3–6%/yr, affected by market crash/boom events
-- **vehicles** — depreciates 8–20%/yr (hypercars are an exception, slight appreciation)
-- **luxury** — collectibles hold/gain value slowly (2–8%/yr)
-- **investments** — return driven by `returnProfile` and economy phase
+### Education
 
-Assets have `upkeep` (deducted annually), `statEffects` (applied passively each year), and a `minTier` wealth gate.
+`DEGREE_CONFIG` defines this pipeline: `highSchool`, `associate`, `bachelor`, `master`, `phd`. Annual tuition is deducted while enrolled. Completion unlocks some career tracks and grants stat bonuses.
 
-`src/config/storeCatalog.js` wraps catalog items into named, branded stores (e.g., "Pinnacle Luxury Estates", "Apex Motorsports") with specific make/model listings. Stores are also tier-gated.
+### Asset Catalog
+
+`src/config/assetCatalog.js` defines four asset categories:
+
+- `realEstate`: appreciates 3-6% per year and is affected by market conditions.
+- `vehicles`: depreciates 8-20% per year, with some exceptions.
+- `luxury`: collectibles hold or gain value slowly, usually 2-8% per year.
+- `investments`: returns are driven by `returnProfile` and economy phase.
+
+`src/config/storeCatalog.js` wraps catalog items into named stores with specific listings. Stores are tier-gated.
 
 ### Investment Market
-`src/config/investmentMarket.js` provides five tradeable instrument sub-types accessed via the Investments hub:
 
 | Sub-type | Key mechanic |
 |---|---|
-| `crypto` | High volatility; ≥1.5 volatility triggers moonshot mechanic (2% chance of 50×–1000× per year) |
-| `stocks` | Annual drift + volatility swing; sector-tagged (tech, healthcare, finance, etc.) |
-| `penny` | 12% bankrupt chance, 10% moonshot (2×–6×), else ±50% random |
-| `bonds` | Fixed coupon paid annually; matures after set years; minimal volatility |
-| `funds` | `returnProfile`-driven annual return; range from bond index to VC seed |
+| `crypto` | High volatility; >=1.5 volatility can trigger a 50x-1000x moonshot |
+| `stocks` | Annual drift plus volatility swing, with sector tags |
+| `penny` | 12% bankrupt chance, 10% moonshot, otherwise +/-50% random |
+| `bonds` | Fixed coupon paid annually; matures after set years |
+| `funds` | `returnProfile` driven annual return |
 
-`getMarketHealth()` returns a Bullish/Mixed/Bearish label and score per sub-type per economy phase, used for UI display.
+`getMarketHealth()` returns Bullish, Mixed, or Bearish labels and scores per sub-type and economy phase.
 
-### Economy (legacy mechanics)
+### Legacy Economy Mechanics
+
 | Mechanic | Details |
 |---|---|
-| Lottery | $5/ticket, 0.001% win rate, $10M jackpot |
-| Gambling | $100 bet, 45% win rate, 2× return |
-| Day trading | $1000 buy-in; 40% lose all, 20% lose half, 20% +50%, 15% +100%, 5% +400% |
-| Startup equity | 20% bankrupt, 30% downturn (×0.8), 30% steady, 20% moonshot (×3) |
-| Real estate (legacy) | 5% crash, 10% boom per year — asset catalog items use appreciation rates instead |
-
-### Dating Success Formula
-`successChance = (partnerLooks / 150) + (playerLooks / 150)`
-
----
+| Lottery | $5 per ticket, 0.001% win rate, $10M jackpot |
+| Gambling | $100 bet, 45% win rate, 2x return |
+| Day trading | $1000 buy-in; 40% lose all, 20% lose half, 20% gain 50%, 15% gain 100%, 5% gain 400% |
+| Startup equity | 20% bankrupt, 30% downturn at 0.8x, 30% steady, 20% moonshot at 3x |
+| Real estate legacy | 5% crash, 10% boom per year |
 
 ## Environment Variables
 
 | Variable | Purpose | Where |
 |---|---|---|
-| `VITE_SUPABASE_URL` | Supabase project URL — enables LLM proxy | `.env.local` |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon key — authorises edge function calls | `.env.local` |
-| `VITE_OPENAI_API_KEY` | Dev fallback — direct OpenAI call (key exposed in bundle) | `.env.local` |
-| `VITE_FIREBASE_API_KEY` | Firebase credentials — all six vars required to enable cloud saves | `.env.local` |
+| `VITE_SUPABASE_URL` | Supabase project URL for event proxy | `.env.local` |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon key for edge function calls | `.env.local` |
+| `VITE_OPENAI_API_KEY` | Local direct-call fallback only | `.env.local` |
+| `VITE_FIREBASE_API_KEY` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_PROJECT_ID` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_STORAGE_BUCKET` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_APP_ID` | Firebase credentials | `.env.local` |
-| `VITE_ENABLE_DEV_TOOLS` | Optional debug sheet gate (`false` by default) | `.env.local` |
-| `OPENAI_API_KEY` | Set as Supabase secret (server-side only — not in `.env.local`) | Supabase dashboard |
+| `VITE_ENABLE_DEV_TOOLS` | Optional debug sheet gate | `.env.local` |
+| `OPENAI_API_KEY` | Supabase secret, server-side only | Supabase dashboard |
 
-**Security note:** When `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` are set, the OpenAI key stays server-side in the edge function. The `VITE_OPENAI_API_KEY` fallback is for local dev only and must not be used in production.
-
----
+Do not set `VITE_OPENAI_API_KEY` in production builds. Production should use the Supabase proxy so the OpenAI key stays server-side.
 
 ## Development Workflow
 
 ```bash
-npm install        # Install dependencies
-npm run dev        # Start Vite dev server (hot reload)
-npm run build      # Production build → dist/
-npm run lint       # ESLint check
-npm run preview    # Preview production build locally
-npm test           # Run full test suite (Vitest, one-shot)
-npm run test:watch # Watch mode for TDD
-npm run test:coverage  # Coverage report → coverage/
+npm install
+npm run dev
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+npm run preview
 ```
+
+For substantive app changes, run `npm install`, `npm run lint`, `npm test`, and `npm run build`. Run `npm run test:e2e` for browser-flow changes.
 
 ## Test Architecture
 
-Tests live in `src/tests/`. Four files, each targeting a distinct layer:
-
 | File | What it tests |
 |---|---|
-| `engine.mechanics.test.js` | Pure game-logic functions mirrored from `gameState.js`: stat clamping, death formula, age-up degradation, career income, startup equity, property market, lottery/gambling/day-trading, startLife validity, relationship helpers (350+ assertions) |
-| `llmService.test.js` | `generateDynamicEvent` — proxy path, dev-fallback path, malformed JSON handling; full schema validation of `events.json` and `careers.json` |
-| `config.data.test.js` | Shape and consistency of `ACTIVITY_CATEGORIES`, `ACTIVITY_MENUS`, `SPECIAL_CAREERS`, asset catalog, and store catalog |
-| `market.test.js` | Investment market mechanics: crypto volatility, bond coupons, fund returns, economy phase modifiers |
-| `App.test.jsx` | Smoke test — verifies the app renders without crashing |
+| `engine.mechanics.test.js` | Pure game-logic mirrors for mechanics, markets, income, relationships, and start-life validity |
+| `llmService.test.js` | Proxy path, local fallback path, malformed JSON handling, and static catalog schema validation |
+| `config.data.test.js` | Activity, career, asset, and store catalog shape |
+| `market.test.js` | Investment market mechanics |
+| `App.test.jsx` | Render smoke test |
 
-**Key conventions:**
-- Engine tests mirror logic from `gameState.js` as pure functions — no React, no mocks needed
-- LLM tests use `vi.resetModules()` + `vi.stubEnv()` before each import to control the `VITE_OPENAI_API_KEY` const
-- `src/tests/setup.js` auto-mocks `firebase` and `llmService` for all tests except `llmService.test.js` (which uses `vi.unmock`)
-- When adding a new mechanic: add the pure-function mirror + tests to `engine.mechanics.test.js` first, then implement in `gameState.js`
-- When adding new static data (events, careers, activities): the existing schema tests will catch missing fields automatically
+Testing conventions:
 
----
+- Engine tests mirror logic from `gameState.js` as pure functions.
+- LLM tests use `vi.resetModules()` and `vi.stubEnv()` before imports.
+- `src/tests/setup.js` mocks Firebase and `llmService` except where tests explicitly unmock them.
+- New mechanics should get pure-function tests before implementation.
 
-## Known Issues / TODOs
+## Known Issues
 
-- **`gameState.js` size**: At ~1687 lines, `useGameState()` returns 50+ values and functions — consider breaking into smaller focused hooks (e.g. `useCareer`, `useEducation`, `useInvestments`)
-- **Test mirror drift**: Engine tests in `engine.mechanics.test.js` copy logic from `gameState.js` as pure functions — these mirrors will silently diverge if the originals change and no shared module is extracted
-- **Supabase edge function has no authentication beyond anon key**: Anyone with the project URL and anon key can invoke the edge function and trigger OpenAI calls at the project's expense
-- **`scripts/` not wired into npm**: `migrateData.js` and `test-llm.js` must be run manually with `node scripts/<file>.js`; the Firestore migration script also needs `npm install --no-save firebase-admin`
-- **Death probability**: Currently guarantees death at age 100 — this may be intentional
-
----
+- `gameState.js` is large and returns many values; focused hooks or shared pure helpers would reduce drift.
+- Engine tests mirror logic that can diverge from implementation if shared helpers are not extracted.
+- The Supabase edge function is callable by anyone with the public project URL and anon key.
+- `scripts/` are manual and are not wired into npm scripts.
+- Death is guaranteed at age 100; this may be intentional.
 
 ## Content Notes
 

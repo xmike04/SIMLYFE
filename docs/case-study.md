@@ -8,7 +8,7 @@ SIMLYFE is a mobile-first life simulation game built with React 19, Vite 8, pure
 
 Most life simulators hide their systems behind scripted moments. SIMLYFE makes the systems legible: stats affect outcomes, wealth tiers change pressure, careers have promotion rules, relationships decay, assets appreciate or crash, and LLM events react to the player's current life.
 
-The portfolio angle is not just “I made a game.” It is “I shipped a coherent product surface, kept the core loop fast, and documented the tradeoffs behind AI, persistence, testing, and deployment.”
+The portfolio angle is not just "I made a game." It is "I shipped a coherent product surface, kept the core loop fast, and documented the tradeoffs behind AI, persistence, testing, and deployment."
 
 ## Screenshots
 
