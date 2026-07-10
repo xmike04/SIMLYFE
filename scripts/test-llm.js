@@ -10,10 +10,10 @@ function readEnv(name) {
 }
 
 const supabaseUrl = readEnv('VITE_SUPABASE_URL');
-const supabaseKey = readEnv('VITE_SUPABASE_ANON_KEY');
+const supabaseKey = readEnv('VITE_SUPABASE_PUBLISHABLE') || readEnv('VITE_SUPABASE_ANON_KEY');
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env.local.');
+  console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE in .env.local.');
   process.exit(1);
 }
 

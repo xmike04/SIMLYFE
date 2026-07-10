@@ -38,10 +38,10 @@ Production LLM events should use the Supabase proxy:
 
 ```bash
 VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
+VITE_SUPABASE_PUBLISHABLE=
 ```
 
-`VITE_OPENAI_API_KEY` is a local-only fallback and must not be set in production builds. Firebase cloud saves are optional; all `VITE_FIREBASE_*` variables must be present before saves activate. Debug tools are hidden unless `VITE_ENABLE_DEV_TOOLS=true`.
+Set `OPENAI_API_KEY` as a Supabase Edge Function secret, not a Vercel client variable. `VITE_SUPABASE_ANON_KEY` is supported only as a legacy fallback; new Supabase projects should use `VITE_SUPABASE_PUBLISHABLE`. `VITE_OPENAI_API_KEY` is a local-only fallback and must not be set in production builds. Firebase cloud saves are optional; all `VITE_FIREBASE_*` variables must be present before saves activate. Debug tools are hidden unless `VITE_ENABLE_DEV_TOOLS=true`.
 
 ## Scripts
 

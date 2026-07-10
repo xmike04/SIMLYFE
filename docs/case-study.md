@@ -50,7 +50,7 @@ All gameplay state stays in `useGameState()`. The UI is split into gameplay shee
 
 ## Reliability and Security
 
-- `VITE_OPENAI_API_KEY` is local-only; production should use `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- `VITE_OPENAI_API_KEY` is local-only; production should use `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE`.
 - The Supabase edge function validates request method, messages, token limits, and temperature before forwarding.
 - Debug tooling is gated behind `VITE_ENABLE_DEV_TOOLS`; it is off by default for portfolio and production demos.
 - `.vercel/`, `.env.local`, generated worktrees, and service-account files stay out of Git.

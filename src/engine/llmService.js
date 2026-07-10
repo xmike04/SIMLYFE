@@ -3,7 +3,8 @@
 // Fallback: if only VITE_OPENAI_API_KEY is set (dev mode), call OpenAI directly.
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE
+  || import.meta.env.VITE_SUPABASE_ANON_KEY;
 const directApiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
 const useProxy = !!(supabaseUrl && supabaseKey);
@@ -92,7 +93,7 @@ export async function generateDynamicEvent(state, actionContext) {
     return {
       description: directApiKey && !isNonProd
         ? "LLM ERROR: Direct OpenAI keys are disabled in production. Configure the Supabase proxy."
-        : "LLM ERROR: No LLM credentials configured. Add Supabase proxy environment variables.",
+        : "LLM ERROR: No LLM credentials configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE.",
       choices: [{ text: "Understood", effects: {} }],
     };
   }

@@ -106,7 +106,7 @@ Key state variables:
 
 ### Event System
 
-`src/engine/llmService.js` routes generated event calls through a Supabase Edge Function when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set. This keeps `OPENAI_API_KEY` server-side. If only `VITE_OPENAI_API_KEY` is set, the service falls back to calling OpenAI directly in local development.
+`src/engine/llmService.js` routes generated event calls through a Supabase Edge Function when `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE` are set. This keeps `OPENAI_API_KEY` server-side. `VITE_SUPABASE_ANON_KEY` is supported only as a legacy fallback. If only `VITE_OPENAI_API_KEY` is set, the service falls back to calling OpenAI directly in local development.
 
 The edge function lives at `supabase/functions/generate-event/index.ts`. It reads `OPENAI_API_KEY` from Supabase secrets, validates the request shape, and forwards the request to `gpt-4.1-nano`.
 
@@ -262,7 +262,8 @@ Review roll considers smarts, health, karma, networking, PIP state, financial st
 | Variable | Purpose | Where |
 |---|---|---|
 | `VITE_SUPABASE_URL` | Supabase project URL for event proxy | `.env.local` |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon key for edge function calls | `.env.local` |
+| `VITE_SUPABASE_PUBLISHABLE` | Supabase publishable key for edge function calls | `.env.local` |
+| `VITE_SUPABASE_ANON_KEY` | Legacy fallback for older Supabase projects | `.env.local` |
 | `VITE_OPENAI_API_KEY` | Local direct-call fallback only | `.env.local` |
 | `VITE_FIREBASE_API_KEY` | Firebase credentials | `.env.local` |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Firebase credentials | `.env.local` |
@@ -310,7 +311,7 @@ Testing conventions:
 
 - `gameState.js` is large and returns many values; focused hooks or shared pure helpers would reduce drift.
 - Engine tests mirror logic that can diverge from implementation if shared helpers are not extracted.
-- The Supabase edge function is callable by anyone with the public project URL and anon key.
+- The Supabase edge function is callable by anyone with the public project URL and publishable key.
 - `scripts/` are manual and are not wired into npm scripts.
 - Death is guaranteed at age 100; this may be intentional.
 

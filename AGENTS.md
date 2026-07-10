@@ -13,7 +13,7 @@ The full project guide - architecture, game mechanics, conventions, environment 
 - **Verification workflow:** For substantive app changes, follow `_agents/workflows/test-app.md`: `npm install`, `npm run lint`, `npm test`, then `npm run build`.
 - **Sheets:** All gameplay panels are extracted into `src/components/sheets/`. Add new panels there, not inline in `MainGame.jsx`.
 - **LLM events:** Pass a descriptive `context` string to `generateDynamicEvent()`. Do not add static event fallbacks - errors surface to the player by design.
-- **Manual scripts:** `node scripts/test-llm.js` manually exercises the Supabase/OpenAI JSON event path and expects `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` in `.env.local`; `node scripts/migrateData.js` pushes `src/engine/events.json` and `src/engine/careers.json` to Firestore and requires `scripts/serviceAccountKey.json` plus a temporary `npm install --no-save firebase-admin`.
+- **Manual scripts:** `node scripts/test-llm.js` manually exercises the Supabase/OpenAI JSON event path and expects `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE` in `.env.local`; `node scripts/migrateData.js` pushes `src/engine/events.json` and `src/engine/careers.json` to Firestore and requires `scripts/serviceAccountKey.json` plus a temporary `npm install --no-save firebase-admin`.
 - **Content:** This game contains intentionally mature themes (crime, violence, adult relationships, drug use). Do not sanitize or remove these.
 
 See `CLAUDE.md` for the full reference.

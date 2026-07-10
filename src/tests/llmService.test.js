@@ -51,15 +51,27 @@ async function loadService(apiKey = '') {
   vi.resetModules();
   vi.stubEnv('VITE_OPENAI_API_KEY', apiKey);
   vi.stubEnv('VITE_SUPABASE_URL', '');         // ensure direct path
+  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE', '');
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
   const mod = await import('../engine/llmService');
   return mod.generateDynamicEvent;
 }
 
-async function loadServiceProxy(supabaseUrl = 'https://test.supabase.co', anonKey = 'anon-key') {
+async function loadServiceProxy(supabaseUrl = 'https://test.supabase.co', publishableKey = 'publishable-key') {
   vi.resetModules();
   vi.stubEnv('VITE_OPENAI_API_KEY', '');
   vi.stubEnv('VITE_SUPABASE_URL', supabaseUrl);
+  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE', publishableKey);
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
+  const mod = await import('../engine/llmService');
+  return mod.generateDynamicEvent;
+}
+
+async function loadServiceProxyLegacyAnon(supabaseUrl = 'https://test.supabase.co', anonKey = 'anon-key') {
+  vi.resetModules();
+  vi.stubEnv('VITE_OPENAI_API_KEY', '');
+  vi.stubEnv('VITE_SUPABASE_URL', supabaseUrl);
+  vi.stubEnv('VITE_SUPABASE_PUBLISHABLE', '');
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', anonKey);
   const mod = await import('../engine/llmService');
   return mod.generateDynamicEvent;
@@ -297,8 +309,8 @@ describe('generateDynamicEvent — proxy path', () => {
     expect(capturedUrl).not.toContain('openai.com');
   });
 
-  it('sends Authorization header with anon key when using proxy', async () => {
-    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'my-anon-key');
+  it('sends Authorization header with publishable key when using proxy', async () => {
+    const generateDynamicEvent = await loadServiceProxy('https://myproject.supabase.co', 'my-publishable-key');
     let capturedHeaders = null;
     global.fetch = vi.fn().mockImplementation((url, opts) => {
       capturedHeaders = opts.headers;
@@ -308,7 +320,23 @@ describe('generateDynamicEvent — proxy path', () => {
       });
     });
     await generateDynamicEvent(makeState());
-    expect(capturedHeaders['Authorization']).toContain('my-anon-key');
+    expect(capturedHeaders['Authorization']).toContain('my-publishable-key');
+    expect(capturedHeaders.apikey).toBe('my-publishable-key');
+  });
+
+  it('supports legacy anon key fallback when publishable key is absent', async () => {
+    const generateDynamicEvent = await loadServiceProxyLegacyAnon('https://myproject.supabase.co', 'my-legacy-anon-key');
+    let capturedHeaders = null;
+    global.fetch = vi.fn().mockImplementation((url, opts) => {
+      capturedHeaders = opts.headers;
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
+      });
+    });
+    await generateDynamicEvent(makeState());
+    expect(capturedHeaders['Authorization']).toContain('my-legacy-anon-key');
+    expect(capturedHeaders.apikey).toBe('my-legacy-anon-key');
   });
 
   it('returns error event when proxy returns non-ok status', async () => {
