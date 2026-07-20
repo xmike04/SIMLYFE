@@ -4,6 +4,7 @@ import { getWealthTier, calculateIncomeTax } from '../../config/wealthTiers';
 import { ASSET_CATALOG, calculateCapitalGainsTax } from '../../config/assetCatalog';
 import { getStoresByCategory } from '../../config/storeCatalog';
 import { CRYPTO_LIST, STOCK_LIST, PENNY_STOCK_LIST, BOND_LIST, FUND_LIST, getMarketHealth, bondDisplayName } from '../../config/investmentMarket';
+import { normalizeInvestmentSubType } from '../../engine/gameState';
 
 const SHOP_TABS = [
   { id: 'realEstate', label: 'Real Estate', icon: '🏡' },
@@ -47,6 +48,7 @@ export default function AssetsSheet({
   const annualIncomeTax = calculateIncomeTax(annualSalary, bank);
   const annualUpkeep = properties.reduce((a, p) => a + (p.upkeep || 0), 0) + belongings.reduce((a, b) => a + (b.upkeep || 0), 0);
   const cashflow = annualSalary - annualIncomeTax - annualUpkeep - tier.lifestyleCost;
+  const selectedInvestmentSubType = normalizeInvestmentSubType(selectedProp?.subType);
 
   // Catalog lookup map: id → entry
   const catalogLookup = (() => {
@@ -163,14 +165,14 @@ export default function AssetsSheet({
                   })()}
                   {selectedProp.upkeep > 0 && <div style={{ fontSize: '0.75rem', color: '#f97316' }}>Annual upkeep: −${selectedProp.upkeep.toLocaleString()}/yr</div>}
                   {/* Investment-specific detail rows */}
-                  {selectedProp.subType === 'bond' && (
+                  {selectedInvestmentSubType === 'bond' && (
                     <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <div>Coupon rate: <strong style={{ color: '#a78bfa' }}>{Math.round((selectedProp.couponRate ?? 0) * 100)}%/yr</strong> (${Math.floor((selectedProp.purchasePrice ?? 0) * (selectedProp.couponRate ?? 0)).toLocaleString()} income/yr)</div>
                       <div>Years to maturity: <strong style={{ color: '#fbbf24' }}>{selectedProp.yearsToMaturity ?? 0}</strong></div>
                       <div>Par value: <strong>${(selectedProp.purchasePrice ?? 0).toLocaleString()}</strong> (returned at maturity)</div>
                     </div>
                   )}
-                  {selectedProp.subType === 'crypto' && (
+                  {selectedInvestmentSubType === 'crypto' && (
                     <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <div>Holdings: <strong style={{ color: '#fbbf24' }}>{(selectedProp.units ?? 0).toFixed(6)} {selectedProp.ticker ?? ''}</strong></div>
                       <div>Volatility: <strong style={{ color: (selectedProp.volatility ?? 0) >= 1.5 ? '#ef4444' : (selectedProp.volatility ?? 0) >= 0.8 ? '#f97316' : '#fbbf24' }}>
@@ -179,14 +181,14 @@ export default function AssetsSheet({
                       {selectedProp.trendiness != null && <div>Trend: <strong style={{ color: selectedProp.trendiness > 0.6 ? '#4ade80' : selectedProp.trendiness < 0.4 ? '#ef4444' : '#fbbf24' }}>{selectedProp.trendiness > 0.6 ? '🔥 Bullish' : selectedProp.trendiness < 0.4 ? '❄️ Bearish' : '⚖️ Neutral'}</strong></div>}
                     </div>
                   )}
-                  {(selectedProp.subType === 'stock' || selectedProp.subType === 'penny_stock') && (
+                  {(selectedInvestmentSubType === 'stock' || selectedInvestmentSubType === 'penny_stock') && (
                     <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <div>Shares: <strong style={{ color: '#60a5fa' }}>{(selectedProp.units ?? 0).toFixed(4)}</strong></div>
                       {selectedProp.sector && <div>Sector: <strong>{selectedProp.sector}</strong></div>}
                       {selectedProp.baseReturn != null && <div>Avg return: <strong style={{ color: '#4ade80' }}>{Math.round(selectedProp.baseReturn * 100)}%/yr</strong></div>}
                     </div>
                   )}
-                  {selectedProp.subType === 'fund' && (
+                  {selectedInvestmentSubType === 'fund' && (
                     <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       {selectedProp.returnProfile?.label && <div>Strategy: <strong style={{ color: '#34d399' }}>{selectedProp.returnProfile.label}</strong></div>}
                       {selectedProp.returnProfile?.base != null && <div>Base return: <strong style={{ color: '#4ade80' }}>{Math.round(selectedProp.returnProfile.base * 100)}%/yr</strong></div>}
@@ -217,6 +219,7 @@ export default function AssetsSheet({
                 {allOwned.map(asset => {
                   const gain = Math.floor(asset.currentValue - (asset.purchasePrice ?? asset.cost ?? 0));
                   const isInvestment = !!asset.subType;
+                  const assetSubType = normalizeInvestmentSubType(asset.subType);
                   return (
                     <button key={asset.id} className="glass-panel" onClick={() => setSelectedProp(asset)}
                       style={{ padding: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', width: '100%', textAlign: 'left' }}>
@@ -225,24 +228,24 @@ export default function AssetsSheet({
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                           ${Math.floor(asset.currentValue).toLocaleString()} · {asset.yearsOwned}yr owned
                         </div>
-                        {isInvestment && asset.subType === 'bond' && (
+                        {isInvestment && assetSubType === 'bond' && (
                           <div style={{ fontSize: '0.7rem', color: '#a78bfa' }}>
                             {Math.round((asset.couponRate ?? 0) * 100)}% coupon · {asset.yearsToMaturity ?? 0}yr to maturity
                           </div>
                         )}
-                        {isInvestment && asset.subType === 'crypto' && (
+                        {isInvestment && assetSubType === 'crypto' && (
                           <div style={{ fontSize: '0.7rem', color: '#fbbf24' }}>
                             {(asset.units ?? 0).toFixed(4)} units · {asset.ticker ?? ''}
                             {asset.trendiness != null && <span style={{ color: asset.trendiness > 0.6 ? '#4ade80' : asset.trendiness < 0.4 ? '#ef4444' : '#fbbf24' }}> · {asset.trendiness > 0.6 ? '🔥 Hot' : asset.trendiness < 0.4 ? '❄️ Cold' : '⚖️ Neutral'}</span>}
                           </div>
                         )}
-                        {isInvestment && (asset.subType === 'stock' || asset.subType === 'penny_stock') && (
+                        {isInvestment && (assetSubType === 'stock' || assetSubType === 'penny_stock') && (
                           <div style={{ fontSize: '0.7rem', color: '#60a5fa' }}>
                             {(asset.units ?? 0).toFixed(2)} shares{asset.sector ? ` · ${asset.sector}` : ''}
                             {asset.baseReturn != null && <span style={{ color: '#4ade80' }}> · avg {Math.round(asset.baseReturn * 100)}%/yr</span>}
                           </div>
                         )}
-                        {isInvestment && asset.subType === 'fund' && (
+                        {isInvestment && assetSubType === 'fund' && (
                           <div style={{ fontSize: '0.7rem', color: '#34d399' }}>
                             {asset.returnProfile?.label ?? 'Diversified Fund'}
                           </div>
@@ -298,12 +301,12 @@ export default function AssetsSheet({
           // ── Instrument detail / buy view ──
           if (investSelected) {
             const inst = investSelected;
-            const subType = investSubType;
+            const subType = normalizeInvestmentSubType(investSubType);
             const amtNum = parseFloat(investAmount.replace(/,/g, '')) || 0;
             const minInv = inst.minInvestment ?? (inst.basePrice ? Math.ceil(inst.basePrice) : 100);
             const canBuy = amtNum >= minInv && amtNum <= bank && amtNum > 0;
             const units = inst.basePrice && subType !== 'bond' ? Math.floor(amtNum / inst.basePrice) : null;
-            const ownedValue = belongings.filter(b => b.subType === subType && b.instrumentId === inst.id).reduce((s, b) => s + b.currentValue, 0);
+            const ownedValue = belongings.filter(b => normalizeInvestmentSubType(b.subType) === subType && b.instrumentId === inst.id).reduce((s, b) => s + b.currentValue, 0);
             const presets = [
               { label: '10%', amt: Math.floor(bank * 0.10) },
               { label: '25%', amt: Math.floor(bank * 0.25) },
@@ -401,6 +404,7 @@ export default function AssetsSheet({
             const typeInfo = INV_TYPES.find(t => t.id === investSubType);
             const instrumentList = typeInfo?.list ?? [];
             const mh = getMarketHealth(investSubType, econPhase);
+            const canonicalSubType = normalizeInvestmentSubType(investSubType);
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -423,7 +427,7 @@ export default function AssetsSheet({
 
                 {/* My Holdings */}
                 {(() => {
-                  const myHoldings = belongings.filter(b => b.subType === investSubType);
+                  const myHoldings = belongings.filter(b => normalizeInvestmentSubType(b.subType) === canonicalSubType);
                   if (myHoldings.length === 0) return null;
                   return (
                     <div>
@@ -436,8 +440,8 @@ export default function AssetsSheet({
                               <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{holding.icon} {holding.name}</div>
                               <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
                                 Value: ${Math.floor(holding.currentValue).toLocaleString()}
-                                {investSubType === 'bond' && holding.yearsToMaturity != null && ` · ${holding.yearsToMaturity}yr left`}
-                                {(investSubType === 'crypto' || investSubType === 'stock' || investSubType === 'penny_stock') && holding.units != null && ` · ${holding.units.toFixed(investSubType === 'crypto' ? 4 : 2)} units`}
+                                {canonicalSubType === 'bond' && holding.yearsToMaturity != null && ` · ${holding.yearsToMaturity}yr left`}
+                                {(canonicalSubType === 'crypto' || canonicalSubType === 'stock' || canonicalSubType === 'penny_stock') && holding.units != null && ` · ${holding.units.toFixed(canonicalSubType === 'crypto' ? 4 : 2)} units`}
                               </div>
                               <div style={{ fontSize: '0.7rem', color: gain >= 0 ? '#4ade80' : '#ef4444' }}>{gain >= 0 ? '+' : ''}${gain.toLocaleString()} since purchase</div>
                             </div>
@@ -456,7 +460,7 @@ export default function AssetsSheet({
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', padding: '2px 0 4px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Available</div>
 
                 {instrumentList.map(inst => {
-                  const ownedVal = belongings.filter(b => b.subType === investSubType && b.instrumentId === inst.id).reduce((s, b) => s + b.currentValue, 0);
+                  const ownedVal = belongings.filter(b => normalizeInvestmentSubType(b.subType) === canonicalSubType && b.instrumentId === inst.id).reduce((s, b) => s + b.currentValue, 0);
                   const canAfford = bank >= (inst.minInvestment ?? (inst.basePrice ?? 100));
                   return (
                     <button key={inst.id} className="glass-panel" onClick={() => { setInvestSelected(inst); setInvestAmount(''); }}
@@ -542,7 +546,8 @@ export default function AssetsSheet({
               <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', padding: '4px 0 2px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Investment Types</div>
               {INV_TYPES.map(type => {
                 const mh = getMarketHealth(type.id, econPhase);
-                const heldValue = belongings.filter(b => b.subType === type.id).reduce((s, b) => s + b.currentValue, 0);
+                const canonicalSubType = normalizeInvestmentSubType(type.id);
+                const heldValue = belongings.filter(b => normalizeInvestmentSubType(b.subType) === canonicalSubType).reduce((s, b) => s + b.currentValue, 0);
                 return (
                   <button key={type.id} className="glass-panel" onClick={() => setInvestSubType(type.id)}
                     style={{ padding: '0.9rem', textAlign: 'left', background: 'rgba(255,255,255,0.04)' }}>

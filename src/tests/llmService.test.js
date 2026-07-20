@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import staticEvents from '../engine/events.json';
 import staticCareers from '../engine/careers.json';
+import { getAgeEventGuidance } from '../engine/llmService';
 
 // Tell Vitest not to auto-mock llmService for this file
 vi.unmock('../engine/llmService');
@@ -43,6 +44,28 @@ const expectErrorEvent = (event, message) => {
   expect(event.description).toContain(message);
   expect(event.choices).toEqual([{ text: 'Understood', effects: {} }]);
 };
+
+describe('getAgeEventGuidance', () => {
+  it.each([
+    [0, 'INFANCY'],
+    [2, 'INFANCY'],
+    [3, 'EARLY CHILDHOOD'],
+    [5, 'EARLY CHILDHOOD'],
+    [6, 'SCHOOL AGE'],
+    [12, 'SCHOOL AGE'],
+    [13, 'TEEN YEARS'],
+    [17, 'TEEN YEARS'],
+    [18, 'ADULTHOOD'],
+  ])('maps age %i to the %s pacing band', (age, band) => {
+    expect(getAgeEventGuidance(age)).toContain(band);
+  });
+
+  it('keeps infancy mild and makes post-infancy choices more consequential', () => {
+    expect(getAgeEventGuidance(1)).toContain('Keep consequences mild');
+    expect(getAgeEventGuidance(4)).toContain('materially different choices');
+    expect(getAgeEventGuidance(8)).toContain('distinct tradeoffs');
+  });
+});
 
 // ─── Helpers: load llmService with specific env vars ─────────────────────────
 // Module-level consts (apiKey, supabaseUrl) require reset + re-import to change.
@@ -258,6 +281,43 @@ describe('generateDynamicEvent', () => {
     const prompt = capturedBody.messages[0].content;
     expect(prompt).toContain('42');
     expect(prompt).toContain('Test User');
+  });
+
+  it('keeps ages 0-2 grounded and low-stakes', async () => {
+    const generateDynamicEvent = await loadService('sk-test');
+    let capturedBody = null;
+    global.fetch = vi.fn().mockImplementation((url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
+      });
+    });
+
+    await generateDynamicEvent(makeState({ age: 2 }));
+    const prompt = capturedBody.messages[0].content;
+    expect(prompt).toContain('LIFE STAGE: INFANCY');
+    expect(prompt).toContain('Keep consequences mild');
+    expect(prompt).toContain('parents separating');
+  });
+
+  it('requires engaging, age-plausible events after age 2', async () => {
+    const generateDynamicEvent = await loadService('sk-test');
+    let capturedBody = null;
+    global.fetch = vi.fn().mockImplementation((url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify(minimalValidEvent) } }] }),
+      });
+    });
+
+    await generateDynamicEvent(makeState({ age: 4 }));
+    const prompt = capturedBody.messages[0].content;
+    expect(prompt).toContain('LIFE STAGE: EARLY CHILDHOOD');
+    expect(prompt).toContain('tension, surprise, opportunity, discovery, or relationship change');
+    expect(prompt).toContain('2-3 concise, materially different choices');
+    expect(prompt).toContain('Do not repeat or lightly reword an event from Recent History');
   });
 
   it('only sends last 5 history entries in prompt', async () => {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ActionSheet from '../ActionSheet';
 import { SPECIAL_CAREERS } from '../../config/specialCareers';
-import { DEGREE_CONFIG, DEGREE_LABELS } from '../../engine/gameState';
+import { DEGREE_CONFIG, DEGREE_LABELS, HEADHUNTER_COST, canAffordHeadhunter } from '../../engine/gameState';
 
 const SECTOR_META = {
   tech:          { icon: '💻', label: 'Tech' },
@@ -22,6 +22,7 @@ export default function JobSheet({
   age, bank, stats, career, careersData, careerMeta, networking, education,
   chooseCareer, studyHard, triggerActivityEvent, performGig, attendNetworkingEvent,
   enrollInDegree, checkCareerEligibility, debugModifyBank, startStartup,
+  enlistMilitary, hireViaHeadhunter,
   onClose,
 }) {
   const [jobMenu, setJobMenu] = useState(null);
@@ -219,13 +220,32 @@ export default function JobSheet({
             </div>
           )}
 
-          {/* Military */}
+          {/* Military — enlists into soldier career track (branch is flavor) */}
           {jobMenu === 'military' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button className="glass-panel" onClick={() => { triggerActivityEvent('Attempted to enlist in the Army'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(16, 185, 129, 0.1)' }}><strong>🪖 Enlist in Army</strong></button>
-              <button className="glass-panel" onClick={() => { triggerActivityEvent('Attempted to enlist in the Navy'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(59, 130, 246, 0.1)' }}><strong>⚓ Enlist in Navy</strong></button>
-              <button className="glass-panel" onClick={() => { triggerActivityEvent('Attempted to enlist in the Air Force'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(139, 92, 246, 0.1)' }}><strong>✈️ Enlist in Air Force</strong></button>
-              <button className="glass-panel" onClick={() => { triggerActivityEvent('Attempted to enlist in the Marines'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(245, 158, 11, 0.1)' }}><strong>🎖️ Enlist in Marines</strong></button>
+              <div style={{ padding: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
+                Enlist as an Army Soldier (career track). Requires Health 60+ and Athleticism 50+.
+              </div>
+              {['Army', 'Navy', 'Air Force', 'Marines'].map((branch, i) => {
+                const styles = [
+                  'rgba(16, 185, 129, 0.1)',
+                  'rgba(59, 130, 246, 0.1)',
+                  'rgba(139, 92, 246, 0.1)',
+                  'rgba(245, 158, 11, 0.1)',
+                ];
+                const icons = ['🪖', '⚓', '✈️', '🎖️'];
+                return (
+                  <button
+                    key={branch}
+                    className="glass-panel"
+                    onClick={() => { enlistMilitary(branch); close(); }}
+                    style={{ padding: '0.8rem', textAlign: 'left', background: styles[i] }}
+                  >
+                    <strong>{icons[i]} Enlist in {branch}</strong>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Starts Army Soldier career track</div>
+                  </button>
+                );
+              })}
               <button className="glass-panel" onClick={() => setJobMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '6px' }}>Back</button>
             </div>
           )}
@@ -248,17 +268,26 @@ export default function JobSheet({
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ padding: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '4px' }}>{sc.description}</div>
-                {sc.actions.map((action, i) => (
-                  <button key={i} className="glass-panel" disabled={bank < (action.cost || 0)} onClick={() => {
-                    if (action.cost) debugModifyBank(-action.cost);
-                    if (action.specialAction === 'startStartup') { startStartup(); }
-                    else { triggerActivityEvent(action.context); }
-                    close();
-                  }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong>{action.text}</strong>
-                    {action.cost && <span style={{ color: '#ef4444', fontSize: '0.8rem', flexShrink: 0, marginLeft: '8px' }}>-${action.cost.toLocaleString()}</span>}
-                  </button>
-                ))}
+                {sc.actions.map((action, i) => {
+                  const isStartupLaunch = action.specialAction === 'startStartup';
+                  const startupActive = isStartupLaunch && career?.id === 'founder';
+                  const disabled = startupActive || bank < (action.cost || 0);
+                  return (
+                    <button key={i} className="glass-panel" disabled={disabled} onClick={() => {
+                      // startStartup owns STARTUP_COST — never also debugModifyBank here
+                      if (isStartupLaunch) {
+                        startStartup();
+                      } else {
+                        if (action.cost) debugModifyBank(-action.cost);
+                        triggerActivityEvent(action.context);
+                      }
+                      close();
+                    }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: disabled ? 0.55 : 1 }}>
+                      <strong>{startupActive ? 'Startup Already Active' : action.text}</strong>
+                      {action.cost && !startupActive && <span style={{ color: '#ef4444', fontSize: '0.8rem', flexShrink: 0, marginLeft: '8px' }}>-${action.cost.toLocaleString()}</span>}
+                    </button>
+                  );
+                })}
                 <button className="glass-panel" onClick={() => setJobMenu('special_careers')} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '6px' }}>Back</button>
               </div>
             );
@@ -281,11 +310,11 @@ export default function JobSheet({
                   <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.15)', borderLeft: '4px solid #3b82f6' }}>
                     <strong>📖 Enrolled: {DEGREE_LABELS[enrolled.type]}</strong>
                     <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                      Year {(enrolled.yearsCompleted || 0) + 1} of {DEGREE_CONFIG[enrolled.type]?.years}
+                      Year {enrolled.yearsInProgram || 1} of {DEGREE_CONFIG[enrolled.type]?.years}
                       {' • '}-${DEGREE_CONFIG[enrolled.type]?.annualCost.toLocaleString()}/yr
                     </div>
                     <div style={{ marginTop: '6px', width: '100%', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ width: `${((enrolled.yearsCompleted || 0) / (DEGREE_CONFIG[enrolled.type]?.years || 1)) * 100}%`, height: '100%', background: '#3b82f6' }} />
+                      <div style={{ width: `${((enrolled.yearsInProgram || 0) / (DEGREE_CONFIG[enrolled.type]?.years || 1)) * 100}%`, height: '100%', background: '#3b82f6' }} />
                     </div>
                   </div>
                 )}
@@ -329,9 +358,20 @@ export default function JobSheet({
           {/* Recruiter */}
           {jobMenu === 'recruiter' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ padding: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>Pay a premium for a headhunter to find high-tier placements.</div>
-              <button className="glass-panel" disabled={bank < 1000} onClick={() => { triggerActivityEvent('Paid a Headhunter $1000 to find an Executive level job'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255, 215, 0, 0.1)' }}>
-                <strong>Executive Placement (-$1,000)</strong>
+              <div style={{ padding: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
+                Pay ${HEADHUNTER_COST.toLocaleString()} for placement into the highest-paying full-time job you currently qualify for.
+              </div>
+              <button
+                className="glass-panel"
+                disabled={!canAffordHeadhunter(bank)}
+                onClick={() => {
+                  if (!canAffordHeadhunter(bank)) return;
+                  hireViaHeadhunter();
+                  close();
+                }}
+                style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255, 215, 0, 0.1)' }}
+              >
+                <strong>Executive Placement (-${HEADHUNTER_COST.toLocaleString()})</strong>
               </button>
               <button className="glass-panel" onClick={() => setJobMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '6px' }}>Back</button>
             </div>

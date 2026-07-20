@@ -22,7 +22,7 @@ Scan all stat effect sources across the entire codebase and flag values that are
    - **Karma conflicts**: events that reward crime (negative karma source) but also give positive karma effects — contradictory
    - **Stat floor/ceiling risk**: any chain of effects that could push a stat to 0 or 100 in a single year
 
-4. Check stat degradation in `src/engine/gameState.js` (`ageUp` function) and confirm it aligns with the CLAUDE.md spec:
+4. Check stat degradation in `src/engine/gameState.js` (`ageUp` function) and confirm it aligns with `docs/game-mechanics.md`:
    - Health: -1 at 30+, -2 at 50+
    - Looks: -1 at 50+
    - All other stats stable unless modified

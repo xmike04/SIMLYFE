@@ -37,6 +37,7 @@ All gameplay state stays in `useGameState()`. The UI is split into gameplay shee
 - **AI through a proxy:** production LLM events use a Supabase Edge Function so the OpenAI key is never bundled in client JavaScript.
 - **Visible failure over fake success:** LLM failures surface as in-game error events. Static events remain validated content, but they no longer silently mask broken AI configuration.
 - **Lazy cloud-save loading:** Firebase is dynamically imported only after the game mounts, reducing the initial bundle pressure for players who just want to start quickly.
+- **Life-boundary cloud replace:** `startLife` / `resetLife` write a full Firestore document via `buildLifeSave` (no merge) so death restart and new lives cannot resurrect prior career, pets, or `isDead`. See [architecture.md](./architecture.md).
 - **Plain CSS design system:** the project intentionally avoids Tailwind and UI libraries; the dark glass UI is built with CSS variables and small reusable patterns.
 - **Deterministic quality gates:** Vitest covers core math/config behavior, and Playwright covers the first-run browser path.
 

@@ -6,14 +6,14 @@ Full checklist for implementing a new gameplay system in SIMLYFE — from design
 
 ### 1. Design (read before touching code)
 - Read `src/engine/gameState.js` to understand what state already exists and what the new mechanic might reuse.
-- Read `CLAUDE.md` Game Mechanics Reference to ensure the new mechanic fits the existing model.
+- Read `docs/game-mechanics.md` and `docs/agent-guide.md` to ensure the new mechanic fits the existing model.
 - Define clearly: What state does it add? What triggers it? What does it modify? Does it run every year (in `ageUp`) or on demand?
 
 ### 2. State (gameState.js)
 - Add new state variable(s) via `useState` at the top of `useGameState()`.
 - If it runs annually, integrate it into `ageUp()` at the correct position relative to existing logic (order matters — income before tax before lifestyle cost, etc.).
 - If it's on-demand, add a new function and include it in the return object.
-- Include the new state in the Firebase save (the Firestore merge is automatic if it's in the state spread).
+- If the new state must persist: add it to `LIFE_SAVE_KEYS` / `buildLifeSave` and every life-boundary replace; mid-life syncs still use merge — see `docs/architecture.md`.
 
 ### 3. Tests first (engine.mechanics.test.js)
 - Before the UI exists, write pure-function mirrors of the new logic in `src/tests/engine.mechanics.test.js`.

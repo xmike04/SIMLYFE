@@ -1,19 +1,24 @@
 # SIMLYFE - Agent Guide
 
-This file is the entry point for AI coding agents (GitHub Copilot, Codex, etc.).
+Entry point for AI coding agents.
 
-The full project guide - architecture, game mechanics, conventions, environment variables, and known issues - is in [`CLAUDE.md`](./CLAUDE.md). Read that file before making any changes.
+## Read first (source of truth)
 
-## Key facts for agents
+1. [`docs/architecture.md`](./docs/architecture.md) — system design, cloud saves, death restart
+2. [`docs/game-mechanics.md`](./docs/game-mechanics.md) — gameplay rules
+3. [`docs/agent-guide.md`](./docs/agent-guide.md) — conventions, env, tests, known issues
 
-- **Framework:** React 19, Vite 8, pure CSS - no Tailwind, no UI libraries, no TypeScript
-- **State:** All game logic lives in `src/engine/gameState.js` (`useGameState()` hook). Do not add state elsewhere.
-- **Styling:** Use CSS variables from `index.css`. Follow the glassmorphism pattern already in use.
-- **Tests:** Run `npm test` before and after changes. New mechanics go in `engine.mechanics.test.js` first as pure functions, then implemented in `gameState.js`.
-- **Verification workflow:** For substantive app changes, follow `_agents/workflows/test-app.md`: `npm install`, `npm run lint`, `npm test`, then `npm run build`.
-- **Sheets:** All gameplay panels are extracted into `src/components/sheets/`. Add new panels there, not inline in `MainGame.jsx`.
-- **LLM events:** Pass a descriptive `context` string to `generateDynamicEvent()`. Do not add static event fallbacks - errors surface to the player by design.
-- **Manual scripts:** `node scripts/test-llm.js` manually exercises the Supabase/OpenAI JSON event path and expects `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE` in `.env.local`; `node scripts/migrateData.js` pushes `src/engine/events.json` and `src/engine/careers.json` to Firestore and requires `scripts/serviceAccountKey.json` plus a temporary `npm install --no-save firebase-admin`.
-- **Content:** This game contains intentionally mature themes (crime, violence, adult relationships, drug use). Do not sanitize or remove these.
+Index: [`docs/README.md`](./docs/README.md). Project stub for Claude: [`CLAUDE.md`](./CLAUDE.md).
 
-See `CLAUDE.md` for the full reference.
+## Critical bullets
+
+- **Framework:** React 19, Vite 8, pure CSS — no Tailwind, no UI libraries, no TypeScript.
+- **State:** All game logic in `useGameState()` (`src/engine/gameState.js`). Extract pure helpers when adding mechanics.
+- **Sheets:** New panels in `src/components/sheets/`, not inline in `MainGame.jsx`.
+- **Cloud life boundaries:** `buildLifeSave` + `syncToCloud(..., { replace: true })` on `startLife` / `resetLife`. Live Again must call `resetLife()`.
+- **LLM:** Pass descriptive `context` to `generateDynamicEvent()`. No silent static fallbacks.
+- **Tests:** Prefer real exports over mirrors when possible. Substantive changes: `_agents/workflows/test-app.md` (`lint` → `test` → `build`).
+- **Action audits:** `/audit-job-school`, `/audit-relationships`, `/audit-activities`, or orchestrate with `/audit-actions` (see `docs/agent-guide.md`).
+- **Content:** Mature themes are by design — do not sanitize without explicit instruction.
+
+Full detail lives in the three `docs/` SOT files above — keep them updated when you change behavior.

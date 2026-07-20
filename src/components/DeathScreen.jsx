@@ -1,5 +1,6 @@
 import React from 'react';
 import { getWealthTier } from '../config/wealthTiers';
+import { findSpouse } from '../engine/gameState';
 
 const STAT_META = [
   { key: 'health',      label: 'Health',      color: 'var(--health-color)' },
@@ -27,7 +28,7 @@ export default function DeathScreen({ engine }) {
   const tier = getWealthTier(netWorth);
 
   const investmentBelongings = (belongings ?? []).filter(b => b.subType);
-  const spouse = (relationships ?? []).find(r => r.relation === 'Spouse' || r.relation === 'spouse');
+  const spouse = findSpouse(relationships);
 
   const statValues = {
     health: stats?.health ?? 0,
@@ -134,7 +135,8 @@ export default function DeathScreen({ engine }) {
           </p>
         </div>
 
-        <button className="btn" onClick={() => window.location.reload()}>
+        {/* resetLife clears local + replaces cloud; reload would re-hydrate isDead */}
+        <button className="btn" onClick={() => engine.resetLife()}>
           Live Again
         </button>
       </div>

@@ -19,6 +19,34 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import {
+  buildLifeSave,
+  LIFE_SAVE_KEYS,
+  enrollDegree,
+  advanceDegreeYear,
+  applyPaperInvestmentReturn,
+  findSpouse,
+  markAsEx,
+  normalizeRelationshipNpc,
+  HEADHUNTER_COST,
+  STARTUP_COST,
+  MILITARY_ENLIST_CAREER_ID,
+  canAffordHeadhunter,
+  canConsumeYearlyActivity,
+  yearlyActivityTrackId,
+  computeStartupLaunch,
+  pickHeadhunterPlacement,
+  applyEffectsPure,
+  applyCareerYearEffects,
+  normalizeCareerEffect,
+  computeGambleResult,
+  prepareInvestmentPurchase,
+  normalizeInvestmentSubType,
+  hasRequiredDegree,
+  pickParentName,
+  DEGREE_CONFIG as ENGINE_DEGREE_CONFIG,
+  DEGREE_LABELS as ENGINE_DEGREE_LABELS,
+} from '../engine/gameState';
 
 // ─── Helpers mirrored from gameState.js so we can unit-test them ──────────────
 // When the source changes, update these mirrors and the corresponding tests.
@@ -72,11 +100,7 @@ function applyCareerIncome(stats, bank, career) {
   if (!career) return { stats, bank };
   if (career.id === 'founder') return { stats, bank }; // handled separately
   const newBank = bank + career.salary;
-  const newStats = {
-    ...stats,
-    happiness: clamp(stats.happiness + (career.happinessEffect ?? 0)),
-    health: clamp(stats.health + (career.healthEffect ?? 0)),
-  };
+  const newStats = applyCareerYearEffects(stats, career);
   return { stats: newStats, bank: newBank };
 }
 
@@ -319,13 +343,30 @@ describe('applyCareerIncome', () => {
   it('applies happinessEffect', () => {
     const career = { id: 'sw_eng', salary: 125000, happinessEffect: -10, healthEffect: -15 };
     const { stats } = applyCareerIncome(baseStats, 0, career);
-    expect(stats.happiness).toBe(70);
+    expect(stats.happiness).toBe(78);
   });
 
   it('applies healthEffect (was missing in original source)', () => {
     const career = { id: 'sw_eng', salary: 125000, happinessEffect: -10, healthEffect: -15 };
     const { stats } = applyCareerIncome(baseStats, 0, career);
-    expect(stats.health).toBe(65);
+    expect(stats.health).toBe(78);
+  });
+
+  it('normalizes non-zero catalog intensity to a bounded yearly delta', () => {
+    expect(normalizeCareerEffect(-2)).toBe(-1);
+    expect(normalizeCareerEffect(-10)).toBe(-2);
+    expect(normalizeCareerEffect(-20)).toBe(-3);
+    expect(normalizeCareerEffect(5)).toBe(1);
+  });
+
+  it('allows a healthy nurse to survive an uninterrupted age-22 to age-40 career', () => {
+    const nurse = { id: 'nurse', happinessEffect: -5, healthEffect: -10 };
+    let stats = { health: 80, happiness: 80 };
+    for (let age = 23; age <= 40; age++) {
+      stats = applyCareerYearEffects(stats, nurse);
+      if (age > 30) stats.health = Math.max(0, stats.health - 1);
+    }
+    expect(stats.health).toBeGreaterThan(25);
   });
 
   it('clamps happiness to 0', () => {
@@ -479,35 +520,54 @@ describe('Lottery logic', () => {
 });
 
 describe('Gambling logic', () => {
-  function goGamblePure(bank, amount, randomValue) {
-    if (bank < amount || amount <= 0) return { bank, outcome: 'error' };
-    const win = randomValue < 0.45;
-    return {
-      bank: win ? bank - amount + amount * 2 : bank - amount,
-      outcome: win ? 'win' : 'lose',
-    };
-  }
-
   it('wins 2× return on random < 0.45', () => {
-    const { bank, outcome } = goGamblePure(200, 100, 0.44);
+    const { newBank: bank, outcome } = computeGambleResult(200, 100, 0.44);
     expect(outcome).toBe('win');
     expect(bank).toBe(300); // 200 - 100 + 200
   });
 
-  it('loses wager on random >= 0.45', () => {
-    const { bank, outcome } = goGamblePure(200, 100, 0.45);
-    expect(outcome).toBe('lose');
+  it('returns half the wager on random from 0.45 to 0.70', () => {
+    const { newBank: bank, outcome } = computeGambleResult(200, 100, 0.45);
+    expect(outcome).toBe('partial');
+    expect(bank).toBe(150);
+  });
+
+  it('loses wager on random >= 0.70', () => {
+    const { newBank: bank, outcome } = computeGambleResult(200, 100, 0.70);
+    expect(outcome).toBe('loss');
     expect(bank).toBe(100);
   });
 
   it('refuses when bank < amount', () => {
-    const { outcome } = goGamblePure(50, 100, 0.1);
-    expect(outcome).toBe('error');
+    expect(computeGambleResult(50, 100, 0.1).reason).toBe('insufficient_funds');
   });
 
-  it('refuses when amount is 0', () => {
-    const { outcome } = goGamblePure(200, 0, 0.1);
-    expect(outcome).toBe('error');
+  it.each([undefined, NaN, Infinity, 0, -1])('refuses invalid amount %s', (amount) => {
+    expect(computeGambleResult(200, amount, 0.1).reason).toBe('invalid_amount');
+  });
+});
+
+describe('Investment purchase validation', () => {
+  const fund = { id: 'sp500_idx', name: 'S&P 500 Index Fund', ticker: 'SPX', minInvestment: 500, returnProfile: { base: 0.1 } };
+
+  it('normalizes UI category aliases to canonical saved subtypes', () => {
+    expect(normalizeInvestmentSubType('stocks')).toBe('stock');
+    expect(normalizeInvestmentSubType('bonds')).toBe('bond');
+    expect(normalizeInvestmentSubType('penny')).toBe('penny_stock');
+    expect(normalizeInvestmentSubType('funds')).toBe('fund');
+  });
+
+  it('prepares a valid fund purchase', () => {
+    const purchase = prepareInvestmentPurchase(fund, 1000, 'funds', 5000);
+    expect(purchase).toMatchObject({ ok: true, subType: 'fund', units: 1000, actualCost: 1000 });
+  });
+
+  it.each([null, undefined, 'sp500_idx', [], {}])('rejects invalid instrument %s', (instrument) => {
+    expect(prepareInvestmentPurchase(instrument, 1000, 'fund', 5000).reason).toBe('invalid_instrument');
+  });
+
+  it.each([undefined, NaN, Infinity, 0, -10])('rejects invalid amount %s', (amount) => {
+    expect(prepareInvestmentPurchase(fund, amount, 'fund', 5000).reason).toBe('invalid_amount');
   });
 });
 
@@ -604,6 +664,111 @@ describe('startLife initial state', () => {
     const s = generateInitialStats();
     for (const key of Object.keys(s)) {
       expect(Number.isInteger(s[key])).toBe(true);
+    }
+  });
+});
+
+// ─── 8b. buildLifeSave: full cloud replace payloads ──────────────────────────
+
+describe('buildLifeSave', () => {
+  it('always includes every persisted life key', () => {
+    const save = buildLifeSave({});
+    for (const key of LIFE_SAVE_KEYS) {
+      expect(save).toHaveProperty(key);
+    }
+    expect(Object.keys(save).sort()).toEqual([...LIFE_SAVE_KEYS].sort());
+  });
+
+  it('reset payload clears character, death, career, and pets', () => {
+    const save = buildLifeSave({ character: null, isDead: false });
+    expect(save.character).toBeNull();
+    expect(save.isDead).toBe(false);
+    expect(save.career).toBeNull();
+    expect(save.pets).toEqual([]);
+    expect(save.relationships).toEqual([]);
+    expect(save.belongings).toEqual([]);
+    expect(save.properties).toEqual([]);
+    expect(save.history).toEqual([]);
+    expect(save.bank).toBe(0);
+    expect(save.age).toBe(0);
+  });
+
+  it('new-life payload explicitly wipes career and pets', () => {
+    const character = { name: 'Ada', gender: 'Female', country: 'USA', city: null };
+    const stats = { health: 90, happiness: 85, smarts: 50, looks: 50, grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0 };
+    const history = [{ age: 0, text: 'Born.' }];
+    const relationships = [{ id: 'm', type: 'Mother' }];
+    const save = buildLifeSave({
+      character,
+      age: 0,
+      stats,
+      bank: 0,
+      history,
+      isDead: false,
+      flags: [],
+      career: null,
+      relationships,
+      belongings: [],
+      properties: [],
+      networking: 0,
+      pets: [],
+    });
+    expect(save.character).toEqual(character);
+    expect(save.isDead).toBe(false);
+    expect(save.career).toBeNull();
+    expect(save.pets).toEqual([]);
+    expect(save.relationships).toEqual(relationships);
+    expect(save.history).toEqual(history);
+  });
+
+  it('explicit nulls overwrite leftover prior-life fields', () => {
+    // Simulates replace write after a life that had career + pets in cloud
+    const save = buildLifeSave({
+      character: { name: 'Bob', gender: 'Male', country: 'USA', city: null },
+      career: null,
+      pets: [],
+      isDead: false,
+    });
+    expect(save.career).toBeNull();
+    expect(save.pets).toEqual([]);
+    expect(save.isDead).toBe(false);
+  });
+});
+
+describe('applyEffectsPure', () => {
+  it('applies bank and clamped stats', () => {
+    const { stats, bank, flags } = applyEffectsPure(
+      { health: 50, happiness: 50, smarts: 50, looks: 50, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, grades: 70 },
+      1000,
+      [],
+      { health: 10, bank: -100, flags: ['x'] }
+    );
+    expect(stats.health).toBe(60);
+    expect(bank).toBe(900);
+    expect(flags).toEqual(['x']);
+  });
+});
+
+describe('persistLife payload merge', () => {
+  it('buildLifeSave merges overrides over a snapshot without dropping bank', () => {
+    const snapshot = buildLifeSave({
+      character: { name: 'A', gender: 'Female', country: 'USA', city: null },
+      bank: 5000,
+      history: [{ age: 1, text: 'Hi' }],
+      career: { id: 'dev', title: 'Dev' },
+      pets: [{ id: 'p1' }],
+    });
+    const merged = buildLifeSave({
+      ...snapshot,
+      history: [...snapshot.history, { age: 1, text: 'Event choice' }],
+      bank: 4900,
+    });
+    expect(merged.bank).toBe(4900);
+    expect(merged.career?.id).toBe('dev');
+    expect(merged.pets).toHaveLength(1);
+    expect(merged.history).toHaveLength(2);
+    for (const key of LIFE_SAVE_KEYS) {
+      expect(merged).toHaveProperty(key);
     }
   });
 });
@@ -758,50 +923,6 @@ function checkCareerEligibility(career, education, stats, networking, age) {
     }
   }
   return { eligible: true, reason: '' };
-}
-
-function enrollInDegree(degreeType, education, bank) {
-  const cfg = DEGREE_CONFIG[degreeType];
-  if (!cfg) return { error: 'Unknown degree type' };
-  if (education.currentDegree !== null) return { error: 'Already enrolled in a program' };
-  if (cfg.requires && !education[cfg.requires]) {
-    return { error: `Requires ${DEGREE_LABELS[cfg.requires]} first` };
-  }
-  if (bank < cfg.annualCost) return { error: 'Insufficient funds for first year' };
-  return {
-    newEducation: { ...education, currentDegree: { type: degreeType, yearsInProgram: 0, totalYears: cfg.years, annualCost: cfg.annualCost } },
-    newBank: bank - cfg.annualCost,
-  };
-}
-
-function processEducationYear(education, stats, bank) {
-  const deg = education.currentDegree;
-  if (!deg) return { education, stats, bank, completed: false };
-  let newBank = bank - deg.annualCost;
-  let newStats = { ...stats };
-  const cfg = DEGREE_CONFIG[deg.type];
-  if (cfg.happinessEffect) {
-    newStats.happiness = clamp(newStats.happiness + cfg.happinessEffect);
-  }
-  const newYears = deg.yearsInProgram + 1;
-  if (newYears >= deg.totalYears) {
-    const bonuses = { associate: 3, bachelor: 10, master: 5, phd: 3 };
-    newStats.smarts = clamp(newStats.smarts + (bonuses[deg.type] ?? 0));
-    newStats.happiness = clamp(newStats.happiness + 3);
-    return {
-      education: { ...education, [deg.type]: true, currentDegree: null },
-      stats: newStats,
-      bank: newBank,
-      completed: true,
-      completedType: deg.type,
-    };
-  }
-  return {
-    education: { ...education, currentDegree: { ...deg, yearsInProgram: newYears } },
-    stats: newStats,
-    bank: newBank,
-    completed: false,
-  };
 }
 
 function processEconomyCycle(cycle) {
@@ -967,109 +1088,365 @@ describe('checkCareerEligibility', () => {
   });
 });
 
-// ─── 14. enrollInDegree ──────────────────────────────────────────────────────
+// ─── 14. enrollDegree (real helper) ──────────────────────────────────────────
 
-describe('enrollInDegree', () => {
+describe('enrollDegree', () => {
   const baseEdu = { highSchool: true, associate: false, bachelor: false, master: false, phd: false, currentDegree: null };
 
   it('error if already enrolled', () => {
-    const edu = { ...baseEdu, currentDegree: { type: 'associate', yearsInProgram: 0, totalYears: 2, annualCost: 10000 } };
-    const { error } = enrollInDegree('bachelor', edu, 100000);
+    const edu = { ...baseEdu, currentDegree: { type: 'associate', yearsInProgram: 1, totalYears: 2, annualCost: 10000 } };
+    const { error } = enrollDegree('bachelor', edu, 100000);
     expect(error).toMatch(/already enrolled/i);
   });
 
   it('error if prerequisite not held', () => {
-    const { error } = enrollInDegree('master', baseEdu, 100000);
+    const { error } = enrollDegree('master', baseEdu, 100000);
     expect(error).toMatch(/Bachelor/i);
   });
 
   it('error if bank < annualCost', () => {
-    const { error } = enrollInDegree('bachelor', baseEdu, 5000);
+    const { error } = enrollDegree('bachelor', baseEdu, 5000);
     expect(error).toMatch(/Insufficient/i);
   });
 
-  it('success — currentDegree is set correctly', () => {
-    const { newEducation } = enrollInDegree('bachelor', baseEdu, 100000);
+  it('success — yearsInProgram starts at 1 (year 1 prepaid)', () => {
+    const { newEducation } = enrollDegree('bachelor', baseEdu, 100000);
     expect(newEducation.currentDegree.type).toBe('bachelor');
-    expect(newEducation.currentDegree.yearsInProgram).toBe(0);
+    expect(newEducation.currentDegree.yearsInProgram).toBe(1);
     expect(newEducation.currentDegree.totalYears).toBe(4);
   });
 
   it('success — first year cost deducted from bank', () => {
-    const { newBank } = enrollInDegree('bachelor', baseEdu, 100000);
+    const { newBank } = enrollDegree('bachelor', baseEdu, 100000);
     expect(newBank).toBe(80000);
   });
 
   it('PhD has zero annual cost', () => {
     const richEdu = { ...baseEdu, bachelor: true, master: true };
-    const { newBank } = enrollInDegree('phd', richEdu, 50000);
-    expect(newBank).toBe(50000); // no deduction
+    const { newBank } = enrollDegree('phd', richEdu, 50000);
+    expect(newBank).toBe(50000);
   });
 
   it('associate requires only high school', () => {
-    const { error } = enrollInDegree('associate', baseEdu, 100000);
+    const { error } = enrollDegree('associate', baseEdu, 100000);
     expect(error).toBeUndefined();
+  });
+
+  it('engine DEGREE_CONFIG matches local catalog years/costs', () => {
+    expect(ENGINE_DEGREE_CONFIG.bachelor.years).toBe(DEGREE_CONFIG.bachelor.years);
+    expect(ENGINE_DEGREE_CONFIG.bachelor.annualCost).toBe(DEGREE_CONFIG.bachelor.annualCost);
+    expect(ENGINE_DEGREE_LABELS.bachelor).toBeTruthy();
   });
 });
 
-// ─── 15. processEducationYear ────────────────────────────────────────────────
+// ─── 15. advanceDegreeYear (real helper) ─────────────────────────────────────
 
-describe('processEducationYear', () => {
+describe('advanceDegreeYear', () => {
   const baseStats = { smarts: 50, happiness: 70 };
   const enrolledBachelor = {
-    highSchool: true, bachelor: false, currentDegree: { type: 'bachelor', yearsInProgram: 0, totalYears: 4, annualCost: 20000 }
+    highSchool: true, bachelor: false, currentDegree: { type: 'bachelor', yearsInProgram: 1, totalYears: 4, annualCost: 20000 }
   };
   const finalYearBachelor = {
     highSchool: true, bachelor: false, currentDegree: { type: 'bachelor', yearsInProgram: 3, totalYears: 4, annualCost: 20000 }
   };
 
   it('increments yearsInProgram each year', () => {
-    const { education } = processEducationYear(enrolledBachelor, baseStats, 100000);
-    expect(education.currentDegree.yearsInProgram).toBe(1);
+    const { education } = advanceDegreeYear(enrolledBachelor, baseStats, 100000);
+    expect(education.currentDegree.yearsInProgram).toBe(2);
   });
 
-  it('deducts annual cost from bank', () => {
-    const { bank } = processEducationYear(enrolledBachelor, baseStats, 100000);
+  it('deducts annual cost from bank for subsequent years', () => {
+    const { bank, charged } = advanceDegreeYear(enrolledBachelor, baseStats, 100000);
+    expect(charged).toBe(20000);
     expect(bank).toBe(80000);
+  });
+
+  it('legacy yearsInProgram 0 skips charge (enroll already paid)', () => {
+    const legacy = {
+      highSchool: true, bachelor: false,
+      currentDegree: { type: 'bachelor', yearsInProgram: 0, totalYears: 4, annualCost: 20000 },
+    };
+    const { bank, charged, education } = advanceDegreeYear(legacy, baseStats, 100000);
+    expect(charged).toBe(0);
+    expect(bank).toBe(100000);
+    expect(education.currentDegree.yearsInProgram).toBe(1);
   });
 
   it('PhD applies -20 happiness per year', () => {
     const phdEdu = {
       ...enrolledBachelor,
       master: true,
-      currentDegree: { type: 'phd', yearsInProgram: 0, totalYears: 4, annualCost: 0 }
+      currentDegree: { type: 'phd', yearsInProgram: 1, totalYears: 4, annualCost: 0 }
     };
-    const { stats } = processEducationYear(phdEdu, baseStats, 50000);
+    const { stats } = advanceDegreeYear(phdEdu, baseStats, 50000);
     expect(stats.happiness).toBe(50);
   });
 
   it('completes degree when yearsInProgram reaches totalYears', () => {
-    const { completed, completedType } = processEducationYear(finalYearBachelor, baseStats, 100000);
+    const { completed, completedType } = advanceDegreeYear(finalYearBachelor, baseStats, 100000);
     expect(completed).toBe(true);
     expect(completedType).toBe('bachelor');
   });
 
   it('on completion: sets bachelor=true and clears currentDegree', () => {
-    const { education } = processEducationYear(finalYearBachelor, baseStats, 100000);
+    const { education } = advanceDegreeYear(finalYearBachelor, baseStats, 100000);
     expect(education.bachelor).toBe(true);
     expect(education.currentDegree).toBeNull();
   });
 
   it('on completion: +10 smarts for bachelor', () => {
-    const { stats } = processEducationYear(finalYearBachelor, baseStats, 100000);
+    const { stats } = advanceDegreeYear(finalYearBachelor, baseStats, 100000);
     expect(stats.smarts).toBe(60);
   });
 
   it('on completion: +3 happiness for all degrees', () => {
-    const { stats } = processEducationYear(finalYearBachelor, baseStats, 100000);
+    const { stats } = advanceDegreeYear(finalYearBachelor, baseStats, 100000);
     expect(stats.happiness).toBeGreaterThan(baseStats.happiness);
   });
 
   it('no-op when no currentDegree enrolled', () => {
     const noEnrollEdu = { highSchool: true, currentDegree: null };
-    const { completed, bank } = processEducationYear(noEnrollEdu, baseStats, 50000);
+    const { completed, bank } = advanceDegreeYear(noEnrollEdu, baseStats, 50000);
     expect(completed).toBe(false);
-    expect(bank).toBe(50000); // unchanged
+    expect(bank).toBe(50000);
+  });
+
+  it('enroll + N-1 ageUps for N-year degree charges exactly N tuition payments', () => {
+    const baseEdu = { highSchool: true, associate: false, bachelor: false, master: false, phd: false, currentDegree: null };
+    let bank = 100000;
+    let edu = baseEdu;
+    let stats = { ...baseStats };
+
+    const enrolled = enrollDegree('bachelor', edu, bank);
+    edu = enrolled.newEducation;
+    bank = enrolled.newBank;
+    expect(bank).toBe(80000);
+
+    let completed = false;
+    for (let i = 0; i < 3; i++) {
+      const step = advanceDegreeYear(edu, stats, bank);
+      edu = step.education;
+      stats = step.stats;
+      bank = step.bank;
+      completed = step.completed;
+    }
+    expect(completed).toBe(true);
+    expect(bank).toBe(20000); // 100000 - 4*20000
+    expect(edu.bachelor).toBe(true);
+    expect(edu.currentDegree).toBeNull();
+  });
+});
+
+describe('applyPaperInvestmentReturn', () => {
+  it('updates asset value without cash credit', () => {
+    const { newValue, cashDelta } = applyPaperInvestmentReturn(10000, 700);
+    expect(newValue).toBe(10700);
+    expect(cashDelta).toBe(0);
+  });
+
+  it('clamps value at 0 on large losses', () => {
+    const { newValue, cashDelta } = applyPaperInvestmentReturn(500, -2000);
+    expect(newValue).toBe(0);
+    expect(cashDelta).toBe(0);
+  });
+});
+
+describe('findSpouse', () => {
+  it('matches status married and alive', () => {
+    const spouse = findSpouse([
+      { id: '1', type: 'Friend', status: 'friend', relation: 50, isAlive: true },
+      { id: '2', type: 'Spouse', status: 'married', relation: 80, isAlive: true },
+    ]);
+    expect(spouse?.id).toBe('2');
+  });
+
+  it('does not match divorced ex who still has type Spouse', () => {
+    const spouse = findSpouse([
+      { id: '2', type: 'Spouse', status: 'ex', relation: 10, isAlive: true },
+    ]);
+    expect(spouse).toBeNull();
+  });
+
+  it('does not match markAsEx result', () => {
+    const divorced = markAsEx({ id: '2', type: 'Spouse', status: 'married', relation: 10, isAlive: true });
+    expect(divorced.status).toBe('ex');
+    expect(divorced.type).toBe('Ex');
+    expect(findSpouse([divorced])).toBeNull();
+  });
+
+  it('does not treat numeric relation as Spouse', () => {
+    const spouse = findSpouse([{ id: '4', type: 'Friend', status: 'friend', relation: 'Spouse' }]);
+    expect(spouse).toBeNull();
+  });
+});
+
+describe('markAsEx', () => {
+  it('clears married spouse to Ex', () => {
+    const ex = markAsEx({ id: '1', type: 'Spouse', status: 'married', relation: 40 });
+    expect(ex).toEqual({ id: '1', type: 'Ex', status: 'ex', relation: 40 });
+  });
+
+  it('clears dating lover to Ex', () => {
+    const ex = markAsEx({ id: '2', type: 'Lover', status: 'dating', relation: 15 });
+    expect(ex.status).toBe('ex');
+    expect(ex.type).toBe('Ex');
+  });
+});
+
+describe('yearly activity limits', () => {
+  it('builds stable track ids for gym/run', () => {
+    expect(yearlyActivityTrackId('mind_body', 'Go to the Gym')).toBe('mind_body__Go to the Gym');
+    expect(yearlyActivityTrackId('mind_body', 'Go for a Run')).toBe('mind_body__Go for a Run');
+  });
+
+  it('blocks when yearlyLimit is reached', () => {
+    const used = { 'mind_body__Go to the Gym': 1 };
+    expect(canConsumeYearlyActivity(used, 'mind_body', 'Go to the Gym', 1)).toBe(false);
+    expect(canConsumeYearlyActivity(used, 'mind_body', 'Go for a Run', 1)).toBe(true);
+    expect(canConsumeYearlyActivity({}, 'mind_body', 'Go to the Gym', 1)).toBe(true);
+  });
+});
+
+describe('normalizeRelationshipNpc', () => {
+  it('fills status dating and isAlive for dating-app matches', () => {
+    const npc = normalizeRelationshipNpc(
+      { id: 'x', type: 'Lover', name: 'Sam', age: 22, relation: 50 },
+      { asDating: true }
+    );
+    expect(npc.status).toBe('dating');
+    expect(npc.isAlive).toBe(true);
+    expect(npc.type).toBe('Lover');
+  });
+
+  it('preserves explicit isAlive false unless asDating forces alive', () => {
+    const dead = normalizeRelationshipNpc({ id: 'd', type: 'Friend', isAlive: false, status: 'family' });
+    expect(dead.isAlive).toBe(false);
+    const forced = normalizeRelationshipNpc({ id: 'd', type: 'Lover', isAlive: false }, { asDating: true });
+    expect(forced.isAlive).toBe(true);
+    expect(forced.status).toBe('dating');
+  });
+});
+
+describe('canAffordHeadhunter', () => {
+  it('requires HEADHUNTER_COST', () => {
+    expect(HEADHUNTER_COST).toBe(1000);
+    expect(canAffordHeadhunter(999)).toBe(false);
+    expect(canAffordHeadhunter(1000)).toBe(true);
+  });
+});
+
+describe('pickHeadhunterPlacement', () => {
+  const careers = [
+    { id: 'intern', title: 'Intern', salary: 20000, type: 'full_time', minAge: 16, statRequirements: {} },
+    { id: 'exec', title: 'Executive', salary: 200000, type: 'full_time', minAge: 25, requiresDegree: 'bachelor', requiresNetworking: 40, statRequirements: { smarts: 70 } },
+    { id: 'part', title: 'Gig', salary: 50000, type: 'part_time', minAge: 16, statRequirements: {} },
+  ];
+
+  it('picks highest-salary eligible full-time job', () => {
+    const pick = pickHeadhunterPlacement(careers, {
+      age: 30,
+      education: { bachelor: true },
+      stats: { smarts: 80 },
+      networking: 50,
+    });
+    expect(pick?.id).toBe('exec');
+  });
+
+  it('falls back when elite roles are ineligible', () => {
+    const pick = pickHeadhunterPlacement(careers, {
+      age: 20,
+      education: {},
+      stats: { smarts: 40 },
+      networking: 0,
+    });
+    expect(pick?.id).toBe('intern');
+  });
+
+  it('returns null when nothing qualifies', () => {
+    const pick = pickHeadhunterPlacement(careers, {
+      age: 10,
+      education: {},
+      stats: {},
+      networking: 0,
+    });
+    expect(pick).toBeNull();
+  });
+
+  it('treats a higher degree as satisfying a lower minimum', () => {
+    const associateRole = [{ id: 'designer', title: 'Designer', salary: 60000, type: 'full_time', minAge: 20, requiresDegree: 'associate', statRequirements: {} }];
+    const pick = pickHeadhunterPlacement(associateRole, {
+      age: 25,
+      education: { bachelor: true, associate: false },
+      stats: {},
+      networking: 0,
+    });
+    expect(pick?.id).toBe('designer');
+  });
+});
+
+describe('hasRequiredDegree', () => {
+  it('accepts exact and higher completed degrees', () => {
+    expect(hasRequiredDegree({ associate: true }, 'associate')).toBe(true);
+    expect(hasRequiredDegree({ bachelor: true, associate: false }, 'associate')).toBe(true);
+    expect(hasRequiredDegree({ phd: true, bachelor: false }, 'bachelor')).toBe(true);
+  });
+
+  it('rejects lower or missing degrees', () => {
+    expect(hasRequiredDegree({ highSchool: true }, 'associate')).toBe(false);
+    expect(hasRequiredDegree({}, 'bachelor')).toBe(false);
+  });
+});
+
+describe('parent name generation', () => {
+  it('uses label-compatible parent name pools', () => {
+    expect(pickParentName('Mother', 0)).toBe('Mary');
+    expect(pickParentName('Father', 0)).toBe('James');
+    expect(pickParentName('Mother', 0.999)).toBe('Karen');
+    expect(pickParentName('Father', 0.999)).toBe('Charles');
+  });
+});
+
+describe('military enlist career id', () => {
+  it('targets soldier career track', async () => {
+    expect(MILITARY_ENLIST_CAREER_ID).toBe('soldier');
+    const { default: careers } = await import('../engine/careers.json');
+    const soldier = careers.find((c) => c.id === MILITARY_ENLIST_CAREER_ID);
+    expect(soldier?.title).toBe('Army Soldier');
+    expect(soldier?.statRequirements?.health).toBe(60);
+    expect(soldier?.statRequirements?.athleticism).toBe(50);
+  });
+});
+
+describe('computeStartupLaunch', () => {
+  it('charges STARTUP_COST exactly once', () => {
+    expect(STARTUP_COST).toBe(500);
+    const launch = computeStartupLaunch(1000);
+    expect(launch.ok).toBe(true);
+    expect(launch.newBank).toBe(500);
+    expect(launch.cost).toBe(500);
+    expect(launch.career.id).toBe('founder');
+  });
+
+  it('rejects when bank is below STARTUP_COST', () => {
+    expect(computeStartupLaunch(499).ok).toBe(false);
+  });
+
+  it('does not charge or reset an active founder', () => {
+    const launch = computeStartupLaunch(1000, { id: 'founder', equity: 5000 });
+    expect(launch).toEqual({ ok: false, reason: 'already_founder' });
+  });
+
+  it('does not attach an unused annual happiness effect to founders', () => {
+    expect(computeStartupLaunch(1000).career).not.toHaveProperty('happinessEffect');
+  });
+
+  it('specialCareers catalog cost matches STARTUP_COST (no double-charge contract)', async () => {
+    const { SPECIAL_CAREERS } = await import('../config/specialCareers.js');
+    const launchAction = SPECIAL_CAREERS
+      .flatMap((c) => c.actions)
+      .find((a) => a.specialAction === 'startStartup');
+    expect(launchAction).toBeTruthy();
+    expect(launchAction.cost).toBe(STARTUP_COST);
   });
 });
 

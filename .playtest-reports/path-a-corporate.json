@@ -1,0 +1,196 @@
+{
+  "pathId": "path-a-corporate",
+  "name": "Alex Rivera",
+  "finalAge": 40,
+  "died": false,
+  "final": {
+    "age": 40,
+    "bank": 2455963,
+    "isDead": false,
+    "isAging": false,
+    "career": {
+      "id": "sw_eng",
+      "title": "Software Engineer",
+      "salary": 300829
+    },
+    "stats": {
+      "health": 37,
+      "happiness": 38,
+      "smarts": 100,
+      "looks": 54,
+      "grades": 71,
+      "athleticism": 91,
+      "karma": 32,
+      "acting": 0,
+      "voice": 0,
+      "modeling": 0
+    },
+    "education": {
+      "highSchool": true,
+      "associate": false,
+      "bachelor": true,
+      "master": false,
+      "phd": false,
+      "currentDegree": null
+    },
+    "networking": 51,
+    "relationships": [
+      {
+        "id": "rel_1700000000000_m",
+        "name": "Jessica Rivera",
+        "type": "Mother",
+        "status": "family",
+        "relation": 50,
+        "isAlive": true,
+        "age": 61
+      },
+      {
+        "id": "rel_1700000000001_f",
+        "name": "Richard Rivera",
+        "type": "Father",
+        "status": "family",
+        "relation": 17,
+        "isAlive": true,
+        "age": 67
+      },
+      {
+        "id": "rel_1700000000002_s0_51292",
+        "name": "John Rivera",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 16,
+        "isAlive": true,
+        "age": 51
+      },
+      {
+        "id": "rel_1700000000003_s1_602377",
+        "name": "Michael Rivera",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 6,
+        "isAlive": true,
+        "age": 43
+      },
+      {
+        "id": "rel_1700000000004_s2_350708",
+        "name": "Karen Rivera",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 42,
+        "isAlive": true,
+        "age": 53
+      },
+      {
+        "id": "play_partner_a",
+        "name": "Jordan Lee",
+        "type": "Spouse",
+        "status": "married",
+        "relation": 23,
+        "isAlive": true,
+        "age": 40
+      }
+    ],
+    "pets": [],
+    "belongingsCount": 0,
+    "propertiesCount": 0,
+    "historyTail": [
+      "Business: Paid $124,151 in income tax (35% bracket).",
+      "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle.",
+      "Career: Good performance. You received a 5% salary raise ($13,643).",
+      "Event: A year of possibilities opens up. -> You chose: Play it safe",
+      "Business: Paid $130,359 in income tax (35% bracket).",
+      "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle.",
+      "Career: Good performance. You received a 5% salary raise ($14,325).",
+      "Event: A year of possibilities opens up. -> You chose: Play it safe"
+    ],
+    "currentEvent": null,
+    "economy": {
+      "year": 40,
+      "phase": "recession",
+      "yearsInPhase": 0
+    }
+  },
+  "findings": [],
+  "historySample": [
+    {
+      "age": 0,
+      "text": "You were born in New York City, USA. You are a non-binary named Alex Rivera."
+    },
+    {
+      "age": 1,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 2,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 3,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 4,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 37,
+      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+    },
+    {
+      "age": 37,
+      "text": "Career: Good performance. You received a 5% salary raise ($12,375)."
+    },
+    {
+      "age": 37,
+      "text": "Event: A year of possibilities opens up. -> You chose: Play it safe"
+    },
+    {
+      "age": 38,
+      "text": "Business: Paid $118,239 in income tax (35% bracket)."
+    },
+    {
+      "age": 38,
+      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+    },
+    {
+      "age": 38,
+      "text": "Career: Good performance. You received a 5% salary raise ($12,993)."
+    },
+    {
+      "age": 38,
+      "text": "Event: A year of possibilities opens up. -> You chose: Play it safe"
+    },
+    {
+      "age": 39,
+      "text": "Business: Paid $124,151 in income tax (35% bracket)."
+    },
+    {
+      "age": 39,
+      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+    },
+    {
+      "age": 39,
+      "text": "Career: Good performance. You received a 5% salary raise ($13,643)."
+    },
+    {
+      "age": 39,
+      "text": "Event: A year of possibilities opens up. -> You chose: Play it safe"
+    },
+    {
+      "age": 40,
+      "text": "Business: Paid $130,359 in income tax (35% bracket)."
+    },
+    {
+      "age": 40,
+      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+    },
+    {
+      "age": 40,
+      "text": "Career: Good performance. You received a 5% salary raise ($14,325)."
+    },
+    {
+      "age": 40,
+      "text": "Event: A year of possibilities opens up. -> You chose: Play it safe"
+    }
+  ]
+}

@@ -1,0 +1,206 @@
+{
+  "pathId": "path-c-startup",
+  "name": "Casey Nguyen",
+  "finalAge": 40,
+  "died": false,
+  "final": {
+    "age": 40,
+    "bank": 2912,
+    "isDead": false,
+    "isAging": false,
+    "career": null,
+    "stats": {
+      "health": 90,
+      "happiness": 2,
+      "smarts": 48,
+      "looks": 54,
+      "grades": 68,
+      "athleticism": 85,
+      "karma": 50,
+      "acting": 0,
+      "voice": 0,
+      "modeling": 0
+    },
+    "education": {
+      "highSchool": true,
+      "associate": false,
+      "bachelor": false,
+      "master": false,
+      "phd": false,
+      "currentDegree": null
+    },
+    "networking": 0,
+    "relationships": [
+      {
+        "id": "rel_1700000000000_m",
+        "name": "Jessica Nguyen",
+        "type": "Mother",
+        "status": "family",
+        "relation": 55,
+        "isAlive": true,
+        "age": 61
+      },
+      {
+        "id": "rel_1700000000001_f",
+        "name": "Richard Nguyen",
+        "type": "Father",
+        "status": "family",
+        "relation": 17,
+        "isAlive": true,
+        "age": 67
+      },
+      {
+        "id": "rel_1700000000002_s0_51292",
+        "name": "John Nguyen",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 11,
+        "isAlive": true,
+        "age": 51
+      },
+      {
+        "id": "rel_1700000000003_s1_602377",
+        "name": "Michael Nguyen",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 6,
+        "isAlive": true,
+        "age": 43
+      },
+      {
+        "id": "rel_1700000000004_s2_350708",
+        "name": "Karen Nguyen",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 42,
+        "isAlive": true,
+        "age": 53
+      },
+      {
+        "id": "l1",
+        "name": "Pat",
+        "type": "Ex",
+        "status": "ex",
+        "relation": 18,
+        "isAlive": true,
+        "age": 42
+      },
+      {
+        "id": "l2",
+        "name": "Riley",
+        "type": "Ex",
+        "status": "ex",
+        "relation": 18,
+        "isAlive": true,
+        "age": 43
+      }
+    ],
+    "pets": [
+      {
+        "id": "1700000000006",
+        "name": "Bella"
+      }
+    ],
+    "belongingsCount": 1,
+    "propertiesCount": 0,
+    "historyTail": [
+      "Your Cat Bella passed away at age 18. You'll miss them dearly.",
+      "Pets: Spent $500 on pet care this year.",
+      "Event: A year of possibilities opens up. -> You chose: Hustle",
+      "Event: A year of possibilities opens up. -> You chose: Hustle",
+      "Event: A year of possibilities opens up. -> You chose: Hustle",
+      "🏥 John Nguyen was diagnosed with a health condition and has become more withdrawn.",
+      "Event: A year of possibilities opens up. -> You chose: Hustle",
+      "Event: A year of possibilities opens up. -> You chose: Hustle"
+    ],
+    "currentEvent": null,
+    "economy": {
+      "year": 40,
+      "phase": "recession",
+      "yearsInPhase": 0
+    }
+  },
+  "findings": [],
+  "historySample": [
+    {
+      "age": 0,
+      "text": "You were born in New York City, USA. You are a non-binary named Casey Nguyen."
+    },
+    {
+      "age": 1,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 2,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 3,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 4,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 34,
+      "text": "Business: Your startup grew steadily. Valuation: $8578. Dividend: $857."
+    },
+    {
+      "age": 34,
+      "text": "💍 John Nguyen got married. You heard about it on social media."
+    },
+    {
+      "age": 34,
+      "text": "Pets: Spent $500 on pet care this year."
+    },
+    {
+      "age": 34,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 35,
+      "text": "Business: Your startup went bankrupt. You lost everything."
+    },
+    {
+      "age": 35,
+      "text": "Pets: Spent $500 on pet care this year."
+    },
+    {
+      "age": 35,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 36,
+      "text": "Your Cat Bella passed away at age 18. You'll miss them dearly."
+    },
+    {
+      "age": 36,
+      "text": "Pets: Spent $500 on pet care this year."
+    },
+    {
+      "age": 36,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 37,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 38,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 39,
+      "text": "🏥 John Nguyen was diagnosed with a health condition and has become more withdrawn."
+    },
+    {
+      "age": 39,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    },
+    {
+      "age": 40,
+      "text": "Event: A year of possibilities opens up. -> You chose: Hustle"
+    }
+  ]
+}

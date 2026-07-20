@@ -32,7 +32,9 @@ export default function DatingSheet({ bank, stats, debugModifyBank, addRelations
       age: genAge,
       looks: 30 + Math.floor(Math.random() * 70),
       smarts: 30 + Math.floor(Math.random() * 70),
-      relation: 40 + Math.floor(Math.random() * 40)
+      relation: 40 + Math.floor(Math.random() * 40),
+      status: 'dating',
+      isAlive: true,
     });
   };
 

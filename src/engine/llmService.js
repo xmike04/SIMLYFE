@@ -22,6 +22,43 @@ const VALID_EFFECT_KEYS = new Set([
   'athleticism', 'karma', 'acting', 'voice', 'modeling', 'grades', 'flags'
 ]);
 
+/**
+ * Keep annual events plausible for the character's age while increasing the
+ * amount of agency and narrative tension once infancy ends.
+ */
+export function getAgeEventGuidance(age) {
+  if (age <= 2) {
+    return `LIFE STAGE: INFANCY (ages 0-2).
+- Keep the event small, grounded, and age-appropriate: an illness, first milestone, attachment, new sibling, or family change such as parents separating.
+- The child has very limited agency. Choices may be simple reactions or ways the experience shapes them.
+- Keep consequences mild. No school, romance, crime, job, independent travel, major purchase, or adult responsibility.`;
+  }
+
+  if (age <= 5) {
+    return `LIFE STAGE: EARLY CHILDHOOD (ages 3-5).
+- Make the year lively and specific: preschool, friendship, imagination, mischief, a discovered talent, a fear, a small accident, or a meaningful family change.
+- Give the child materially different choices they can plausibly make. At least one choice should reveal personality or open a new direction.
+- No adult job, romance, crime, independent travel, major purchase, or adult responsibility.`;
+  }
+
+  if (age <= 12) {
+    return `LIFE STAGE: SCHOOL AGE (ages 6-12).
+- Build a memorable situation around school, friends, rivals, teams, talents, family upheaval, a secret, a moral dilemma, or a risky opportunity.
+- Choices must have distinct tradeoffs and plausible consequences instead of being cosmetic variations.
+- Do not assign adult jobs, romance, major purchases, or adult independence.`;
+  }
+
+  if (age <= 17) {
+    return `LIFE STAGE: TEEN YEARS (ages 13-17).
+- Use identity, friendships, first romance, school pressure, rebellion, work, competition, family conflict, or a high-stakes opportunity.
+- Give distinct choices with social, academic, financial, or personal tradeoffs that can shape the character's direction.`;
+  }
+
+  return `LIFE STAGE: ADULTHOOD (age 18+).
+- Create a concrete disruption, opportunity, conflict, or relationship change with real stakes for this character's current life.
+- Give distinct choices with meaningful tradeoffs. Avoid routine recaps where nothing changes.`;
+}
+
 function validateEventPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return 'Payload must be an object';
@@ -133,9 +170,19 @@ export async function generateDynamicEvent(state, actionContext) {
       ? 'HARD LIMIT: description = exactly 2 sentences max, 35 words max. Second-person present tense. Vivid and visceral.'
       : 'HARD LIMIT: description = exactly 1-2 sentences, 35 words max. No exceptions.';
 
+    const ageEventGuidance = getAgeEventGuidance(state.age);
+
     let promptText = `You are the Event Engine for a dark life simulator. Generate ONE punchy life event.
 
 DESCRIPTION RULE: ${wordCountInstruction} Write like a viral push notification — specific, shocking, or funny. Hook them in the first 5 words. No filler.
+
+AGE AND PACING RULES (these override the general dark/shocking tone when needed):
+${ageEventGuidance}
+
+CHOICE RULES:
+- Return 2-3 concise, materially different choices that the character could plausibly make at their current age.
+- From age 3 onward, the event must contain tension, surprise, opportunity, discovery, or relationship change. Never return an uneventful routine milestone.
+- Do not repeat or lightly reword an event from Recent History. Continue an existing thread only when the new event meaningfully escalates or changes it.
 
 STAT RULES (enforce ruthlessly):
 - Low Athleticism → fails physical actions badly ({"health": -20, "bank": -200})

@@ -1,0 +1,205 @@
+{
+  "pathId": "path-b-military",
+  "name": "Blake Torres",
+  "finalAge": 40,
+  "died": false,
+  "final": {
+    "age": 40,
+    "bank": 1526289,
+    "isDead": false,
+    "isAging": false,
+    "career": {
+      "id": "mid_dev",
+      "title": "Mid-Level Developer",
+      "salary": 197500
+    },
+    "stats": {
+      "health": 69,
+      "happiness": 0,
+      "smarts": 100,
+      "looks": 54,
+      "grades": 68,
+      "athleticism": 85,
+      "karma": 6,
+      "acting": 0,
+      "voice": 0,
+      "modeling": 0
+    },
+    "education": {
+      "highSchool": true,
+      "associate": false,
+      "bachelor": false,
+      "master": false,
+      "phd": false,
+      "currentDegree": null
+    },
+    "networking": 38,
+    "relationships": [
+      {
+        "id": "rel_1700000000000_m",
+        "name": "Jessica Torres",
+        "type": "Mother",
+        "status": "family",
+        "relation": 55,
+        "isAlive": true,
+        "age": 61
+      },
+      {
+        "id": "rel_1700000000001_f",
+        "name": "Richard Torres",
+        "type": "Father",
+        "status": "family",
+        "relation": 17,
+        "isAlive": true,
+        "age": 67
+      },
+      {
+        "id": "rel_1700000000002_s0_51292",
+        "name": "John Torres",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 11,
+        "isAlive": true,
+        "age": 51
+      },
+      {
+        "id": "rel_1700000000003_s1_602377",
+        "name": "Michael Torres",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 6,
+        "isAlive": true,
+        "age": 43
+      },
+      {
+        "id": "rel_1700000000004_s2_350708",
+        "name": "Karen Torres",
+        "type": "Sibling",
+        "status": "family",
+        "relation": 42,
+        "isAlive": true,
+        "age": 53
+      },
+      {
+        "id": "play_partner_b",
+        "name": "Sam Quinn",
+        "type": "Ex",
+        "status": "ex",
+        "relation": 87,
+        "isAlive": true,
+        "age": 39
+      },
+      {
+        "id": "rel_1700000000005_child",
+        "name": "Luna",
+        "type": "Child",
+        "status": "family",
+        "relation": 79,
+        "isAlive": true,
+        "age": 16
+      }
+    ],
+    "pets": [],
+    "belongingsCount": 0,
+    "propertiesCount": 0,
+    "historyTail": [
+      "Career: Good performance. You received a 5% salary raise ($8,957).",
+      "Family: Child support payments: -$2,400",
+      "Event: A year of possibilities opens up. -> You chose: Take a risk",
+      "Business: Paid $85,583 in income tax (35% bracket).",
+      "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle.",
+      "Career: Good performance. You received a 5% salary raise ($9,405).",
+      "Family: Child support payments: -$2,400",
+      "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    ],
+    "currentEvent": null,
+    "economy": {
+      "year": 40,
+      "phase": "recession",
+      "yearsInPhase": 0
+    }
+  },
+  "findings": [],
+  "historySample": [
+    {
+      "age": 0,
+      "text": "You were born in New York City, USA. You are a non-binary named Blake Torres."
+    },
+    {
+      "age": 1,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 2,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 3,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 4,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 38,
+      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+    },
+    {
+      "age": 38,
+      "text": "Career: Good performance. You received a 5% salary raise ($8,530)."
+    },
+    {
+      "age": 38,
+      "text": "Family: Child support payments: -$2,400"
+    },
+    {
+      "age": 38,
+      "text": "📱 Michael Torres landed a job as a therapist."
+    },
+    {
+      "age": 38,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 39,
+      "text": "Business: Paid $81,507 in income tax (35% bracket)."
+    },
+    {
+      "age": 39,
+      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+    },
+    {
+      "age": 39,
+      "text": "Career: Good performance. You received a 5% salary raise ($8,957)."
+    },
+    {
+      "age": 39,
+      "text": "Family: Child support payments: -$2,400"
+    },
+    {
+      "age": 39,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    },
+    {
+      "age": 40,
+      "text": "Business: Paid $85,583 in income tax (35% bracket)."
+    },
+    {
+      "age": 40,
+      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+    },
+    {
+      "age": 40,
+      "text": "Career: Good performance. You received a 5% salary raise ($9,405)."
+    },
+    {
+      "age": 40,
+      "text": "Family: Child support payments: -$2,400"
+    },
+    {
+      "age": 40,
+      "text": "Event: A year of possibilities opens up. -> You chose: Take a risk"
+    }
+  ]
+}

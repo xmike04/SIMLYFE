@@ -3,8 +3,10 @@
 SIMLYFE is a mobile-first, browser-based life simulation game built with React 19 and Vite. Players create a character, age one year at a time, and navigate careers, relationships, education, assets, cities, pets, health, gambling, and AI-generated life events.
 
 - Live demo: https://simlyfe.vercel.app
+- **Source of truth (for contributors & models):** [docs/README.md](docs/README.md)
+  - [Architecture](docs/architecture.md) · [Game mechanics](docs/game-mechanics.md) · [Agent guide](docs/agent-guide.md)
 - Technical case study: [docs/case-study.md](docs/case-study.md)
-- Architecture and agent guide: [CLAUDE.md](CLAUDE.md)
+- Agent entry stubs: [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md)
 
 ## Why It Exists
 

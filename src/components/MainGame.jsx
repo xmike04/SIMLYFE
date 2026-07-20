@@ -3,6 +3,7 @@ import ActionSheet from './ActionSheet';
 import { ACTIVITY_CATEGORIES, ACTIVITY_MENUS } from '../config/activities';
 import { getWealthTier } from '../config/wealthTiers';
 import { getCityById } from '../config/cityData.js';
+import { yearlyActivityTrackId } from '../engine/gameState';
 import AssetsSheet from './sheets/AssetsSheet';
 import RelationshipsSheet from './sheets/RelationshipsSheet';
 import JobSheet from './sheets/JobSheet';
@@ -43,13 +44,22 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, relationships, modifyRelationship, modifyProperty, performGig, startStartup, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, currentEvent, relationships, modifyRelationship, modifyProperty, performGig, startStartup, enlistMilitary, hireViaHeadhunter, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet, consumeYearlyActivity } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
   const [skillToast, setSkillToast] = useState(null);
+  const uiFrozen = isAging || !!currentEvent;
+  /** Sheets stay in state but are not shown while aging/event — avoids setState-in-effect. */
+  const visibleSheet = uiFrozen ? null : activeSheet;
 
-  const handleSpecialSkill = (action, context) => {
+  const openSheet = (sheet) => {
+    if (uiFrozen) return;
+    setActiveSheet(sheet);
+  };
+
+  const handleSpecialSkill = (action, context, opt, categoryId) => {
+    if (uiFrozen) return;
     let cost = 0;
     let skillName = "";
     let displayName = "";
@@ -58,6 +68,13 @@ export default function MainGame({ engine }) {
     if (action === 'act_lesson') { skillName = 'acting'; cost = 50; displayName = 'Acting Skill'; }
     if (action === 'voice_lesson') { skillName = 'voice'; cost = 50; displayName = 'Vocal Skill'; }
     if (action === 'model_lesson') { skillName = 'modeling'; cost = 50; displayName = 'Modeling Skill'; }
+
+    // Prefer catalog cost when present (lessons); gym/run have no cost
+    if (opt?.cost != null) cost = opt.cost;
+
+    if (opt?.yearlyLimit && !consumeYearlyActivity(categoryId, opt.text, opt.yearlyLimit)) {
+      return;
+    }
 
     if (bank < cost) {
       triggerActivityEvent("Tried to train skills, but couldn't afford the lessons.");
@@ -145,7 +162,8 @@ export default function MainGame({ engine }) {
           ) : null;
         })()}
         <button
-          onClick={() => setNarrativeMode(!narrativeMode)}
+          onClick={() => { if (!uiFrozen) setNarrativeMode(!narrativeMode); }}
+          disabled={uiFrozen}
           style={{
             display: 'block',
             margin: '6px auto 0',
@@ -155,7 +173,8 @@ export default function MainGame({ engine }) {
             padding: '4px 10px',
             fontSize: '0.75rem',
             color: narrativeMode ? '#a855f7' : 'var(--text-secondary)',
-            cursor: 'pointer',
+            cursor: uiFrozen ? 'not-allowed' : 'pointer',
+            opacity: uiFrozen ? 0.5 : 1,
             transition: 'all 0.2s ease',
           }}
         >
@@ -180,17 +199,17 @@ export default function MainGame({ engine }) {
       {/* Action Bar (Middle-Bottom) */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0', margin: '0.2rem 0', flexShrink: 0 }}>
         <div style={{ display: 'flex', gap: '0.5rem', flex: 1, justifyContent: 'flex-end' }}>
-          <button className="action-tab" onClick={() => setActiveSheet('job')} disabled={age < 10}>
+          <button className="action-tab" onClick={() => openSheet('job')} disabled={uiFrozen || age < 10}>
             <span style={{ fontSize: '1.2rem' }}>💼</span>
             <span>Job</span>
           </button>
-          <button className="action-tab" onClick={() => setActiveSheet('assets')} disabled={age < 18}>
+          <button className="action-tab" onClick={() => openSheet('assets')} disabled={uiFrozen || age < 18}>
             <span style={{ fontSize: '1.2rem' }}>🏠</span>
             <span>Assets</span>
           </button>
         </div>
         
-        <button className="age-btn" onClick={ageUp} disabled={isAging} style={{ opacity: isAging ? 0.7 : 1 }}>
+        <button className="age-btn" onClick={() => { setActiveSheet(null); setActivityMenu(null); ageUp(); }} disabled={isAging || !!currentEvent} style={{ opacity: (isAging || currentEvent) ? 0.7 : 1 }}>
           {isAging ? (
              <span style={{ border: '3px solid rgba(255,255,255,0.3)', borderTop: '3px solid white', borderRadius: '50%', width: '24px', height: '24px', animation: 'spin 1s linear infinite' }} />
           ) : (
@@ -202,11 +221,11 @@ export default function MainGame({ engine }) {
         </button>
 
         <div style={{ display: 'flex', gap: '0.5rem', flex: 1, justifyContent: 'flex-start' }}>
-          <button className="action-tab" onClick={() => setActiveSheet('relationships')}>
+          <button className="action-tab" onClick={() => openSheet('relationships')} disabled={uiFrozen}>
             <span style={{ fontSize: '1.2rem' }}>❤️</span>
             <span>Relationships</span>
           </button>
-          <button className="action-tab" onClick={() => setActiveSheet('activities')} disabled={age < 4}>
+          <button className="action-tab" onClick={() => openSheet('activities')} disabled={uiFrozen || age < 4}>
             <span style={{ fontSize: '1.2rem' }}>🎭</span>
             <span>Activities</span>
           </button>
@@ -230,7 +249,7 @@ export default function MainGame({ engine }) {
       </div>
 
       {/* Action Sheets */}
-      {activeSheet === 'job' && (
+      {visibleSheet === 'job' && (
         <JobSheet
           age={age}
           bank={bank}
@@ -249,15 +268,17 @@ export default function MainGame({ engine }) {
           checkCareerEligibility={checkCareerEligibility}
           debugModifyBank={debugModifyBank}
           startStartup={startStartup}
+          enlistMilitary={enlistMilitary}
+          hireViaHeadhunter={hireViaHeadhunter}
           onClose={closeSheet}
         />
       )}
 
-      {activeSheet === 'activities' && (() => {
+      {visibleSheet === 'activities' && (() => {
         // Resolve item lock state for the current menu
         const resolveItemState = (opt) => {
           // Yearly limit
-          const trackId = `${activityMenu}__${opt.text}`;
+          const trackId = yearlyActivityTrackId(activityMenu, opt.text);
           if (opt.yearlyLimit) {
             const count = activitiesThisYear[trackId] ?? 0;
             if (count >= opt.yearlyLimit) return { locked: true, reason: '✓ Done this year' };
@@ -282,7 +303,7 @@ export default function MainGame({ engine }) {
           if (opt.specialAction === 'networking_mixer') { attendNetworkingEvent(); closeSheet(); return; }
           if (opt.specialAction === 'adoptPet') { adoptPet(opt.speciesId); closeSheet(); return; }
           if (opt.specialAction === 'emigrate') { emigrate(opt.cityId); closeSheet(); return; }
-          if (opt.specialAction) { handleSpecialSkill(opt.specialAction, opt.context); return; }
+          if (opt.specialAction) { handleSpecialSkill(opt.specialAction, opt.context, opt, activityMenu); return; }
           // Route through unified performActivity
           const result = performActivity(opt, activityMenu);
           if (result !== 'ok') return; // already handled inside performActivity
@@ -373,21 +394,21 @@ export default function MainGame({ engine }) {
       })()}
 
       {/* ── Doctor sheet ── */}
-      {activeSheet === 'doctor' && (
+      {visibleSheet === 'doctor' && (
         <DoctorSheet bank={bank} visitDoctor={visitDoctor} onClose={closeSheet} />
       )}
 
       {/* ── Lottery sheet ── */}
-      {activeSheet === 'lottery' && (
+      {visibleSheet === 'lottery' && (
         <LotterySheet bank={bank} playLottery={playLottery} onClose={closeSheet} />
       )}
 
       {/* ── Casino sheet ── */}
-      {activeSheet === 'casino' && (
+      {visibleSheet === 'casino' && (
         <CasinoSheet bank={bank} goGamble={goGamble} onClose={closeSheet} />
       )}
 
-      {ENABLE_DEV_TOOLS && activeSheet === 'debug' && (
+      {ENABLE_DEV_TOOLS && visibleSheet === 'debug' && (
         <ActionSheet title="Dev Tools" onClose={closeSheet}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <button className="glass-panel" onClick={() => { debugModifyBank(1000000); closeSheet(); }} style={{ padding: '1rem', textAlign: 'left', background: 'rgba(16, 185, 129, 0.2)' }}>
@@ -421,7 +442,7 @@ export default function MainGame({ engine }) {
         </ActionSheet>
       )}
 
-      {activeSheet === 'assets' && (
+      {visibleSheet === 'assets' && (
         <AssetsSheet
           bank={bank}
           properties={properties}
@@ -439,7 +460,7 @@ export default function MainGame({ engine }) {
         />
       )}
 
-      {activeSheet === 'relationships' && (
+      {visibleSheet === 'relationships' && (
         <RelationshipsSheet
           bank={bank}
           age={age}
@@ -458,7 +479,7 @@ export default function MainGame({ engine }) {
       )}
 
 
-      {activeSheet === 'dating' && (
+      {visibleSheet === 'dating' && (
         <DatingSheet
           bank={bank}
           stats={stats}
@@ -469,7 +490,7 @@ export default function MainGame({ engine }) {
         />
       )}
 
-      {activeSheet === 'wills' && (
+      {visibleSheet === 'wills' && (
         <WillsSheet
           relationships={relationships}
           triggerActivityEvent={triggerActivityEvent}
@@ -477,7 +498,7 @@ export default function MainGame({ engine }) {
         />
       )}
 
-      {activeSheet === 'pets' && (
+      {visibleSheet === 'pets' && (
         <PetsSheet
           pets={pets}
           visitVet={visitVet}
