@@ -11,7 +11,7 @@ Root stubs: [`AGENTS.md`](../AGENTS.md) and [`CLAUDE.md`](../CLAUDE.md) point he
 - All shared game logic in `useGameState()` or extracted pure helpers in/near `src/engine/gameState.js`.
 - Static styles in `src/index.css` (CSS variables); dynamic values may use inline styles in `MainGame.jsx`.
 - Gameplay panels belong in `src/components/sheets/`, not inlined into `MainGame.jsx`.
-- LLM: pass a descriptive `context` string to `generateDynamicEvent()`. Do not add silent static event fallbacks.
+- LLM: pass a descriptive `context` string to `generateDynamicEvent()`. Keep prompts/model settings server-owned in `supabase/functions/generate-event/contract.ts`; do not add browser-direct OpenAI calls or silent static fallbacks.
 - Mature content is intentional — do not sanitize without explicit user instruction.
 
 ## How to extend
@@ -46,10 +46,13 @@ Root stubs: [`AGENTS.md`](../AGENTS.md) and [`CLAUDE.md`](../CLAUDE.md) point he
 | `VITE_SUPABASE_URL` | Event proxy project URL | `.env.local` |
 | `VITE_SUPABASE_PUBLISHABLE` | Publishable key for edge calls | `.env.local` |
 | `VITE_SUPABASE_ANON_KEY` | Legacy fallback only | `.env.local` |
-| `VITE_OPENAI_API_KEY` | Local direct-call fallback — **never** in production builds | `.env.local` |
-| `VITE_FIREBASE_*` | Optional cloud saves (all required or saves skip) | `.env.local` |
+| `VITE_FIREBASE_*` | Authenticated AI events + optional cloud saves (all six required) | `.env.local` |
 | `VITE_ENABLE_DEV_TOOLS` | Debug sheet gate | `.env.local` |
-| `OPENAI_API_KEY` | Server secret for edge function | Supabase dashboard |
+| `OPENAI_API_KEY` | Server secret for edge function | Supabase secrets |
+| `FIREBASE_PROJECT_ID` | Firebase token audience / issuer validation | Supabase secrets |
+| `ALLOWED_ORIGINS` | Exact frontend-origin allowlist | Supabase secrets |
+| `RATE_LIMIT_HMAC_SECRET` | Pseudonymous user quota key | Supabase secrets |
+| `GENERATE_EVENT_GLOBAL_DAILY_LIMIT` | Project-wide daily admission cap | Supabase secrets |
 
 ## Development workflow
 
@@ -75,7 +78,8 @@ Substantive app changes: follow `_agents/workflows/test-app.md` — `npm install
 | File | Covers |
 |---|---|
 | `engine.mechanics.test.js` | Mechanics (imported helpers + remaining mirrors) |
-| `llmService.test.js` | Proxy / local fallback / malformed JSON / catalog schema |
+| `llmService.test.js` | Authenticated proxy / bounded projections / sanitized failures / catalog schema |
+| `supabase/functions/generate-event/contract.test.ts` | Edge request, prompt, response, and quota contracts |
 | `config.data.test.js` | Activity, career, asset, store shapes |
 | `market.test.js` | Investment market |
 | `App.test.jsx` | Render smoke |
@@ -119,7 +123,7 @@ Run after sheet/`gameState` changes or when hunting unwired buttons. Agents are 
 ## Known issues
 
 - `gameState.js` is large; prefer extracted pure helpers to reduce test drift.
-- Supabase `generate-event` is publicly callable with the publishable key (no app auth / rate limit in-repo).
+- Firebase App Check or another trusted device/network control is still recommended before a large public launch.
 - No `firestore.rules` committed; deploy least-privilege rules in the Firebase console.
 - Death guaranteed at age 100 (may be intentional).
 - Wills UI is largely flavor; estate is not applied on death.

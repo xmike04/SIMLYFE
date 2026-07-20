@@ -19,7 +19,7 @@ Do not duplicate long reference tables here. Update the matching `docs/*.md` fil
 - **State:** All game logic in `src/engine/gameState.js` (`useGameState()`). Do not add shared state elsewhere.
 - **UI:** Presentational components + `src/components/sheets/`. Pure CSS variables in `index.css`. No TypeScript, Tailwind, or UI libraries.
 - **Life reset:** DeathScreen → `resetLife()` → CharacterCreation → `startLife` with `buildLifeSave` + `syncToCloud(..., { replace: true })`. Never bare `location.reload()` for Live Again.
-- **LLM:** Descriptive `context` to `generateDynamicEvent()`; errors surface to the player (no silent static fallback).
+- **LLM:** Descriptive `context` to `generateDynamicEvent()`; authenticated proxy only, server-owned prompt/model, sanitized visible errors, and no static fallback.
 - **Verify:** `npm run lint && npm test && npm run build` (see `_agents/workflows/test-app.md`). E2e: `npm run test:e2e`.
 - **Action audits:** `/audit-job-school`, `/audit-relationships`, `/audit-activities`, or `/audit-actions` (see `docs/agent-guide.md`).
 - **Content:** Mature themes are intentional — do not sanitize without explicit instruction.

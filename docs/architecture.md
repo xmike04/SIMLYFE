@@ -17,9 +17,9 @@ Optional cloud saves use Firebase (anonymous auth + Firestore). Generated events
 | Bundler | Vite 8 with React/Oxc plugin |
 | Styling | Pure CSS with CSS custom properties (`src/index.css`) |
 | State | Custom `useGameState()` in `src/engine/gameState.js` |
-| Cloud | Optional Firebase Firestore + anonymous Auth |
+| Identity / cloud | Firebase anonymous Auth + optional Firestore saves |
 | Event proxy | `supabase/functions/generate-event/` |
-| LLM client | `fetch` via Supabase proxy; local `VITE_OPENAI_API_KEY` fallback in dev only |
+| LLM client | Authenticated, bounded `fetch` via Supabase proxy; no browser-direct OpenAI path |
 | Lint / test | ESLint 9 flat config; Vitest; Playwright e2e |
 
 ## Directory map
@@ -32,13 +32,19 @@ SIMLYFE/
     config/              # Catalogs, wealth tiers, Firebase config
     engine/
       gameState.js       # All shared game logic + cloud sync
-      llmService.js      # Event generation client
+      llmService.js      # Authenticated, typed event proxy client
+      firebaseToken.js   # Firebase ID-token provider bridge
+      diagnostics.js     # Redacted operational diagnostics
+      stateValidation.js # Observe-only cloud-save validation
       events.json        # Static event catalog (validated; not silent fallback)
       careers.json       # Standard career ladder data
     tests/
     App.jsx              # View routing
     index.css
   supabase/functions/generate-event/
+    index.ts             # Auth, CORS, quotas, provider call
+    contract.ts          # Request, prompt, and response contract
+  supabase/migrations/   # Durable event-generation quotas
   scripts/               # Manual tools (not npm-wired)
   docs/                  # This folder — three SOT files + case study
 ```
@@ -93,6 +99,7 @@ Written to Firestore at `users/{uid}/saves/currentLife`:
 Canonical payload builder: exported `buildLifeSave(fields)` in `gameState.js`. Always emits every `LIFE_SAVE_KEYS` entry (nulls/empties intentional on replace).
 
 Firebase is skipped when any `VITE_FIREBASE_*` credential is missing (`auth` / `db` are `null`).
+Firebase anonymous Auth is required for generated events because its short-lived ID token authenticates the Supabase proxy caller.
 
 ### Aging / event UI freeze
 
@@ -107,11 +114,12 @@ This prevents mid-await spends from racing the post-`ageUp` cloud write.
 
 `src/engine/llmService.js`:
 
-- Prefer Supabase proxy when `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE` (or legacy `VITE_SUPABASE_ANON_KEY`) are set.
-- Dev-only direct OpenAI if `VITE_OPENAI_API_KEY` is set and not production.
-- Failures return a player-visible error event — no silent static fallback.
+- Sends only a bounded `{ state, actionContext, narrativeMode }` projection to the configured Supabase function.
+- Uses the Firebase ID token as the bearer credential and the Supabase publishable key (or legacy anon key) only as the `apikey` gateway header.
+- Enforces one 20-second client budget across token retrieval and the proxy call, validates the normalized response envelope, and emits redacted diagnostics.
+- Returns sanitized player-visible error events on auth, timeout, network, rate-limit, service, or validation failure. There is no browser-direct OpenAI path or silent static fallback.
 
-Edge function: `supabase/functions/generate-event/index.ts` — reads server `OPENAI_API_KEY`, forwards to `gpt-4.1-nano`.
+The edge function verifies exact origins and Firebase tokens, validates the bounded request, consumes per-user and project-wide durable quota, owns the prompt/model/temperature/token ceiling, and forwards to OpenAI `gpt-4.1-nano` by default. Strict Structured Outputs are normalized into the browser envelope and validated again by the client.
 
 Expected model JSON:
 
@@ -124,9 +132,9 @@ Expected model JSON:
 }
 ```
 
-Default max tokens 200 (400 in narrative mode); prompt asks for 1–2 sentences under 35 words. Prompt rules include athleticism gating physical tasks and karma gating crime.
+Default max tokens are 200 (400 in narrative mode); the server-owned prompt asks for 1–2 sentences under 35 words. Prompt rules include athleticism gating physical tasks and karma gating crime.
 
-Annual age-up prompts also include an explicit life-stage contract from `getAgeEventGuidance(age)`. Infancy stays grounded and low-stakes; age 3 onward requires an engaging situation with age-plausible, materially different choices. Recent history is included with a no-repeat rule. See [game-mechanics.md](./game-mechanics.md#annual-event-pacing) for the public gameplay contract.
+Annual age-up prompts also include an explicit server-owned life-stage contract from `getAgeEventGuidance(age)` in `contract.ts`. Infancy stays grounded and low-stakes; age 3 onward requires an engaging situation with age-plausible, materially different choices. Recent history is included with a no-repeat rule. See [game-mechanics.md](./game-mechanics.md#annual-event-pacing) for the public gameplay contract.
 
 ## Related code
 
@@ -136,4 +144,5 @@ Annual age-up prompts also include an explicit life-stage contract from `getAgeE
 | Death UI | `src/components/DeathScreen.jsx` |
 | Routing | `src/App.jsx` |
 | LLM client | `src/engine/llmService.js` |
+| LLM prompt / edge contract | `supabase/functions/generate-event/contract.ts` |
 | Firebase init | `src/config/firebase.js` |

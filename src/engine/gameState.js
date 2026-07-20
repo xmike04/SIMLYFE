@@ -4,6 +4,16 @@ import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
 import { calculateCapitalGainsTax, estimateInvestmentReturn, getAllAssets } from '../config/assetCatalog';
 import { PET_CATALOG } from '../config/petCatalog.js';
 import { getCityById } from '../config/cityData.js';
+import {
+  createDiagnosticId,
+  diagnosticNow,
+  emitDiagnostic,
+  emitLlmDiagnostic,
+  getDiagnosticStateFields,
+  getErrorClass,
+} from './diagnostics';
+import { validateHydratedSave } from './stateValidation';
+import { setFirebaseIdTokenProvider } from './firebaseToken';
 
 import staticCareers from './careers.json';
 
@@ -412,6 +422,9 @@ export function useGameState() {
   // 1. Initialize anonymous auth and load cloud datastores if configured
   useEffect(() => {
     let cancelled = false;
+    setFirebaseIdTokenProvider(null);
+    const loadOperationId = createDiagnosticId('save-load');
+    const loadStartedAt = diagnosticNow();
 
     async function initCloudSync() {
       try {
@@ -426,20 +439,40 @@ export function useGameState() {
         ]);
 
         const { auth, db } = firebaseConfig;
-        if (!auth || !db || cancelled) return;
+        if (cancelled) return;
+        if (!auth || !db) {
+          emitDiagnostic('save_load', {
+            operationId: loadOperationId,
+            status: 'skipped',
+            durationMs: diagnosticNow() - loadStartedAt,
+            fields: [],
+          });
+          return;
+        }
 
         const { signInAnonymously } = authApi;
         const { doc, setDoc, getDoc, collection, getDocs } = firestoreApi;
+
+        emitDiagnostic('save_load', {
+          operationId: loadOperationId,
+          status: 'started',
+          durationMs: 0,
+          fields: [],
+        });
+
         const cred = await signInAnonymously(auth);
         if (cancelled) return;
 
+        setFirebaseIdTokenProvider(() => cred.user.getIdToken());
         setCloudSync({ db, userId: cred.user.uid, doc, setDoc });
 
         try {
           const saveRef = doc(db, 'users', cred.user.uid, 'saves', 'currentLife');
           const saveSnap = await getDoc(saveRef);
-          if (!cancelled && !ignoreCloudLoadRef.current && saveSnap.exists()) {
+          if (cancelled) return;
+          if (!ignoreCloudLoadRef.current && saveSnap.exists()) {
             const data = saveSnap.data();
+            const validation = validateHydratedSave(data);
             if (data.character) setCharacter(data.character);
             if (data.age !== undefined) setAge(data.age);
             if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
@@ -455,26 +488,77 @@ export function useGameState() {
             if (data.networking !== undefined) setNetworking(data.networking);
             if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
             if (data.pets) setPets(data.pets);
+            emitDiagnostic('save_load', {
+              operationId: loadOperationId,
+              status: validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
+              durationMs: diagnosticNow() - loadStartedAt,
+              fields: validation.hasWarnings
+                ? validation.warningFields
+                : getDiagnosticStateFields(data),
+            });
+          } else if (!ignoreCloudLoadRef.current) {
+            emitDiagnostic('save_load', {
+              operationId: loadOperationId,
+              status: 'not_found',
+              durationMs: diagnosticNow() - loadStartedAt,
+              fields: [],
+            });
           }
         } catch (e) {
-          console.error("Failed to load save:", e);
+          if (!cancelled) {
+            emitDiagnostic('save_load', {
+              operationId: loadOperationId,
+              status: 'failed',
+              durationMs: diagnosticNow() - loadStartedAt,
+              fields: [],
+              errorClass: getErrorClass(e),
+            });
+          }
         }
 
         getDocs(collection(db, 'careers')).then(snapshot => {
           if (!cancelled && !snapshot.empty) setCareersData(snapshot.docs.map(skip => skip.data()));
         }).catch(console.error);
-      } catch (err) {
-        console.error("Firebase Auth Error:", err);
+      } catch (error) {
+        if (!cancelled) {
+          emitDiagnostic('save_load', {
+            operationId: loadOperationId,
+            status: 'failed',
+            durationMs: diagnosticNow() - loadStartedAt,
+            fields: [],
+            errorClass: getErrorClass(error),
+          });
+        }
       }
     }
 
     initCloudSync();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      setFirebaseIdTokenProvider(null);
+    };
   }, []);
 
   // 2. Sync to Cloud — pass { replace: true } on life boundaries to wipe stale fields
   const syncToCloud = useCallback(async (stateData, options = {}) => {
-    if (!cloudSync) return;
+    const saveOperationId = createDiagnosticId('save-sync');
+    const saveStartedAt = diagnosticNow();
+    const fields = getDiagnosticStateFields(stateData);
+    if (!cloudSync) {
+      emitDiagnostic('save_sync', {
+        operationId: saveOperationId,
+        status: 'skipped',
+        durationMs: diagnosticNow() - saveStartedAt,
+        fields,
+      });
+      return;
+    }
+    emitDiagnostic('save_sync', {
+      operationId: saveOperationId,
+      status: 'started',
+      durationMs: 0,
+      fields,
+    });
     try {
       const saveRef = cloudSync.doc(cloudSync.db, 'users', cloudSync.userId, 'saves', 'currentLife');
       if (options.replace) {
@@ -482,8 +566,20 @@ export function useGameState() {
       } else {
         await cloudSync.setDoc(saveRef, stateData, { merge: true });
       }
+      emitDiagnostic('save_sync', {
+        operationId: saveOperationId,
+        status: 'saved',
+        durationMs: diagnosticNow() - saveStartedAt,
+        fields,
+      });
     } catch (e) {
-      console.error("Cloud sync failed:", e);
+      emitDiagnostic('save_sync', {
+        operationId: saveOperationId,
+        status: 'failed',
+        durationMs: diagnosticNow() - saveStartedAt,
+        fields,
+        errorClass: getErrorClass(e),
+      });
     }
   }, [cloudSync]);
 
@@ -736,6 +832,17 @@ export function useGameState() {
     if (isDead || currentEvent || isAging) return;
 
     setIsAging(true);
+    const transitionOperationId = createDiagnosticId('age-transition');
+    const transitionStartedAt = diagnosticNow();
+    emitDiagnostic('age_transition', {
+      operationId: transitionOperationId,
+      status: 'started',
+      durationMs: 0,
+      fromAge: age,
+      toAge: age + 1,
+    });
+
+    try {
     const nextAge = age + 1;
     let nextStats = { ...stats };
     if (nextAge >= 5 && nextAge <= 22) {
@@ -1229,7 +1336,13 @@ export function useGameState() {
         relationships: nextRelationships,
         pets: petUpdates,
       });
-      setIsAging(false);
+      emitDiagnostic('age_transition', {
+        operationId: transitionOperationId,
+        status: 'death',
+        durationMs: diagnosticNow() - transitionStartedAt,
+        fromAge: age,
+        toAge: nextAge,
+      });
       return;
     }
 
@@ -1284,7 +1397,26 @@ export function useGameState() {
     setHistory(updatedHistory);
 
     persistLife({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
-    setIsAging(false);
+    emitDiagnostic('age_transition', {
+      operationId: transitionOperationId,
+      status: 'completed',
+      durationMs: diagnosticNow() - transitionStartedAt,
+      fromAge: age,
+      toAge: nextAge,
+    });
+    } catch (error) {
+      emitDiagnostic('age_transition', {
+        operationId: transitionOperationId,
+        status: 'failed',
+        durationMs: diagnosticNow() - transitionStartedAt,
+        fromAge: age,
+        toAge: age + 1,
+        errorClass: getErrorClass(error),
+      });
+      throw error;
+    } finally {
+      setIsAging(false);
+    }
   }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, runPerformanceReview, careersData, pets, activitiesThisYear, narrativeMode]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
@@ -1827,10 +1959,15 @@ export function useGameState() {
           choices: [{ text: 'Understood', effects: {} }],
         });
       }
-    } catch (e) {
-      console.error("triggerActivityEvent:", e);
+    } catch {
+      emitLlmDiagnostic({ type: 'failure', code: 'service' });
+      setCurrentEvent({
+        description: 'LLM ERROR: Dynamic activity event generation failed. Please try again.',
+        choices: [{ text: 'Understood', effects: {} }],
+      });
+    } finally {
+      setIsAging(false);
     }
-    setIsAging(false);
   };
 
   const adoptPet = (speciesId) => {

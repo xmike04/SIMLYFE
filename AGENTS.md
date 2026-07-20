@@ -16,7 +16,7 @@ Index: [`docs/README.md`](./docs/README.md). Project stub for Claude: [`CLAUDE.m
 - **State:** All game logic in `useGameState()` (`src/engine/gameState.js`). Extract pure helpers when adding mechanics.
 - **Sheets:** New panels in `src/components/sheets/`, not inline in `MainGame.jsx`.
 - **Cloud life boundaries:** `buildLifeSave` + `syncToCloud(..., { replace: true })` on `startLife` / `resetLife`. Live Again must call `resetLife()`.
-- **LLM:** Pass descriptive `context` to `generateDynamicEvent()`. No silent static fallbacks.
+- **LLM:** Pass descriptive `context` to `generateDynamicEvent()`. Authenticated proxy only; keep prompts/model server-owned and never add silent static fallbacks.
 - **Tests:** Prefer real exports over mirrors when possible. Substantive changes: `_agents/workflows/test-app.md` (`lint` → `test` → `build`).
 - **Action audits:** `/audit-job-school`, `/audit-relationships`, `/audit-activities`, or orchestrate with `/audit-actions` (see `docs/agent-guide.md`).
 - **Content:** Mature themes are by design — do not sanitize without explicit instruction.
