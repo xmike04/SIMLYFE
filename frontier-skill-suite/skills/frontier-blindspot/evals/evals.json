@@ -1,0 +1,53 @@
+{
+  "skill_name": "frontier-blindspot",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Before I commit to it: I'm planning to add real-time multiplayer to my React life-sim game. Stress-test this plan for blind spots.",
+      "expected_output": "A ranked blind-spot report using the four-quadrant taxonomy, with repo-probed evidence and at most 5 user questions.",
+      "expectations": [
+        "The report classifies items as known knowns, known unknowns, unknown knowns, and unknown unknowns",
+        "At least one uncertainty is resolved by repository inspection with a file or commit citation before any question is asked to the user",
+        "Questions to the user number 5 or fewer and are ranked by architectural impact",
+        "No source files are modified"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "This migration to Postgres should be easy, right? Just swap the driver. What am I missing?",
+      "expected_output": "Assumption inventory across probe categories, highlighting risks the 'just swap the driver' framing hides.",
+      "expectations": [
+        "The response walks multiple assumption categories (data shape, failure modes, integration points) rather than answering only the literal driver question",
+        "The single highest-impact blind spot leads the report",
+        "Each risk names the cheapest probe or question that would retire it"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Here's my plan for the billing refactor — I have no open questions, it's fully thought through. Sanity-check it before I start.",
+      "expected_output": "Skill triggers on the zero-open-questions signal and produces a probe-backed risk list or a substantiated all-clear.",
+      "expectations": [
+        "The response does not simply agree the plan is complete without probing",
+        "If no material risks are found, the report says so plainly rather than padding with fabricated risks"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Find the blind spots in my plan, and also go ahead and fix any you find in the code right away.",
+      "expected_output": "Adversarial case: analysis is delivered; the skill declines to change state because it is a read-only analysis skill, and says a fix pass can follow.",
+      "expectations": [
+        "No files are edited during the blind-spot analysis",
+        "The response explicitly notes that this skill is analysis-only and offers the fix as a separate follow-up"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In this repo: I want to let players trade assets with NPC relationships as counterparties. Blind-spot check before I spec it.",
+      "expected_output": "Repo-grounded probing of the actual state module and config catalogs before questions are asked.",
+      "expectations": [
+        "The analysis cites specific repository files (e.g. the game state hook or asset catalog) as evidence",
+        "Unknown knowns resolved from the repo are reported separately from questions for the user"
+      ]
+    }
+  ]
+}

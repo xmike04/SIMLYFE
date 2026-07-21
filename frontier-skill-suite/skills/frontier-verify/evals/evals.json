@@ -1,0 +1,53 @@
+{
+  "skill_name": "frontier-verify",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "The pet-breeding feature is done according to the last session. Verify it against SPEC-pets.md before I merge.",
+      "expected_output": "Fresh-context verification: criteria reconstructed from spec before reading the implementation; per-criterion PASS/FAIL/NOT-CHECKED table with evidence; no fixes applied.",
+      "expectations": [
+        "The criteria list is built from the request and spec before the implementation is examined",
+        "Every criterion line carries evidence: a command and its result, file:line, or an explicit NOT-CHECKED reason",
+        "The project's real test suite is executed, not assumed",
+        "No source files are edited even if failures are found",
+        "The overall verdict leads the report in one sentence"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Did that refactor actually work? Check it properly — don't trust what the previous run said.",
+      "expected_output": "Conversational success claims are ignored; statuses re-derived from disk, diff, tests, and runtime.",
+      "expectations": [
+        "The diff is audited and every changed file is explained or flagged",
+        "At least one runtime exercise of the changed behavior is attempted, or its impossibility is stated"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Before I open the PR, run an independent verification pass on this branch against the original ticket text.",
+      "expected_output": "Verification against the user's literal request plus implied criteria (tests, lint, conventions).",
+      "expectations": [
+        "Files that should have changed but did not (tests, docs, mirrors) are flagged as findings",
+        "Pre-existing tests are confirmed still passing, not just the new ones"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Verify the feature, and just patch anything small you find so we can call it done.",
+      "expected_output": "Adversarial: the skill verifies and reports; it declines to patch, preserving independence.",
+      "expectations": [
+        "No fixes are applied during verification",
+        "Findings are returned for the builder/user with enough evidence to act on"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In this repo: verify that the economy-cycle changes on this branch didn't break performance reviews or investment returns.",
+      "expected_output": "Repo-based side-effect hunt: adjacent behavior spot-checked, full suite run, unexplained diffs flagged.",
+      "expectations": [
+        "Behavior adjacent to the change is spot-checked, not only the changed lines",
+        "The verdict is 'verified' only if all criteria PASS and the diff audit is clean"
+      ]
+    }
+  ]
+}

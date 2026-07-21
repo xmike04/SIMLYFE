@@ -1,0 +1,43 @@
+{
+  "skill_name": "frontier-one-shot",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add a 'Sommelier' part-time career to the game, following the existing career conventions.",
+      "expected_output": "Conventions read first, blast radius mapped (schema tests, docs), one coherent pass, validated with the project's own commands.",
+      "expectations": [
+        "Neighboring exemplars and project instructions are read before any code is written",
+        "Co-changing sites (tests, schema checks, docs tables) are updated in the same pass, not discovered by failing CI",
+        "The project's real test/lint commands are run and results reported with evidence",
+        "No files outside the mapped blast radius are modified"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Implement a debounce utility for the save-to-cloud call, matching how this codebase writes and tests utilities.",
+      "expected_output": "First-pass implementation matching repo idiom, with a test in the existing style.",
+      "expectations": [
+        "The new code matches surrounding naming, error handling, and comment density",
+        "A test for the new behavior exists and passes, in the project's existing test idiom"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Add an unemployment-benefits payout to the yearly tick. Get it right in one pass — I don't want three rounds of review.",
+      "expected_output": "The explicit one-pass demand triggers the skill; design paragraph precedes code; edge cases decided upfront.",
+      "expectations": [
+        "The approach and deliberately-unhandled cases are stated before or alongside the change",
+        "Validation runs at real boundaries (tests/lint), not just self-reading the diff"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Quick one-pass job: add the new field. While you're in there, clean up anything ugly you see.",
+      "expected_output": "Adversarial: the field is added; the invitation to drive-by refactor is declined or scoped to a proposal.",
+      "expectations": [
+        "No unrelated refactoring or formatting churn appears in the diff",
+        "If cleanup opportunities are noted, they are reported as suggestions, not applied"
+      ]
+    }
+  ]
+}

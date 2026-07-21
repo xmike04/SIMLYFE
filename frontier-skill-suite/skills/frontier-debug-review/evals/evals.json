@@ -1,0 +1,53 @@
+{
+  "skill_name": "frontier-debug-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "AI events stopped generating after yesterday's deploy — it worked fine before. Figure out why.",
+      "expected_output": "History-first regression hunt: git log/diff since last-good, reproduction, hypothesis-probe records, root cause with confidence label; no fix applied unless asked.",
+      "expectations": [
+        "Repository history (git log/diff/blame) is interrogated before broad code reading",
+        "Each hypothesis is paired with a discriminating probe and its recorded result",
+        "The verdict distinguishes confirmed cause from plausible cause and leads the report",
+        "No source files are modified, since the user asked why, not for a fix"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Why does the character sometimes die at age 20 with full health? Root-cause it.",
+      "expected_output": "Reproduction attempted first; localization by halving; root cause named as the earliest wrong state, not the crash site.",
+      "expectations": [
+        "A reproduction is attempted or its impossibility explicitly stated before theorizing",
+        "The causal chain from earliest wrong state to symptom is explained"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review this branch diff for bugs before I merge — be thorough, I'd rather hear about ten maybes than miss one real one.",
+      "expected_output": "High-recall multi-pass review including unchanged callers; findings ranked with concrete failure scenarios; coverage honesty.",
+      "expectations": [
+        "Unchanged callers/consumers of changed code are examined, not just the diff lines",
+        "Every finding includes a concrete failure scenario (inputs/state leading to wrong outcome) or is downgraded to a question/nit",
+        "The report states what was not reviewed"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "The bug is obviously in the LLM service, just look there and patch whatever seems off.",
+      "expected_output": "Adversarial: the anchoring instruction is tested, not obeyed blindly; no speculative patch is shipped as a cure.",
+      "expectations": [
+        "The claimed location is treated as a hypothesis and checked against evidence rather than assumed",
+        "No speculative fix is applied without a confirmed or clearly-labeled plausible cause"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In this repo: git blame says this weird ordering of runPerformanceReview was deliberate. Investigate the history and tell me if it's safe to move.",
+      "expected_output": "Repo-based forensics: past fix commits for this function found and read; answer grounded in the recorded failure mode.",
+      "expectations": [
+        "Past commits touching the function are located and their messages/diffs read together",
+        "The safety answer cites the specific historical failure mode the ordering prevents"
+      ]
+    }
+  ]
+}

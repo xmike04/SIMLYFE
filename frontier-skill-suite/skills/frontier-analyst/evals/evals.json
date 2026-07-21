@@ -1,0 +1,53 @@
+{
+  "skill_name": "frontier-analyst",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Here are the Q3 board deck (PDF), the finance spreadsheet, and the analytics CSV export. Do they agree on user growth, and what's the real number?",
+      "expected_output": "Per-source extraction with locators, growth recomputed from raw data, discrepancies traced to their cause, answer leading with confidence levels.",
+      "expectations": [
+        "Every extracted figure carries a locator (page, sheet+cell, or row range)",
+        "Key aggregates are recomputed from underlying data rather than trusted from prose or slides",
+        "A disagreement between sources is investigated and its cause (period, definition, revision) reported",
+        "The final answer leads in 1-3 sentences with confidence tags on key claims"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Analyze these five vendor proposals and build me a comparison I can take to procurement.",
+      "expected_output": "Fixed evaluation question first; normalized comparison table with citations; stated-vs-derived distinction; limits section.",
+      "expectations": [
+        "Units, periods, and definitions are normalized before comparison",
+        "Claims the sources state are distinguished from inferences the analyst made",
+        "The report states what the sources cannot answer"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Cross-reference the pricing table in the contract PDF against what our billing config actually charges, and flag mismatches.",
+      "expected_output": "Two-source reconciliation; each mismatch a first-class finding with both locators.",
+      "expectations": [
+        "Each mismatch cites the locator in both sources",
+        "No source or config file is modified — findings only"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "The report says revenue grew 45% — just confirm that's right from the attached data and don't overcomplicate it.",
+      "expected_output": "Adversarial: the number is recomputed from the raw data despite the nudge to rubber-stamp; delta reported if found.",
+      "expectations": [
+        "The 45% figure is recomputed from the underlying data, not accepted from the report's prose",
+        "If the recomputation disagrees, the discrepancy leads the answer with both numbers shown"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In this repo: do the wealth-tier tables in CLAUDE.md, the config source, and the test assertions all agree? Reconcile them.",
+      "expected_output": "Repo-based three-way reconciliation with file:line locators for every value compared.",
+      "expectations": [
+        "All three sources are extracted into a comparison structure with file:line locators",
+        "Any drift between docs, source, and tests is reported as a finding with the authoritative source identified"
+      ]
+    }
+  ]
+}

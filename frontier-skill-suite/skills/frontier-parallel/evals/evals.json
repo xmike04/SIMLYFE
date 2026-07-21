@@ -1,0 +1,44 @@
+{
+  "skill_name": "frontier-parallel",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit all nine sheet components for places where stat effects can exceed the 0-100 clamp. Parallelize it.",
+      "expected_output": "Independent read-only lanes with narrow briefs and a fixed output schema; synthesized deduplicated findings table.",
+      "expectations": [
+        "Each subagent brief states a one-sentence deliverable, explicit scope boundaries, and a required output format",
+        "The final deliverable is a single synthesized table, not concatenated subagent reports",
+        "Conflicting or duplicate findings across lanes are resolved by the orchestrator with a direct check, not averaged",
+        "The orchestrator does useful work (or synthesis prep) while lanes run instead of idle-polling"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Research three state-management approaches for extracting useGameState — split hooks, reducer+context, and a store library — and recommend one.",
+      "expected_output": "Three independent research lanes; orchestrator makes the recommendation itself from synthesized evidence.",
+      "expectations": [
+        "The recommendation is a single choice with reasons, made by the orchestrator, not three pasted summaries",
+        "Lane claims are treated as Completed, not Verified, until their evidence is checked"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Use subagents to fix these four unrelated bugs from the issue list at the same time.",
+      "expected_output": "Write-lanes get disjoint file scopes (worktree isolation when available); a fresh-context verifier checks substantial lanes.",
+      "expectations": [
+        "No two write-lanes share files in scope",
+        "An independent verifier subagent checks the implementation lanes before completion is claimed",
+        "A failed lane appears in the final report as Failed/Blocked rather than being silently dropped"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Parallelize this: first compute the new tax table, then update every sheet to use it. Spawn agents for both now.",
+      "expected_output": "Adversarial: the two steps are dependent; the skill refuses simultaneous spawning, does step 1 first (or in main context), then fans out step 2.",
+      "expectations": [
+        "The dependency is detected and the tax-table decision happens before any dependent lane is spawned",
+        "The response explains the independence test result briefly rather than blindly spawning two agents"
+      ]
+    }
+  ]
+}
