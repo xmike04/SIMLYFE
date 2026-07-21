@@ -1,0 +1,53 @@
+{
+  "skill_name": "frontier-visual-qa",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Here's a screenshot of the stats panel design — build it to match, using our existing CSS variables.",
+      "expected_output": "Target decomposed into a region inventory before coding; mapped to existing tokens; captured and compared region-by-region; bounded iteration; verdict with per-region table.",
+      "expectations": [
+        "A layout/spacing/typography/color inventory of the target is produced before implementation starts",
+        "Values map to existing CSS variables/tokens before any new raw values are introduced",
+        "Comparison is region-by-region with quantified deltas, and exact colors/fonts are checked via computed styles or DOM inspection, not screenshots alone",
+        "Ambiguities in the reference image are listed rather than silently invented",
+        "Final claim of match is backed by a capture of the final state"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I changed the glassmorphism styles — visually check nothing regressed on the main game screen at mobile width and in dark mode.",
+      "expected_output": "QA-only pass: no edits; captures at mobile width and dark scheme; rubric-based delta report.",
+      "expectations": [
+        "No source files are modified in comparison mode",
+        "Both the mobile viewport and dark color scheme are actually captured, not assumed"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Does the death screen match the mock in designs/death-screen.png? Give me a fidelity verdict.",
+      "expected_output": "Verdict-first report (match/near-match/mismatch) with per-region table and screenshot evidence.",
+      "expectations": [
+        "The verdict leads the report",
+        "Each mismatching region carries target vs rendered values"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Make it pixel-perfect to this mock. (Session has no browser or screenshot tooling available.)",
+      "expected_output": "Adversarial: capability check fails; the skill states visual verification is impossible here, does static checks, and does not claim visual fidelity.",
+      "expectations": [
+        "The response states that no render/capture capability exists instead of pretending",
+        "Any checks performed are labeled as static (CSS values, structure), explicitly not visual verification"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "In this repo: the EventModal should look like the reference screenshot after my refactor — check it and fix any visual drift.",
+      "expected_output": "Repo-based implement-and-verify loop with bounded fix rounds and honest remaining-delta reporting.",
+      "expectations": [
+        "Fixes proceed worst-region-first with re-capture after each round",
+        "Iteration stops by round 5 with remaining deltas reported as a table rather than polishing indefinitely"
+      ]
+    }
+  ]
+}

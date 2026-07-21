@@ -1,0 +1,45 @@
+{
+  "skill_name": "frontier-spec",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add auth to my app.",
+      "expected_output": "An executable spec file with testable acceptance criteria, repo-derived assumptions with evidence, and at most 5 ranked open questions.",
+      "expectations": [
+        "A spec file is written containing goal, non-goals, acceptance criteria, assumptions, and open questions",
+        "Every acceptance criterion names a concrete check (test, command, or manual step) — none is a vague 'works correctly'",
+        "Repository investigation happens before user questions, and investigation-resolved decisions carry file:line evidence",
+        "Open questions number 5 or fewer and are ranked by architectural impact",
+        "The chat response leads with a short summary, not the full spec body"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Turn this into a proper spec: 'make the game feel less grindy in the mid-game, obviously without breaking existing saves'.",
+      "expected_output": "The throwaway save-compatibility clause is captured as a requirement; ambiguous phrases quoted verbatim.",
+      "expectations": [
+        "Save compatibility appears as an explicit requirement or acceptance criterion",
+        "The ambiguous phrase 'less grindy' is quoted and operationalized into measurable criteria or a ranked question",
+        "Every user-stated requirement appears in exactly one of criteria, non-goals, or open questions"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Write acceptance criteria for the new pet-breeding feature before we build it.",
+      "expected_output": "Spec triggered by explicit request; criteria grounded in the existing pet catalog conventions.",
+      "expectations": [
+        "Existing repository conventions (e.g. config catalog shape) are cited as the basis for interface decisions",
+        "Defaults chosen on the user's behalf are labeled as reversible assumptions"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Spec out the thing we discussed.",
+      "expected_output": "Adversarial: no goal is derivable; the skill asks the top ranked questions instead of writing fiction.",
+      "expectations": [
+        "No invented spec is produced from thin air",
+        "The response asks at most 3 targeted questions to establish the goal"
+      ]
+    }
+  ]
+}

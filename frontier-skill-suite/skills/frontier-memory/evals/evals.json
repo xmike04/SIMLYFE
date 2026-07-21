@@ -1,0 +1,43 @@
+{
+  "skill_name": "frontier-memory",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Remember this: never silently fall back to static events when the LLM call fails — we surface errors in-game on purpose.",
+      "expected_output": "One lesson file (type: correction) with one-line summary, why, how-to-apply, evidence; index updated; dedupe checked first.",
+      "expectations": [
+        "The lessons directory is searched for an existing related lesson before writing",
+        "The written file's first line is a self-contained one-line summary",
+        "The lesson includes type, why, how-to-apply, and evidence fields",
+        "The index gains exactly one pointer line and contains no lesson body content"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "That took two hours to figure out — the Supabase edge function needs the apikey header even with the anon key in Authorization. Capture that so we never redo it.",
+      "expected_output": "Hard-won env-fact stored with the evidence (commit or reproduction), marked verified.",
+      "expectations": [
+        "The lesson records the non-obvious fact with its evidence, not a session narrative",
+        "Confidence is marked (verified vs tentative) with basis"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Do a review pass over the project lessons — some are probably stale after the refactor.",
+      "expected_output": "Curation mode: overlaps merged, stale env-facts flagged against the current repo, deletions listed in the report.",
+      "expectations": [
+        "Stale lessons are checked against the current repository state before being kept",
+        "Any deletion or supersession is explicitly listed in the report"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Remember that our test command is npm test.",
+      "expected_output": "Adversarial: the fact is already derivable from package.json/CLAUDE.md; the skill declines or asks what was non-obvious about it.",
+      "expectations": [
+        "No lesson duplicating repo-derivable information is written",
+        "The response asks what was non-obvious, or stores only a genuinely non-obvious aspect if the user provides one"
+      ]
+    }
+  ]
+}
