@@ -50,6 +50,7 @@ function makeValidSave() {
     networking: 10,
     economyCycle: { year: 2, phase: 'normal', yearsInPhase: 2 },
     pets: [],
+    will: { allocations: [{ id: 'rel-1', pct: 40 }], draftedAtAge: 24 },
   };
 }
 
@@ -95,6 +96,23 @@ describe('validateHydratedSave', () => {
     expect(JSON.stringify(result)).not.toContain('Secret NPC Name');
     expect(JSON.stringify(result)).not.toContain('private value');
     expect(JSON.stringify(result)).not.toContain('secretKeyNamedAfterPlayer');
+  });
+
+  it('accepts a null will and reports malformed will shapes', () => {
+    const nullWill = makeValidSave();
+    nullWill.will = null;
+    expect(validateHydratedSave(nullWill).hasWarnings).toBe(false);
+
+    const save = makeValidSave();
+    save.will = { allocations: [{ id: '', pct: 140 }, 'bad'], draftedAtAge: 'young' };
+    const result = validateHydratedSave(save);
+    expect(result.hasWarnings).toBe(true);
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      { code: 'invalid_type', field: 'will.allocations[].id' },
+      { code: 'out_of_range', field: 'will.allocations[].pct' },
+      { code: 'invalid_item_type', field: 'will.allocations[]' },
+      { code: 'invalid_type', field: 'will.draftedAtAge' },
+    ]));
   });
 
   it('handles an invalid root and missing core fields in observe-only mode', () => {
