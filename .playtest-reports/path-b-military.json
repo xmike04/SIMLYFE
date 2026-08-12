@@ -5,7 +5,7 @@
   "died": false,
   "final": {
     "age": 40,
-    "bank": 1526289,
+    "bank": 1526439,
     "isDead": false,
     "isAging": false,
     "career": {
@@ -15,7 +15,7 @@
     },
     "stats": {
       "health": 69,
-      "happiness": 0,
+      "happiness": 10,
       "smarts": 100,
       "looks": 54,
       "grades": 68,
@@ -40,7 +40,7 @@
         "name": "Jessica Torres",
         "type": "Mother",
         "status": "family",
-        "relation": 55,
+        "relation": 50,
         "isAlive": true,
         "age": 61
       },
@@ -58,7 +58,7 @@
         "name": "John Torres",
         "type": "Sibling",
         "status": "family",
-        "relation": 11,
+        "relation": 16,
         "isAlive": true,
         "age": 51
       },
@@ -76,7 +76,7 @@
         "name": "Karen Torres",
         "type": "Sibling",
         "status": "family",
-        "relation": 42,
+        "relation": 37,
         "isAlive": true,
         "age": 53
       },
@@ -91,10 +91,10 @@
       },
       {
         "id": "rel_1700000000163_child",
-        "name": "Luna",
+        "name": "Isla",
         "type": "Child",
         "status": "family",
-        "relation": 79,
+        "relation": 78,
         "isAlive": true,
         "age": 16
       }
@@ -143,6 +143,10 @@
     },
     {
       "age": 38,
+      "text": "Business: Paid $77,626 in income tax (35% bracket)."
+    },
+    {
+      "age": 38,
       "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
     },
     {
@@ -152,10 +156,6 @@
     {
       "age": 38,
       "text": "Family: Child support payments: -$2,400"
-    },
-    {
-      "age": 38,
-      "text": "📱 Michael Torres landed a job as a therapist."
     },
     {
       "age": 38,

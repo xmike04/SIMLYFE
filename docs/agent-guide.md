@@ -87,7 +87,7 @@ Substantive app changes: follow `_agents/workflows/test-app.md` — `npm install
 
 Conventions:
 
-- Prefer testing real exported helpers (`buildLifeSave`, `enrollDegree`, `advanceDegreeYear`, `applyPaperInvestmentReturn`, `findSpouse`, `markAsEx`, `normalizeRelationshipNpc`, `applyEffectsPure`, `yearlyActivityTrackId`, `canConsumeYearlyActivity`, `pickHeadhunterPlacement`, `prepareWillDraft`, `computeEstateDistribution`) over forever-diverging mirrors when possible.
+- Prefer testing real exported helpers (`buildLifeSave`, `enrollDegree`, `advanceDegreeYear`, `applyPaperInvestmentReturn`, `findSpouse`, `markAsEx`, `normalizeRelationshipNpc`, `applyEffectsPure`, `yearlyActivityTrackId`, `canConsumeYearlyActivity`, `pickHeadhunterPlacement`, `prepareWillDraft`, `computeEstateDistribution`, `checkDeathPure`, `applyAgeUpDegradation`, `computeGradesDrift`, `applyStartupYear`, `executeTradePure`, `computeInvestmentSale`, `generateInitialStats`) over forever-diverging mirrors when possible. Remaining known mirrors (career income with tax/city multipliers, property market tick) are flagged in `engine.mechanics.test.js` as the next extraction candidates.
 - Education UI must bind `yearsInProgram`; headhunter must charge `HEADHUNTER_COST` inside `hireViaHeadhunter` (not a lone LLM event).
 - Career eligibility and headhunter placement must both use `hasRequiredDegree` so higher completed degrees satisfy lower minimum requirements.
 - Mid-life cloud writes use `persistLife(overrides)` with a full `buildLifeSave` payload; pass every field mutated in the same tick.

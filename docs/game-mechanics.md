@@ -26,6 +26,7 @@ Implementation lives primarily in `src/engine/gameState.js` and catalogs under `
 
 - Health −1/year at age 30+, then −2/year at age 50+.
 - Looks −1/year at age 50+.
+- Grades (school ages 5–22) drift by smarts: +2/year above 70 smarts, −5/year below 40, else −1. Missing grades default to 70; an earned 0 stays 0.
 - Other stats change only via events, activities, education, or assets.
 
 ## Death
