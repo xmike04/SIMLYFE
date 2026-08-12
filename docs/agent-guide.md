@@ -103,6 +103,7 @@ Conventions:
 - Investment purchases must go through `prepareInvestmentPurchase`; store canonical singular sub-types and reject malformed input before state mutation.
 - Gambling must use `computeGambleResult` so invalid/non-finite stakes cannot corrupt bank state.
 - Will drafting must go through `draftWill` (validated by `prepareWillDraft`); DeathScreen settles the estate with `computeEstateDistribution`, never ad-hoc math.
+- Account changes go through `signInWithGoogle` (link-first, switch on `credential-already-in-use`) and `signOutAccount`. Never call bare `signInAnonymously` outside boot — it replaces a persisted Google session. Sign-out must not write to the old account's save.
 - New mechanics: pure-function tests first, then wire into `gameState.js`.
 - LLM tests: `vi.resetModules()` + `vi.stubEnv()` before import.
 - `src/tests/setup.js` mocks Firebase and `llmService` by default.

@@ -7,7 +7,7 @@
 
 SIMLYFE is a mobile-first, browser-based life simulation game. Players create a character and age one year at a time through careers, relationships, finances, and LLM-generated life events. The UI uses a dark glassmorphism aesthetic.
 
-Optional cloud saves use Firebase (anonymous auth + Firestore). Generated events go through a Supabase Edge Function to OpenAI `gpt-4.1-nano`.
+Optional cloud saves use Firebase (anonymous auth, optionally upgraded to Google sign-in, + Firestore). Generated events go through a Supabase Edge Function to OpenAI `gpt-4.1-nano`.
 
 ## Tech stack
 
@@ -17,7 +17,7 @@ Optional cloud saves use Firebase (anonymous auth + Firestore). Generated events
 | Bundler | Vite 8 with React/Oxc plugin |
 | Styling | Pure CSS with CSS custom properties (`src/index.css`) |
 | State | Custom `useGameState()` in `src/engine/gameState.js` |
-| Identity / cloud | Firebase anonymous Auth + optional Firestore saves |
+| Identity / cloud | Firebase Auth (anonymous, upgradable to Google) + optional Firestore saves |
 | Event proxy | `supabase/functions/generate-event/` |
 | LLM client | Authenticated, bounded `fetch` via Supabase proxy; no browser-direct OpenAI path |
 | Lint / test | ESLint 9 flat config; Vitest; Playwright e2e |
@@ -105,7 +105,16 @@ Least-privilege rules live in [`firestore.rules`](../firestore.rules): the life 
 App Check (reCAPTCHA v3) initializes in `src/config/firebase.js` when `VITE_FIREBASE_APPCHECK_SITE_KEY` is set — a no-op otherwise, and a failed init never blocks cloud saves. The activation decision is the pure `getAppCheckSetup(env)` in `src/config/appCheck.js` (tested directly; `firebase.js` stays mocked in tests). Key registration and enforcement are console-side steps.
 
 Firebase is skipped when any `VITE_FIREBASE_*` credential is missing (`auth` / `db` are `null`).
-Firebase anonymous Auth is required for generated events because its short-lived ID token authenticates the Supabase proxy caller.
+Firebase Auth is required for generated events because its short-lived ID token authenticates the Supabase proxy caller (anonymous and Google-linked sessions both work — same project, same audience).
+
+### Accounts (Google sign-in)
+
+- Boot adopts the **persisted session** via `onAuthStateChanged` (anonymous or Google); only first-time visitors mint a new anonymous account. Never call bare `signInAnonymously` outside boot — it would replace a persisted Google session.
+- `signInWithGoogle()` (AccountSheet) is **link-first**: an anonymous player is upgraded with `linkWithPopup`, keeping the same uid so the in-progress life survives. On `auth/credential-already-in-use` (the Google account already owns a save under another uid) it **switches** with `signInWithCredential`, clears the local life, and hydrates that account's cloud save.
+- `signOutAccount()` signs out, starts a fresh anonymous session, and clears the local life — it never writes to (or deletes) the Google account's save.
+- `hydrateFromSave(data)` is the shared save→state applier for boot load and account switch; `clearLocalLife()` is the no-cloud-write reset shared by `resetLife` and account changes.
+- `authAccount` (`summarizeAuthUser`) exposes `{ uid, isAnonymous, name, email, photo }` to the UI and is never fed into diagnostics.
+- Console prerequisite: enable the **Google provider** under Firebase Authentication → Sign-in method, using the project's OAuth web client ID/secret. The secret lives in the console only — never in this repo.
 
 ### Aging / event UI freeze
 

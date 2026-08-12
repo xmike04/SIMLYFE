@@ -46,6 +46,7 @@ import {
   pickParentName,
   prepareWillDraft,
   computeEstateDistribution,
+  summarizeAuthUser,
   checkDeathPure,
   applyAgeUpDegradation,
   computeGradesDrift,
@@ -759,6 +760,38 @@ describe('computeEstateDistribution', () => {
     const estate = computeEstateDistribution(will, rels, 1000);
     expect(estate.bequests).toEqual([{ id: 'rel_m', name: 'Mona', type: 'Mother', pct: 10, amount: 100 }]);
     expect(estate.residualValue).toBe(900);
+  });
+});
+
+// ─── 8d. Auth account summary ────────────────────────────────────────────────
+
+describe('summarizeAuthUser', () => {
+  it('returns null for no user', () => {
+    expect(summarizeAuthUser(null)).toBeNull();
+    expect(summarizeAuthUser(undefined)).toBeNull();
+  });
+
+  it('summarizes an anonymous user with null profile fields', () => {
+    expect(summarizeAuthUser({ uid: 'anon-1', isAnonymous: true })).toEqual({
+      uid: 'anon-1', isAnonymous: true, name: null, email: null, photo: null,
+    });
+  });
+
+  it('summarizes a Google-linked user', () => {
+    const user = {
+      uid: 'g-1',
+      isAnonymous: false,
+      displayName: 'Alex Morgan',
+      email: 'alex@example.com',
+      photoURL: 'https://example.com/p.jpg',
+    };
+    expect(summarizeAuthUser(user)).toEqual({
+      uid: 'g-1', isAnonymous: false, name: 'Alex Morgan', email: 'alex@example.com', photo: 'https://example.com/p.jpg',
+    });
+  });
+
+  it('coerces a missing isAnonymous flag to false', () => {
+    expect(summarizeAuthUser({ uid: 'u1' }).isAnonymous).toBe(false);
   });
 });
 
