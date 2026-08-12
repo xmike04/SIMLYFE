@@ -10,7 +10,6 @@ const SIGN_IN_MESSAGES = {
 
 const SIGN_IN_ERRORS = {
   unavailable: 'Cloud saves are not configured in this build.',
-  cancelled: null, // user closed the popup — not an error worth shouting about
   error: 'Google sign-in failed. Please try again.',
 };
 
@@ -30,7 +29,8 @@ export default function AccountSheet({ authAccount, signInWithGoogle, signOutAcc
     setBusy(false);
     if (result?.ok) {
       setNotice(SIGN_IN_MESSAGES[result.mode] ?? 'Signed in.');
-    } else {
+    } else if (result?.reason !== 'cancelled') {
+      // A closed popup is a quiet non-event, not an error.
       setError(SIGN_IN_ERRORS[result?.reason] ?? SIGN_IN_ERRORS.error);
     }
   };
