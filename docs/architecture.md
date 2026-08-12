@@ -98,6 +98,10 @@ Written to Firestore at `users/{uid}/saves/currentLife`:
 
 Canonical payload builder: exported `buildLifeSave(fields)` in `gameState.js`. Always emits every `LIFE_SAVE_KEYS` entry (nulls/empties intentional on replace).
 
+### Security rules
+
+Least-privilege rules live in [`firestore.rules`](../firestore.rules): the life save is readable/writable only by its owner (`request.auth.uid == userId`), writes must stay within the known save-field allowlist, `careers` is read-only for signed-in players (seeded via the Admin SDK), and everything else is denied. **Deployment is manual** — Firebase console (Firestore → Rules) or `firebase deploy --only firestore:rules`. `src/tests/firestoreRules.test.js` fails if the allowlist drifts from `LIFE_SAVE_KEYS` / `KNOWN_SAVE_FIELDS`.
+
 Firebase is skipped when any `VITE_FIREBASE_*` credential is missing (`auth` / `db` are `null`).
 Firebase anonymous Auth is required for generated events because its short-lived ID token authenticates the Supabase proxy caller.
 

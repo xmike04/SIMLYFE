@@ -81,6 +81,7 @@ Substantive app changes: follow `_agents/workflows/test-app.md` — `npm install
 | `llmService.test.js` | Authenticated proxy / bounded projections / sanitized failures / catalog schema |
 | `supabase/functions/generate-event/contract.test.ts` | Edge request, prompt, response, and quota contracts |
 | `config.data.test.js` | Activity, career, asset, store shapes |
+| `firestoreRules.test.js` | `firestore.rules` owner scoping + save-field allowlist sync |
 | `market.test.js` | Investment market |
 | `App.test.jsx` | Render smoke |
 
@@ -90,6 +91,7 @@ Conventions:
 - Education UI must bind `yearsInProgram`; headhunter must charge `HEADHUNTER_COST` inside `hireViaHeadhunter` (not a lone LLM event).
 - Career eligibility and headhunter placement must both use `hasRequiredDegree` so higher completed degrees satisfy lower minimum requirements.
 - Mid-life cloud writes use `persistLife(overrides)` with a full `buildLifeSave` payload; pass every field mutated in the same tick.
+- New persisted fields must be added to the `firestore.rules` write allowlist too — `firestoreRules.test.js` enforces sync with `LIFE_SAVE_KEYS` / `KNOWN_SAVE_FIELDS`.
 - Dating NPCs must go through `normalizeRelationshipNpc(..., { asDating: true })` / `addRelationship`.
 - Divorce / breakup must use `markAsEx` so `findSpouse` and romance actions stay correct.
 - Gym/run and other special skills with `yearlyLimit` must call `consumeYearlyActivity` (or `performActivity`).
@@ -125,5 +127,5 @@ Run after sheet/`gameState` changes or when hunting unwired buttons. Agents are 
 
 - `gameState.js` is large; prefer extracted pure helpers to reduce test drift.
 - Firebase App Check or another trusted device/network control is still recommended before a large public launch.
-- No `firestore.rules` committed; deploy least-privilege rules in the Firebase console.
+- `firestore.rules` is committed but not auto-deployed — after changes, apply it in the Firebase console or via `firebase deploy --only firestore:rules`.
 - Death guaranteed at age 100 (may be intentional).

@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// Least-privilege Firestore rules for SIMLYFE cloud saves.
+//
+// Not deployed automatically: apply in the Firebase console (Firestore →
+// Rules) or with `firebase deploy --only firestore:rules`.
+//
+// Client access (src/engine/gameState.js) is limited to:
+//   users/{uid}/saves/currentLife — the player's single life save
+//   careers                       — read-only catalog, seeded by
+//                                   scripts/migrateData.js via the Admin SDK
+//                                   (which bypasses these rules)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Post-write document may only contain known save fields: LIFE_SAVE_KEYS
+    // (gameState.js) plus legacy fields tolerated by validateHydratedSave
+    // (stateValidation.js KNOWN_SAVE_FIELDS). Merge writes see the merged
+    // result, so a legacy doc with a rogue field is rejected until a life
+    // boundary (death/reset/new life) full-replaces it with a clean payload.
+    // src/tests/firestoreRules.test.js fails if this list drifts from the app.
+    function isKnownSaveShape() {
+      return request.resource.data.keys().hasOnly([
+        'character', 'age', 'stats', 'bank', 'history', 'isDead', 'flags',
+        'career', 'careerMeta', 'relationships', 'belongings', 'properties',
+        'education', 'networking', 'economyCycle', 'pets', 'will',
+        'currentEvent', 'activitiesThisYear', 'narrativeMode', 'schemaVersion'
+      ]);
+    }
+
+    match /users/{userId}/saves/currentLife {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isKnownSaveShape();
+      // No delete: the app replaces the save on reset, never deletes it.
+    }
+
+    match /careers/{careerId} {
+      allow read: if request.auth != null;
+      // No client writes: seeding uses the Admin SDK.
+    }
+
+    // Anything not matched above is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

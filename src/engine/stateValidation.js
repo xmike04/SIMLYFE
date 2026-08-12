@@ -1,4 +1,4 @@
-const KNOWN_SAVE_FIELDS = new Set([
+export const KNOWN_SAVE_FIELDS = new Set([
   'character', 'age', 'stats', 'flags', 'isDead', 'career', 'bank', 'history',
   'currentEvent', 'activitiesThisYear', 'relationships', 'belongings',
   'properties', 'education', 'careerMeta', 'networking', 'economyCycle',
