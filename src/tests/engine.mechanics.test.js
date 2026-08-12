@@ -46,58 +46,33 @@ import {
   pickParentName,
   prepareWillDraft,
   computeEstateDistribution,
+  checkDeathPure,
+  applyAgeUpDegradation,
+  computeGradesDrift,
+  applyStartupYear,
+  executeTradePure,
+  computeInvestmentSale,
+  generateInitialStats,
   DEGREE_CONFIG as ENGINE_DEGREE_CONFIG,
   DEGREE_LABELS as ENGINE_DEGREE_LABELS,
 } from '../engine/gameState';
 
-// ─── Helpers mirrored from gameState.js so we can unit-test them ──────────────
-// When the source changes, update these mirrors and the corresponding tests.
-
-const STAT_KEYS = ['health', 'happiness', 'smarts', 'looks', 'athleticism', 'karma', 'acting', 'voice', 'modeling', 'grades'];
+// ─── Remaining helpers mirrored from gameState.js ─────────────────────────────
+// Prefer importing real exported helpers; only logic still inlined in the hook
+// keeps a mirror here. When the source changes, update these mirrors too.
 
 function clamp(value, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
 }
 
-/**
- * applyEffects — mirrors gameState.js applyEffects logic.
- * BUG NOTE: current source only handles health/happiness/smarts/looks/bank.
- * This mirror implements the CORRECT version (handles all stats).
- * Tests here verify the correct behaviour so they will FAIL against the buggy source
- * and PASS once the bug is fixed.
- */
+// applyEffects adapter — delegates to the real exported applyEffectsPure so the
+// legacy (stats, bank, effects) call sites below cannot drift from the source.
 function applyEffects(stats, bank, effects) {
-  const newStats = { ...stats };
-  const statKeys = ['health', 'happiness', 'smarts', 'looks', 'athleticism', 'karma', 'acting', 'voice', 'modeling', 'grades'];
-  for (const key of statKeys) {
-    if (effects[key] !== undefined && effects[key] !== null) {
-      newStats[key] = clamp((newStats[key] ?? 0) + effects[key]);
-    }
-  }
-  const newBank = bank + (effects.bank ?? 0);
-  const newFlags = effects.flags ?? [];
-  return { stats: newStats, bank: newBank, flags: newFlags };
+  return applyEffectsPure(stats, bank, [], effects);
 }
 
-function checkDeathWithRandom(stats, age, randomValue) {
-  if (stats.health <= 0) return true;
-  if (age >= 60) {
-    const chance = (age - 60) / 40;
-    return randomValue < chance;
-  }
-  return false;
-}
-
-function applyAgeUpDegradation(stats, age) {
-  const next = { ...stats };
-  if (age > 30) next.health = Math.max(0, next.health - 1);
-  if (age > 50) {
-    next.health = Math.max(0, next.health - 2);
-    next.looks = Math.max(0, next.looks - 1);
-  }
-  return next;
-}
-
+// MIRROR (stale): the hook's income path now applies city salary multipliers and
+// income tax on top of applyCareerYearEffects. Next extraction candidate.
 function applyCareerIncome(stats, bank, career) {
   if (!career) return { stats, bank };
   if (career.id === 'founder') return { stats, bank }; // handled separately
@@ -106,32 +81,8 @@ function applyCareerIncome(stats, bank, career) {
   return { stats: newStats, bank: newBank };
 }
 
-function applyStartupYear(career, randomValue) {
-  if (!career || career.id !== 'founder') return { career, history: null };
-  let newEquity = career.equity;
-  let history;
-
-  if (randomValue < 0.2) {
-    newEquity = 0;
-    history = 'bankrupt';
-  } else if (randomValue < 0.5) {
-    newEquity = Math.floor(newEquity * 0.8);
-    history = 'downturn';
-  } else if (randomValue < 0.8) {
-    newEquity = Math.floor(newEquity * 1.5);
-    history = 'steady';
-  } else {
-    newEquity = Math.floor(newEquity * 3);
-    history = 'moonshot';
-  }
-
-  if (newEquity === 0) return { career: null, history };
-  return {
-    career: { ...career, equity: newEquity, salary: Math.floor(newEquity * 0.1) },
-    history,
-  };
-}
-
+// MIRROR (stale): the hook's property tick also handles investment returnProfiles,
+// catalog appreciation rates, and passive stat effects. Next extraction candidate.
 function applyPropertyMarket(properties, crashRandom, boomRandom, yearlyRandom) {
   const marketCrash = crashRandom < 0.05;
   const marketBoom = !marketCrash && boomRandom < 0.10;
@@ -142,16 +93,6 @@ function applyPropertyMarket(properties, crashRandom, boomRandom, yearlyRandom) 
     else newValue = Math.floor(newValue * (1 + yearlyRandom));
     return { ...prop, currentValue: newValue, yearsOwned: prop.yearsOwned + 1 };
   });
-}
-
-function gradesLogic(grades, smarts) {
-  if (smarts > 70) return Math.min(100, (grades ?? 70) + 2);
-  if (smarts < 40) return Math.max(0, (grades ?? 70) - 5);
-  return Math.max(0, (grades ?? 70) - 1);
-}
-
-function startupDividend(equity) {
-  return Math.floor(equity * 0.1);
 }
 
 // ─── 1. Stat clamping & applyEffects ─────────────────────────────────────────
@@ -255,40 +196,40 @@ describe('checkDeath', () => {
   const lowHealth = { health: 1 };
 
   it('dies when health is exactly 0', () => {
-    expect(checkDeathWithRandom(deadStats, 30, 0.5)).toBe(true);
+    expect(checkDeathPure(deadStats, 30, 0.5)).toBe(true);
   });
 
   it('dies when health is negative (defensive)', () => {
-    expect(checkDeathWithRandom({ health: -5 }, 30, 0.5)).toBe(true);
+    expect(checkDeathPure({ health: -5 }, 30, 0.5)).toBe(true);
   });
 
   it('does not die before age 60 with full health', () => {
-    expect(checkDeathWithRandom(healthyStats, 59, 0.999)).toBe(false);
+    expect(checkDeathPure(healthyStats, 59, 0.999)).toBe(false);
   });
 
   it('0% death chance at exactly age 60 (base = 60, chance = 0)', () => {
     // (60 - 60) / 40 = 0 → no random death at 60
-    expect(checkDeathWithRandom(healthyStats, 60, 0.0001)).toBe(false);
+    expect(checkDeathPure(healthyStats, 60, 0.0001)).toBe(false);
   });
 
   it('25% death chance at age 70', () => {
     // (70 - 60) / 40 = 0.25
-    expect(checkDeathWithRandom(healthyStats, 70, 0.24)).toBe(true);
-    expect(checkDeathWithRandom(healthyStats, 70, 0.26)).toBe(false);
+    expect(checkDeathPure(healthyStats, 70, 0.24)).toBe(true);
+    expect(checkDeathPure(healthyStats, 70, 0.26)).toBe(false);
   });
 
   it('50% death chance at age 80', () => {
-    expect(checkDeathWithRandom(healthyStats, 80, 0.49)).toBe(true);
-    expect(checkDeathWithRandom(healthyStats, 80, 0.51)).toBe(false);
+    expect(checkDeathPure(healthyStats, 80, 0.49)).toBe(true);
+    expect(checkDeathPure(healthyStats, 80, 0.51)).toBe(false);
   });
 
   it('guaranteed death at age 100', () => {
     // (100 - 60) / 40 = 1.0
-    expect(checkDeathWithRandom(healthyStats, 100, 0.9999)).toBe(true);
+    expect(checkDeathPure(healthyStats, 100, 0.9999)).toBe(true);
   });
 
   it('low health at age 59 does NOT cause random death before 60', () => {
-    expect(checkDeathWithRandom(lowHealth, 59, 0.0)).toBe(false);
+    expect(checkDeathPure(lowHealth, 59, 0.0)).toBe(false);
   });
 });
 
@@ -402,37 +343,39 @@ describe('applyStartupYear', () => {
   const founder = { id: 'founder', equity: 1000, salary: 100 };
 
   it('bankrupt on random < 0.2', () => {
-    const { career, history } = applyStartupYear(founder, 0.19);
+    const { career, outcome } = applyStartupYear(founder, 0.19);
     expect(career).toBeNull();
-    expect(history).toBe('bankrupt');
+    expect(outcome).toBe('bankrupt');
   });
 
   it('downturn: equity × 0.8 on random 0.2–0.49', () => {
-    const { career, history } = applyStartupYear(founder, 0.35);
-    expect(history).toBe('downturn');
+    const { career, outcome } = applyStartupYear(founder, 0.35);
+    expect(outcome).toBe('downturn');
     expect(career.equity).toBe(800);
   });
 
   it('steady: equity × 1.5 on random 0.5–0.79', () => {
-    const { career, history } = applyStartupYear(founder, 0.65);
-    expect(history).toBe('steady');
+    const { career, outcome } = applyStartupYear(founder, 0.65);
+    expect(outcome).toBe('steady');
     expect(career.equity).toBe(1500);
   });
 
   it('moonshot: equity × 3 on random >= 0.8', () => {
-    const { career, history } = applyStartupYear(founder, 0.9);
-    expect(history).toBe('moonshot');
+    const { career, outcome } = applyStartupYear(founder, 0.9);
+    expect(outcome).toBe('moonshot');
     expect(career.equity).toBe(3000);
   });
 
-  it('salary is 10% of equity after each outcome', () => {
-    const { career } = applyStartupYear(founder, 0.9); // moonshot → 3000
-    expect(career.salary).toBe(startupDividend(3000)); // 300
+  it('salary and dividend are 10% of equity after each outcome', () => {
+    const { career, dividend } = applyStartupYear(founder, 0.9); // moonshot → 3000
+    expect(career.salary).toBe(300);
+    expect(dividend).toBe(300);
   });
 
   it('returns null career on bankrupt (no zombie startup)', () => {
-    const { career } = applyStartupYear(founder, 0.0);
+    const { career, dividend } = applyStartupYear(founder, 0.0);
     expect(career).toBeNull();
+    expect(dividend).toBe(0);
   });
 
   it('non-founder career is returned unchanged', () => {
@@ -574,20 +517,6 @@ describe('Investment purchase validation', () => {
 });
 
 describe('Day trading logic', () => {
-  function executeTradePure(bank, percentage, randomValue) {
-    if (bank <= 0) return { bank, outcome: 'error' };
-    const wager = Math.floor(bank * (percentage / 100));
-    let multiplier;
-    if (randomValue < 0.4) multiplier = 0;
-    else if (randomValue < 0.6) multiplier = 0.5;
-    else if (randomValue < 0.8) multiplier = 1.5;
-    else if (randomValue < 0.95) multiplier = 2;
-    else multiplier = 5;
-    const payout = Math.floor(wager * multiplier);
-    const profit = payout - wager;
-    return { bank: bank + profit, multiplier, profit };
-  }
-
   it('wipes out on multiplier 0 (random < 0.4)', () => {
     const { bank, profit } = executeTradePure(1000, 100, 0.39);
     expect(profit).toBe(-1000);
@@ -620,30 +549,15 @@ describe('Day trading logic', () => {
   });
 
   it('refuses when bank is 0', () => {
-    const { outcome } = executeTradePure(0, 100, 0.5);
-    expect(outcome).toBe('error');
+    const result = executeTradePure(0, 100, 0.5);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('no_funds');
   });
 });
 
 // ─── 8. startLife: initial state validity ────────────────────────────────────
 
 describe('startLife initial state', () => {
-  // Mirror the stat generation logic
-  function generateInitialStats() {
-    return {
-      health: 80 + Math.floor(Math.random() * 20),
-      happiness: 80 + Math.floor(Math.random() * 20),
-      smarts: 40 + Math.floor(Math.random() * 40),
-      looks: 40 + Math.floor(Math.random() * 40),
-      grades: 70 + Math.floor(Math.random() * 20),
-      athleticism: 30 + Math.floor(Math.random() * 60),
-      karma: 50,
-      acting: 0,
-      voice: 0,
-      modeling: 0,
-    };
-  }
-
   it('all generated stats are integers within valid range', () => {
     for (let i = 0; i < 50; i++) {
       const s = generateInitialStats();
@@ -928,29 +842,34 @@ describe('modifyRelationship', () => {
 
 // ─── 10. Grades logic ────────────────────────────────────────────────────────
 
-describe('gradesLogic', () => {
+describe('computeGradesDrift', () => {
   it('high smarts (>70) increases grades by 2', () => {
-    expect(gradesLogic(80, 75)).toBe(82);
+    expect(computeGradesDrift(80, 75)).toBe(82);
   });
 
   it('low smarts (<40) decreases grades by 5', () => {
-    expect(gradesLogic(80, 35)).toBe(75);
+    expect(computeGradesDrift(80, 35)).toBe(75);
   });
 
   it('average smarts (40-70) decreases grades by 1', () => {
-    expect(gradesLogic(80, 55)).toBe(79);
+    expect(computeGradesDrift(80, 55)).toBe(79);
   });
 
   it('grades clamped to 100 on max', () => {
-    expect(gradesLogic(99, 75)).toBe(100);
+    expect(computeGradesDrift(99, 75)).toBe(100);
   });
 
   it('grades clamped to 0 on min', () => {
-    expect(gradesLogic(3, 35)).toBe(0);
+    expect(computeGradesDrift(3, 35)).toBe(0);
   });
 
   it('defaults grades to 70 if undefined', () => {
-    expect(gradesLogic(undefined, 75)).toBe(72);
+    expect(computeGradesDrift(undefined, 75)).toBe(72);
+  });
+
+  it('an earned grade of 0 stays 0 — never bounces back to the 70 default', () => {
+    expect(computeGradesDrift(0, 75)).toBe(2);
+    expect(computeGradesDrift(0, 35)).toBe(0);
   });
 });
 
@@ -3369,21 +3288,9 @@ describe('§13.10 Full pipeline integration: wealth tier + assets + investments 
   });
 });
 
-// ── §14 sellInvestment pure-function mirror ───────────────────────────────────
+// ── §14 sellInvestment settlement (real exported computeInvestmentSale) ───────
 
-// Mirror of the sellInvestment logic in gameState.js
-function sellInvestmentCalc(item, bank, cgtRate) {
-  if (item.subType === 'bond') {
-    const proceeds = Math.floor(item.purchasePrice ?? item.currentValue);
-    return { proceeds, newBank: bank + proceeds };
-  }
-  const gain = Math.floor(item.currentValue) - (item.purchasePrice ?? 0);
-  const cgt = gain > 0 ? calculateCapitalGainsTax(item.purchasePrice ?? 0, item.currentValue, cgtRate) : 0;
-  const proceeds = Math.floor(item.currentValue) - cgt;
-  return { proceeds, cgt, gain, newBank: bank + proceeds };
-}
-
-describe('§14 sellInvestment — pure-function mirror', () => {
+describe('§14 sellInvestment — computeInvestmentSale', () => {
   const makeCryptoHolding = (overrides = {}) => ({
     id: 'inv_crypto_1',
     subType: 'crypto',
@@ -3413,44 +3320,44 @@ describe('§14 sellInvestment — pure-function mirror', () => {
 
   it('crypto at large gain: CGT applied, net proceeds correct', () => {
     const cgtRate = 0.23; // upper_middle tier
-    const { proceeds, cgt, gain } = sellInvestmentCalc(makeCryptoHolding(), 10_000, cgtRate);
+    const { proceeds, cgt, gain } = computeInvestmentSale(makeCryptoHolding(), 10_000, cgtRate);
     expect(gain).toBe(49_000);
     expect(cgt).toBe(calculateCapitalGainsTax(1_000, 50_000, 0.23));
     expect(proceeds).toBe(Math.floor(50_000) - cgt);
   });
 
   it('crypto at large gain: bank increases by net proceeds', () => {
-    const { newBank } = sellInvestmentCalc(makeCryptoHolding(), 10_000, 0.23);
+    const { newBank } = computeInvestmentSale(makeCryptoHolding(), 10_000, 0.23);
     const expectedCgt = calculateCapitalGainsTax(1_000, 50_000, 0.23);
     expect(newBank).toBe(10_000 + 50_000 - expectedCgt);
   });
 
   it('stock at a loss: no CGT, proceeds = full currentValue', () => {
-    const { proceeds, cgt } = sellInvestmentCalc(makeStockHolding(), 20_000, 0.20);
+    const { proceeds, cgt } = computeInvestmentSale(makeStockHolding(), 20_000, 0.20);
     expect(cgt).toBe(0);
     expect(proceeds).toBe(3_000);
   });
 
   it('stock at a loss: bank increases by full currentValue (no CGT penalty)', () => {
-    const { newBank } = sellInvestmentCalc(makeStockHolding(), 20_000, 0.20);
+    const { newBank } = computeInvestmentSale(makeStockHolding(), 20_000, 0.20);
     expect(newBank).toBe(23_000);
   });
 
   it('bond early sale: returns purchasePrice (par), no CGT', () => {
-    const { proceeds, newBank } = sellInvestmentCalc(makeBondHolding(), 5_000, 0.20);
+    const { proceeds, newBank } = computeInvestmentSale(makeBondHolding(), 5_000, 0.20);
     expect(proceeds).toBe(10_000); // par value, no CGT
     expect(newBank).toBe(15_000);
   });
 
   it('bond: proceeds do not depend on CGT rate', () => {
-    const r1 = sellInvestmentCalc(makeBondHolding(), 0, 0.00);
-    const r2 = sellInvestmentCalc(makeBondHolding(), 0, 0.37);
+    const r1 = computeInvestmentSale(makeBondHolding(), 0, 0.00);
+    const r2 = computeInvestmentSale(makeBondHolding(), 0, 0.37);
     expect(r1.proceeds).toBe(r2.proceeds);
   });
 
   it('penny stock at zero value: proceeds = 0, bank unchanged', () => {
     const bust = { id: 'p1', subType: 'penny_stock', purchasePrice: 2_000, currentValue: 0 };
-    const { proceeds, newBank } = sellInvestmentCalc(bust, 8_000, 0.15);
+    const { proceeds, newBank } = computeInvestmentSale(bust, 8_000, 0.15);
     expect(proceeds).toBe(0);
     expect(newBank).toBe(8_000);
   });
@@ -3458,7 +3365,7 @@ describe('§14 sellInvestment — pure-function mirror', () => {
   it('fund at gain: CGT applies at provided rate', () => {
     const fund = { id: 'f1', subType: 'fund', purchasePrice: 100_000, currentValue: 130_000 };
     const cgtRate = 0.28;
-    const { proceeds, cgt } = sellInvestmentCalc(fund, 0, cgtRate);
+    const { proceeds, cgt } = computeInvestmentSale(fund, 0, cgtRate);
     expect(cgt).toBe(calculateCapitalGainsTax(100_000, 130_000, cgtRate));
     expect(proceeds).toBe(130_000 - cgt);
   });

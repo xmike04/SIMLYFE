@@ -58,7 +58,7 @@
         "name": "John Rivera",
         "type": "Sibling",
         "status": "family",
-        "relation": 16,
+        "relation": 11,
         "isAlive": true,
         "age": 51
       },
@@ -134,11 +134,11 @@
     },
     {
       "age": 37,
-      "text": "Lifestyle: Spent $56,000 maintaining your Wealthy lifestyle."
+      "text": "Career: Good performance. You received a 5% salary raise ($12,375)."
     },
     {
       "age": 37,
-      "text": "Career: Good performance. You received a 5% salary raise ($12,375)."
+      "text": "🏥 John Rivera was diagnosed with a health condition and has become more withdrawn."
     },
     {
       "age": 37,

@@ -443,6 +443,108 @@ export function computeEstateDistribution(will, relationships, netWorth) {
   return { mode: 'directed', estateValue: estate, bequests, residualValue: estate - paid };
 }
 
+/** Death check with injectable randomness — the hook's checkDeath supplies Math.random(). */
+export function checkDeathPure(stats, age, randomValue) {
+  if (stats.health <= 0) return true;
+  if (age >= 60) {
+    const chance = (age - 60) / 40; // 0% at 60, 100% at 100
+    return randomValue < chance;
+  }
+  return false;
+}
+
+/** Yearly aging wear: −1 health after 30; a further −2 health and −1 looks after 50. */
+export function applyAgeUpDegradation(stats, age) {
+  const next = { ...stats };
+  if (age > 30) next.health = Math.max(0, next.health - 1);
+  if (age > 50) {
+    next.health = Math.max(0, next.health - 2);
+    next.looks = Math.max(0, next.looks - 1);
+  }
+  return next;
+}
+
+/**
+ * School-year grades drift by smarts. Missing grades default to 70; an earned
+ * grade of 0 stays 0 (nullish default, not falsy — see engine.mechanics tests).
+ */
+export function computeGradesDrift(grades, smarts) {
+  const current = grades ?? 70;
+  if (smarts > 70) return Math.min(100, current + 2);
+  if (smarts < 40) return Math.max(0, current - 5);
+  return Math.max(0, current - 1);
+}
+
+/**
+ * One founder equity year with injectable randomness. Non-founder careers pass
+ * through unchanged. A career of null means the startup folded (the hook
+ * applies the happiness penalty and history text).
+ */
+export function applyStartupYear(career, randomValue) {
+  if (!career || career.id !== 'founder') return { career, outcome: null, dividend: 0 };
+  let newEquity = career.equity;
+  let outcome;
+  if (randomValue < 0.2) {
+    newEquity = 0;
+    outcome = 'bankrupt';
+  } else if (randomValue < 0.5) {
+    newEquity = Math.floor(newEquity * 0.8);
+    outcome = 'downturn';
+  } else if (randomValue < 0.8) {
+    newEquity = Math.floor(newEquity * 1.5);
+    outcome = 'steady';
+  } else {
+    newEquity = Math.floor(newEquity * 3);
+    outcome = 'moonshot';
+  }
+  if (newEquity === 0) return { career: null, outcome, dividend: 0 };
+  const dividend = Math.floor(newEquity * 0.1);
+  return { career: { ...career, equity: newEquity, salary: dividend }, outcome, dividend };
+}
+
+/** Day-trade outcome with injectable randomness — the hook supplies Math.random(). */
+export function executeTradePure(bank, percentage, randomValue) {
+  if (!Number.isFinite(bank) || bank <= 0) return { ok: false, reason: 'no_funds' };
+  const wager = Math.floor(bank * (percentage / 100));
+  let multiplier;
+  if (randomValue < 0.4) multiplier = 0;
+  else if (randomValue < 0.6) multiplier = 0.5;
+  else if (randomValue < 0.8) multiplier = 1.5;
+  else if (randomValue < 0.95) multiplier = 2;
+  else multiplier = 5;
+  const payout = Math.floor(wager * multiplier);
+  const profit = payout - wager;
+  return { ok: true, bank: bank + profit, wager, payout, profit, multiplier };
+}
+
+/** Investment sale settlement: bonds recover par early; others net CGT on realized gains. */
+export function computeInvestmentSale(item, bank, cgtRate) {
+  if (normalizeInvestmentSubType(item.subType) === 'bond') {
+    const proceeds = Math.floor(item.purchasePrice ?? item.currentValue);
+    return { isBond: true, proceeds, gain: 0, cgt: 0, newBank: bank + proceeds };
+  }
+  const gain = Math.floor(item.currentValue) - (item.purchasePrice ?? 0);
+  const cgt = gain > 0 ? calculateCapitalGainsTax(item.purchasePrice ?? 0, item.currentValue, cgtRate) : 0;
+  const proceeds = Math.floor(item.currentValue) - cgt;
+  return { isBond: false, proceeds, gain, cgt, newBank: bank + proceeds };
+}
+
+/** Newborn stat roll — used by startLife and tested directly. */
+export function generateInitialStats() {
+  return {
+    health: 80 + Math.floor(Math.random() * 20),
+    happiness: 80 + Math.floor(Math.random() * 20),
+    smarts: 40 + Math.floor(Math.random() * 40),
+    looks: 40 + Math.floor(Math.random() * 40),
+    grades: 70 + Math.floor(Math.random() * 20),
+    athleticism: 30 + Math.floor(Math.random() * 60),
+    karma: 50,
+    acting: 0,
+    voice: 0,
+    modeling: 0,
+  };
+}
+
 export function useGameState() {
   const [cloudSync, setCloudSync] = useState(null);
   const [careersData, setCareersData] = useState(staticCareers);
@@ -708,18 +810,7 @@ export function useGameState() {
     ignoreCloudLoadRef.current = true;
     const city = getCityById(cityId);
     const newChar = { name, gender, country, city: cityId ?? null };
-    const initialStats = {
-      health: 80 + Math.floor(Math.random() * 20),
-      happiness: 80 + Math.floor(Math.random() * 20),
-      smarts: 40 + Math.floor(Math.random() * 40),
-      looks: 40 + Math.floor(Math.random() * 40),
-      grades: 70 + Math.floor(Math.random() * 20),
-      athleticism: 30 + Math.floor(Math.random() * 60),
-      karma: 50,
-      acting: 0,
-      voice: 0,
-      modeling: 0
-    };
+    const initialStats = generateInitialStats();
 
     setCharacter(newChar);
     setAge(0);
@@ -776,14 +867,9 @@ export function useGameState() {
     }), { replace: true });
   };
 
-  const checkDeath = useCallback((currentStats, currentAge) => {
-    if (currentStats.health <= 0) return true;
-    if (currentAge >= 60) {
-      const chance = (currentAge - 60) / 40; // 0% at 60, 100% at 100
-      if (Math.random() < chance) return true;
-    }
-    return false;
-  }, []);
+  const checkDeath = useCallback((currentStats, currentAge) => (
+    checkDeathPure(currentStats, currentAge, Math.random())
+  ), []);
 
   const applyEffects = (effects) => {
     const applied = applyEffectsPure(stats, bank, flags, effects);
@@ -926,9 +1012,7 @@ export function useGameState() {
     const nextAge = age + 1;
     let nextStats = { ...stats };
     if (nextAge >= 5 && nextAge <= 22) {
-      if (nextStats.smarts > 70) nextStats.grades = Math.min(100, (nextStats.grades || 70) + 2);
-      else if (nextStats.smarts < 40) nextStats.grades = Math.max(0, (nextStats.grades || 70) - 5);
-      else nextStats.grades = Math.max(0, (nextStats.grades || 70) - 1);
+      nextStats.grades = computeGradesDrift(nextStats.grades, nextStats.smarts);
     }
     let nextBank = bank;
     let nextCareer = career;
@@ -959,38 +1043,25 @@ export function useGameState() {
       if (advanced.history) educationHistory = advanced.history;
     }
 
-    if (nextAge > 30) nextStats.health = Math.max(0, nextStats.health - 1);
-    if (nextAge > 50) {
-      nextStats.health = Math.max(0, nextStats.health - 2);
-      nextStats.looks = Math.max(0, nextStats.looks - 1);
-    }
+    nextStats = applyAgeUpDegradation(nextStats, nextAge);
 
     if (nextCareer) {
       if (nextCareer.id === 'founder') {
-        const growthChance = Math.random();
-        let newEquity = nextCareer.equity;
-        
-        if (growthChance < 0.2) {
-          newEquity = 0;
-          businessHistory = "Your startup went bankrupt. You lost everything.";
-        } else if (growthChance < 0.5) {
-          newEquity = Math.floor(newEquity * 0.8);
-          businessHistory = "Your startup had a tough year.";
-        } else if (growthChance < 0.8) {
-          newEquity = Math.floor(newEquity * 1.5);
-          businessHistory = "Your startup grew steadily.";
-        } else {
-          newEquity = Math.floor(newEquity * 3);
-          businessHistory = "Your startup valuation skyrocketed!";
-        }
+        const startupYear = applyStartupYear(nextCareer, Math.random());
+        businessHistory = {
+          bankrupt: "Your startup went bankrupt. You lost everything.",
+          downturn: "Your startup had a tough year.",
+          steady: "Your startup grew steadily.",
+          moonshot: "Your startup valuation skyrocketed!",
+        }[startupYear.outcome];
 
-        if (newEquity === 0) {
+        if (!startupYear.career) {
           nextStats.happiness = Math.max(0, nextStats.happiness - 30);
           nextCareer = null;
         } else {
-          nextCareer = { ...nextCareer, equity: newEquity, salary: Math.floor(newEquity * 0.1) };
-          nextBank += Math.floor(newEquity * 0.1);
-          businessHistory += ` Valuation: $${newEquity}. Dividend: $${Math.floor(newEquity * 0.1)}.`;
+          nextCareer = startupYear.career;
+          nextBank += startupYear.dividend;
+          businessHistory += ` Valuation: $${startupYear.career.equity}. Dividend: $${startupYear.dividend}.`;
         }
       } else {
         const currentCity = getCityById(character?.city);
@@ -1657,20 +1728,9 @@ export function useGameState() {
 
   const executeTrade = (percentage) => {
     if (isActionLocked()) return;
-    if (bank <= 0) return;
-    const wager = Math.floor(bank * (percentage / 100));
-    const chance = Math.random();
-    let multiplier = 0;
-
-    if (chance < 0.4) multiplier = 0;
-    else if (chance < 0.6) multiplier = 0.5;
-    else if (chance < 0.8) multiplier = 1.5;
-    else if (chance < 0.95) multiplier = 2;
-    else multiplier = 5;
-
-    const payout = Math.floor(wager * multiplier);
-    const profit = payout - wager;
-    const newBank = bank + profit;
+    const trade = executeTradePure(bank, percentage, Math.random());
+    if (!trade.ok) return;
+    const { wager, payout, profit, multiplier, bank: newBank } = trade;
     let msg = profit > 0 ? `Day Trade: Risked $${wager}, walked away with $${payout} (+$${profit}).` : `Day Trade: Risked $${wager} and lost $${Math.abs(profit)}.`;
     if (multiplier === 0) msg = `Day Trade: You risked $${wager} and got wiped out completely!`;
     const updatedHistory = [...history, { age, text: msg }];
@@ -2231,21 +2291,17 @@ export function useGameState() {
     if (!item) return;
 
     const tier = getWealthTier(bank);
-    let proceeds;
+    const sale = computeInvestmentSale(item, bank, tier.capitalGainsTaxRate ?? 0);
     let historyNote;
 
-    if (normalizeInvestmentSubType(item.subType) === 'bond') {
-      proceeds = Math.floor(item.purchasePrice ?? item.currentValue);
-      historyNote = `Sold ${item.name} early — recovered $${proceeds.toLocaleString()} principal.`;
+    if (sale.isBond) {
+      historyNote = `Sold ${item.name} early — recovered $${sale.proceeds.toLocaleString()} principal.`;
     } else {
-      const gain = Math.floor(item.currentValue) - (item.purchasePrice ?? 0);
-      const cgt = gain > 0 ? calculateCapitalGainsTax(item.purchasePrice ?? 0, item.currentValue, tier.capitalGainsTaxRate ?? 0) : 0;
-      proceeds = Math.floor(item.currentValue) - cgt;
-      const gainStr = gain > 0 ? ` (+$${gain.toLocaleString()} gain, $${cgt.toLocaleString()} CGT)` : gain < 0 ? ` (loss of $${Math.abs(gain).toLocaleString()})` : '';
-      historyNote = `Sold ${item.name} for $${Math.floor(item.currentValue).toLocaleString()}${gainStr}. Net: $${proceeds.toLocaleString()}.`;
+      const gainStr = sale.gain > 0 ? ` (+$${sale.gain.toLocaleString()} gain, $${sale.cgt.toLocaleString()} CGT)` : sale.gain < 0 ? ` (loss of $${Math.abs(sale.gain).toLocaleString()})` : '';
+      historyNote = `Sold ${item.name} for $${Math.floor(item.currentValue).toLocaleString()}${gainStr}. Net: $${sale.proceeds.toLocaleString()}.`;
     }
 
-    const newBank = bank + proceeds;
+    const newBank = sale.newBank;
     const nextBelongings = belongings.filter(b => b.id !== belongingId);
     const updatedHistory = [...history, { age, text: `Investing: ${historyNote}` }];
     setBank(newBank);
