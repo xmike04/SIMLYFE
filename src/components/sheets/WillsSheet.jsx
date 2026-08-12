@@ -1,21 +1,37 @@
 import React, { useState } from 'react';
 import ActionSheet from '../ActionSheet';
 
-export default function WillsSheet({ relationships, triggerActivityEvent, onClose }) {
+const DRAFT_ERROR_MESSAGES = {
+  invalid_pct: 'Percentages must be whole numbers between 0 and 100.',
+  over_allocated: 'You cannot allocate more than 100% of your estate.',
+};
+
+export default function WillsSheet({ relationships, will, draftWill, triggerActivityEvent, onClose }) {
   const [willDistribution, setWillDistribution] = useState(() => {
+    const saved = new Map((will?.allocations ?? []).map(a => [a.id, a.pct]));
     const initialDist = {};
-    relationships.forEach(r => { initialDist[r.id] = 0; });
+    relationships.forEach(r => { initialDist[r.id] = saved.get(r.id) ?? 0; });
     return initialDist;
   });
+  const [draftError, setDraftError] = useState(null);
 
   const handleCompleteWill = () => {
-    const totalAllocated = Object.values(willDistribution).reduce((sum, val) => sum + (parseInt(val) || 0), 0);
+    const allocations = relationships
+      .map(r => ({ id: r.id, pct: parseInt(willDistribution[r.id], 10) || 0 }))
+      .filter(a => a.pct > 0);
+
+    const result = draftWill(allocations);
+    if (result !== 'ok') {
+      setDraftError(DRAFT_ERROR_MESSAGES[result] ?? 'Could not finalize the will.');
+      return;
+    }
+
     let str = "";
-    if (totalAllocated === 0) {
+    if (allocations.length === 0) {
       str = "Drafted a standard will explicitly spreading all assets and money evenly across my entire family and lovers.";
     } else {
       const details = relationships
-        .filter(r => (parseInt(willDistribution[r.id]) || 0) > 0)
+        .filter(r => (parseInt(willDistribution[r.id], 10) || 0) > 0)
         .map(r => `${willDistribution[r.id]}% to my ${r.type.toLowerCase()} ${r.name}`);
 
       str = `Drafted a highly specific will leaving: ${details.join(', ')}. The family members who got left out or received little might have feelings about this.`;
@@ -46,7 +62,7 @@ export default function WillsSheet({ relationships, triggerActivityEvent, onClos
                     type="number"
                     min="0" max="100"
                     value={willDistribution[rel.id]}
-                    onChange={(e) => setWillDistribution(prev => ({...prev, [rel.id]: e.target.value}))}
+                    onChange={(e) => { setDraftError(null); setWillDistribution(prev => ({...prev, [rel.id]: e.target.value})); }}
                     style={{ width: '60px', background: 'var(--bg-card)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '6px', borderRadius: '4px', textAlign: 'right' }}
                   />%
                 </div>
@@ -61,6 +77,10 @@ export default function WillsSheet({ relationships, triggerActivityEvent, onClos
             {totalAllocated}%
           </strong>
         </div>
+
+        {draftError && (
+          <p style={{ margin: 0, fontSize: '0.85rem', color: '#ef4444', textAlign: 'center' }}>{draftError}</p>
+        )}
 
         <button
           className="glass-panel"

@@ -57,7 +57,7 @@ All game logic lives in `useGameState()`. Components are presentational and rece
 
 Written to Firestore at `users/{uid}/saves/currentLife`:
 
-`character`, `age`, `stats`, `bank`, `history`, `isDead`, `flags`, `career`, `careerMeta`, `relationships`, `belongings`, `properties`, `education`, `networking`, `economyCycle`, `pets`
+`character`, `age`, `stats`, `bank`, `history`, `isDead`, `flags`, `career`, `careerMeta`, `relationships`, `belongings`, `properties`, `education`, `networking`, `economyCycle`, `pets`, `will`
 
 ### Ephemeral (local only)
 

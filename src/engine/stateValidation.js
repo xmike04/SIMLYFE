@@ -2,7 +2,7 @@ const KNOWN_SAVE_FIELDS = new Set([
   'character', 'age', 'stats', 'flags', 'isDead', 'career', 'bank', 'history',
   'currentEvent', 'activitiesThisYear', 'relationships', 'belongings',
   'properties', 'education', 'careerMeta', 'networking', 'economyCycle',
-  'narrativeMode', 'pets', 'schemaVersion',
+  'narrativeMode', 'pets', 'will', 'schemaVersion',
 ]);
 
 const CORE_SAVE_FIELDS = ['character', 'age', 'stats', 'bank', 'history', 'isDead'];
@@ -207,6 +207,21 @@ export function validateHydratedSave(saveData) {
         if (saveData.careerMeta[field] !== undefined && typeof saveData.careerMeta[field] !== 'boolean') {
           addWarning('invalid_type', `careerMeta.${field}`);
         }
+      }
+    }
+  }
+
+  if (Object.hasOwn(saveData, 'will') && saveData.will !== null) {
+    if (!isRecord(saveData.will)) {
+      addWarning('invalid_type', 'will');
+    } else {
+      validateRecordArray(saveData.will.allocations, 'will.allocations', addWarning, allocation => {
+        if (typeof allocation.id !== 'string' || !allocation.id) addWarning('invalid_type', 'will.allocations[].id');
+        if (!isFiniteNumber(allocation.pct)) addWarning('invalid_type', 'will.allocations[].pct');
+        else if (allocation.pct < 0 || allocation.pct > 100) addWarning('out_of_range', 'will.allocations[].pct');
+      });
+      if (saveData.will.draftedAtAge !== undefined && !isFiniteNumber(saveData.will.draftedAtAge)) {
+        addWarning('invalid_type', 'will.draftedAtAge');
       }
     }
   }

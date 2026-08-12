@@ -86,7 +86,7 @@ Substantive app changes: follow `_agents/workflows/test-app.md` — `npm install
 
 Conventions:
 
-- Prefer testing real exported helpers (`buildLifeSave`, `enrollDegree`, `advanceDegreeYear`, `applyPaperInvestmentReturn`, `findSpouse`, `markAsEx`, `normalizeRelationshipNpc`, `applyEffectsPure`, `yearlyActivityTrackId`, `canConsumeYearlyActivity`, `pickHeadhunterPlacement`) over forever-diverging mirrors when possible.
+- Prefer testing real exported helpers (`buildLifeSave`, `enrollDegree`, `advanceDegreeYear`, `applyPaperInvestmentReturn`, `findSpouse`, `markAsEx`, `normalizeRelationshipNpc`, `applyEffectsPure`, `yearlyActivityTrackId`, `canConsumeYearlyActivity`, `pickHeadhunterPlacement`, `prepareWillDraft`, `computeEstateDistribution`) over forever-diverging mirrors when possible.
 - Education UI must bind `yearsInProgram`; headhunter must charge `HEADHUNTER_COST` inside `hireViaHeadhunter` (not a lone LLM event).
 - Career eligibility and headhunter placement must both use `hasRequiredDegree` so higher completed degrees satisfy lower minimum requirements.
 - Mid-life cloud writes use `persistLife(overrides)` with a full `buildLifeSave` payload; pass every field mutated in the same tick.
@@ -98,6 +98,7 @@ Conventions:
 - An active founder cannot launch again: keep the engine `already_founder` guard and the disabled JobSheet state aligned.
 - Investment purchases must go through `prepareInvestmentPurchase`; store canonical singular sub-types and reject malformed input before state mutation.
 - Gambling must use `computeGambleResult` so invalid/non-finite stakes cannot corrupt bank state.
+- Will drafting must go through `draftWill` (validated by `prepareWillDraft`); DeathScreen settles the estate with `computeEstateDistribution`, never ad-hoc math.
 - New mechanics: pure-function tests first, then wire into `gameState.js`.
 - LLM tests: `vi.resetModules()` + `vi.stubEnv()` before import.
 - `src/tests/setup.js` mocks Firebase and `llmService` by default.
@@ -126,4 +127,3 @@ Run after sheet/`gameState` changes or when hunting unwired buttons. Agents are 
 - Firebase App Check or another trusted device/network control is still recommended before a large public launch.
 - No `firestore.rules` committed; deploy least-privilege rules in the Firebase console.
 - Death guaranteed at age 100 (may be intentional).
-- Wills UI is largely flavor; estate is not applied on death.

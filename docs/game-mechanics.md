@@ -34,6 +34,15 @@ Implementation lives primarily in `src/engine/gameState.js` and catalogs under `
 - Age 60+ → probability `(age - 60) / 40` (guaranteed by age 100).
 - After death, **Live Again** → `resetLife()` → character creation → `startLife` (see [architecture.md](./architecture.md#death-restart-flow)).
 
+### Wills & estate
+
+- Activities → Wills (age 18+, min bank $200) drafts a will via `draftWill` → validated by `prepareWillDraft` (whole percents, known beneficiaries, no duplicates, total ≤ 100%) and persisted as `will`.
+- Zero allocations = a standard will: even split among living relationships at death.
+- On death, `DeathScreen` settles the estate with `computeEstateDistribution` over final net worth (cash + properties + belongings):
+  - No will → the whole estate is taxed/donated ("unwilled").
+  - Directed will → each living beneficiary receives their percentage; bequests to dead or departed beneficiaries lapse into the residue.
+  - The unallocated residue is taxed/donated. Payouts never exceed the estate.
+
 ## Economy cycle
 
 Phases with fixed durations: `normal` 3y → `boom` 2y → `recession` 2y → repeat. Affects investment returns and performance reviews.

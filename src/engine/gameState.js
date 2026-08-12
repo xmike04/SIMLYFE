@@ -70,7 +70,7 @@ const INITIAL_ECONOMY = { year: 0, phase: 'normal', yearsInPhase: 0 };
 export const LIFE_SAVE_KEYS = [
   'character', 'age', 'stats', 'bank', 'history', 'isDead', 'flags',
   'career', 'careerMeta', 'relationships', 'belongings', 'properties',
-  'education', 'networking', 'economyCycle', 'pets',
+  'education', 'networking', 'economyCycle', 'pets', 'will',
 ];
 
 /**
@@ -96,6 +96,7 @@ export function buildLifeSave(fields = {}) {
     networking: fields.networking ?? 0,
     economyCycle: fields.economyCycle ? { ...fields.economyCycle } : { ...INITIAL_ECONOMY },
     pets: fields.pets ?? [],
+    will: fields.will ?? null,
   };
 }
 
@@ -369,6 +370,79 @@ export function applyEffectsPure(stats, bank, flags, effects = {}) {
   return { stats: newStats, bank: newBank, flags: newFlags };
 }
 
+/**
+ * Validate a drafted will before state mutation.
+ * allocations: [{ id, pct }] — whole percents, ids must be current relationships,
+ * total ≤ 100. Zero-pct entries are dropped; an empty result is a valid
+ * "standard will" (even split across living relationships at death).
+ */
+export function prepareWillDraft(allocations, relationships) {
+  if (!Array.isArray(allocations)) return { ok: false, reason: 'invalid_allocations' };
+  const known = new Set((relationships ?? []).map(r => r?.id).filter(Boolean));
+  const seen = new Set();
+  const cleaned = [];
+  let total = 0;
+  for (const entry of allocations) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return { ok: false, reason: 'invalid_allocations' };
+    }
+    const pct = Math.floor(Number(entry.pct));
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return { ok: false, reason: 'invalid_pct' };
+    if (pct === 0) continue;
+    if (typeof entry.id !== 'string' || !known.has(entry.id)) {
+      return { ok: false, reason: 'unknown_beneficiary' };
+    }
+    if (seen.has(entry.id)) return { ok: false, reason: 'duplicate_beneficiary' };
+    seen.add(entry.id);
+    total += pct;
+    cleaned.push({ id: entry.id, pct });
+  }
+  if (total > 100) return { ok: false, reason: 'over_allocated' };
+  return { ok: true, allocations: cleaned, allocatedPct: total };
+}
+
+/**
+ * Settle the estate at death — pure, rendered by DeathScreen.
+ * - No will → 'unwilled': the whole estate is taxed/donated.
+ * - Will with no allocations → 'even_split' across living relationships.
+ * - Directed will → living beneficiaries get their pct of net worth; lapsed
+ *   shares (beneficiary dead or no longer known) fall to the residue, which is
+ *   taxed/donated. Payouts never exceed the estate even on malformed saves.
+ */
+export function computeEstateDistribution(will, relationships, netWorth) {
+  const rawWorth = Number(netWorth);
+  const estate = Number.isFinite(rawWorth) ? Math.max(0, Math.floor(rawWorth)) : 0;
+  const living = (relationships ?? []).filter(r => r && r.id && r.isAlive !== false);
+
+  if (!will || !Array.isArray(will.allocations)) {
+    return { mode: 'unwilled', estateValue: estate, bequests: [], residualValue: estate };
+  }
+
+  if (will.allocations.length === 0) {
+    if (living.length === 0 || estate === 0) {
+      return { mode: 'even_split', estateValue: estate, bequests: [], residualValue: estate };
+    }
+    const share = Math.floor(estate / living.length);
+    const bequests = living.map(r => ({ id: r.id, name: r.name, type: r.type, pct: null, amount: share }));
+    return { mode: 'even_split', estateValue: estate, bequests, residualValue: estate - share * living.length };
+  }
+
+  const byId = new Map(living.map(r => [r.id, r]));
+  const bequests = [];
+  let paid = 0;
+  for (const alloc of will.allocations) {
+    const pct = Math.floor(Number(alloc?.pct));
+    if (!Number.isFinite(pct) || pct <= 0) continue;
+    const rel = byId.get(alloc?.id);
+    if (!rel) continue; // lapsed bequest — share stays in the residue
+    const amount = Math.min(Math.floor(estate * Math.min(pct, 100) / 100), estate - paid);
+    if (amount <= 0) continue;
+    paid += amount;
+    bequests.push({ id: rel.id, name: rel.name, type: rel.type, pct, amount });
+  }
+  return { mode: 'directed', estateValue: estate, bequests, residualValue: estate - paid };
+}
+
 export function useGameState() {
   const [cloudSync, setCloudSync] = useState(null);
   const [careersData, setCareersData] = useState(staticCareers);
@@ -393,6 +467,7 @@ export function useGameState() {
   const [economyCycle, setEconomyCycle] = useState(INITIAL_ECONOMY);
   const [narrativeMode, setNarrativeMode] = useState(false);
   const [pets, setPets] = useState([]);
+  const [will, setWill] = useState(null);
   /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
@@ -413,10 +488,11 @@ export function useGameState() {
     networking: 0,
     economyCycle: INITIAL_ECONOMY,
     pets: [],
+    will: null,
   });
   lifeSnapshotRef.current = {
     character, age, stats, bank, history, isDead, flags, career, careerMeta,
-    relationships, belongings, properties, education, networking, economyCycle, pets,
+    relationships, belongings, properties, education, networking, economyCycle, pets, will,
   };
 
   // 1. Initialize anonymous auth and load cloud datastores if configured
@@ -488,6 +564,7 @@ export function useGameState() {
             if (data.networking !== undefined) setNetworking(data.networking);
             if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
             if (data.pets) setPets(data.pets);
+            if (data.will !== undefined) setWill(data.will);
             emitDiagnostic('save_load', {
               operationId: loadOperationId,
               status: validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
@@ -623,6 +700,7 @@ export function useGameState() {
     setNetworking(0);
     setEconomyCycle({ ...INITIAL_ECONOMY });
     setPets([]);
+    setWill(null);
     syncToCloud(buildLifeSave({ character: null, isDead: false }), { replace: true });
   };
 
@@ -658,6 +736,7 @@ export function useGameState() {
     setNetworking(0);
     setEconomyCycle({ ...INITIAL_ECONOMY });
     setPets([]);
+    setWill(null);
     setIsAging(false);
 
     const lastName = name.split(' ').pop();
@@ -693,6 +772,7 @@ export function useGameState() {
       networking: 0,
       economyCycle: INITIAL_ECONOMY,
       pets: [],
+      will: null,
     }), { replace: true });
   };
 
@@ -1938,6 +2018,20 @@ export function useGameState() {
     persistLife({ history: updatedHistory, stats: nextStats, isDead: true });
   };
 
+  /**
+   * Draft (or replace) the will. Empty allocations = standard even-split will.
+   * DeathScreen settles the estate from this via computeEstateDistribution.
+   */
+  const draftWill = (allocations) => {
+    if (isActionLocked()) return 'locked';
+    const draft = prepareWillDraft(allocations, relationships);
+    if (!draft.ok) return draft.reason;
+    const nextWill = { allocations: draft.allocations, draftedAtAge: age };
+    setWill(nextWill);
+    persistLife({ will: nextWill });
+    return 'ok';
+  };
+
   const triggerActivityEvent = async (context) => {
     if (isDead || currentEvent || isAging) return;
     setIsAging(true);
@@ -2256,6 +2350,8 @@ export function useGameState() {
     belongings,
     properties,
     pets,
+    will,
+    draftWill,
     adoptPet,
     visitVet,
     buyAsset,

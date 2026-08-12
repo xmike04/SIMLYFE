@@ -1,6 +1,6 @@
 import React from 'react';
 import { getWealthTier } from '../config/wealthTiers';
-import { findSpouse } from '../engine/gameState';
+import { findSpouse, computeEstateDistribution } from '../engine/gameState';
 
 const STAT_META = [
   { key: 'health',      label: 'Health',      color: 'var(--health-color)' },
@@ -20,12 +20,13 @@ const EPITAPH_MAP = {
 };
 
 export default function DeathScreen({ engine }) {
-  const { character, age, bank, history, stats, properties, belongings, career, relationships } = engine;
+  const { character, age, bank, history, stats, properties, belongings, career, relationships, will } = engine;
 
   const propVal = (properties ?? []).reduce((s, p) => s + (p.currentValue ?? 0), 0);
   const belVal  = (belongings  ?? []).reduce((s, b) => s + (b.currentValue ?? 0), 0);
   const netWorth = Math.floor((bank ?? 0) + propVal + belVal);
   const tier = getWealthTier(netWorth);
+  const estate = computeEstateDistribution(will, relationships, netWorth);
 
   const investmentBelongings = (belongings ?? []).filter(b => b.subType);
   const spouse = findSpouse(relationships);
@@ -74,6 +75,50 @@ export default function DeathScreen({ engine }) {
               <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>${Math.floor(belVal).toLocaleString()}</div>
             </div>
           </div>
+        </div>
+
+        {/* Estate settlement — the drafted will (or lack of one) applied to net worth */}
+        <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: '10px', padding: '1rem', marginBottom: '12px', textAlign: 'left' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>Estate Settlement</div>
+          {estate.estateValue <= 0 ? (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+              There was nothing left to pass on.
+            </p>
+          ) : estate.mode === 'unwilled' ? (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              You never drafted a will. Your ${estate.estateValue.toLocaleString()} estate was swallowed by probate, taxes, and the state.
+            </p>
+          ) : (
+            <>
+              {estate.mode === 'even_split' && (
+                <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Your standard will split the estate evenly among your loved ones.
+                </p>
+              )}
+              {estate.bequests.length === 0 ? (
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                  No living beneficiaries remained — your bequests lapsed.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {estate.bequests.map(b => (
+                    <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+                      <span style={{ fontSize: '0.85rem', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.name} <span style={{ opacity: 0.6, fontSize: '0.72rem' }}>({b.type}{b.pct != null ? ` · ${b.pct}%` : ''})</span>
+                      </span>
+                      <strong style={{ fontSize: '0.85rem', color: '#fbbf24', flexShrink: 0 }}>${b.amount.toLocaleString()}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {estate.residualValue > 0 && (
+                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid rgba(251,191,36,0.15)', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <span>Taxed / donated</span>
+                  <span>${estate.residualValue.toLocaleString()}</span>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Final Stats */}

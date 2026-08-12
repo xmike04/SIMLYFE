@@ -18,6 +18,7 @@ const SAFE_STATE_FIELDS = new Set([
   'economyCycle',
   'narrativeMode',
   'pets',
+  'will',
   'schemaVersion',
 ]);
 
@@ -74,6 +75,11 @@ const SAFE_VALIDATION_FIELDS = new Set([
   'economyCycle.year',
   'economyCycle.phase',
   'economyCycle.yearsInPhase',
+  'will.allocations',
+  'will.allocations[]',
+  'will.allocations[].id',
+  'will.allocations[].pct',
+  'will.draftedAtAge',
 ]);
 
 const SAVE_STATUSES = new Set([
