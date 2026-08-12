@@ -102,6 +102,8 @@ Canonical payload builder: exported `buildLifeSave(fields)` in `gameState.js`. A
 
 Least-privilege rules live in [`firestore.rules`](../firestore.rules): the life save is readable/writable only by its owner (`request.auth.uid == userId`), writes must stay within the known save-field allowlist, `careers` is read-only for signed-in players (seeded via the Admin SDK), and everything else is denied. **Deployment is manual** — Firebase console (Firestore → Rules) or `firebase deploy --only firestore:rules`. `src/tests/firestoreRules.test.js` fails if the allowlist drifts from `LIFE_SAVE_KEYS` / `KNOWN_SAVE_FIELDS`.
 
+App Check (reCAPTCHA v3) initializes in `src/config/firebase.js` when `VITE_FIREBASE_APPCHECK_SITE_KEY` is set — a no-op otherwise, and a failed init never blocks cloud saves. The activation decision is the pure `getAppCheckSetup(env)` in `src/config/appCheck.js` (tested directly; `firebase.js` stays mocked in tests). Key registration and enforcement are console-side steps.
+
 Firebase is skipped when any `VITE_FIREBASE_*` credential is missing (`auth` / `db` are `null`).
 Firebase anonymous Auth is required for generated events because its short-lived ID token authenticates the Supabase proxy caller.
 

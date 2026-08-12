@@ -47,6 +47,8 @@ Root stubs: [`AGENTS.md`](../AGENTS.md) and [`CLAUDE.md`](../CLAUDE.md) point he
 | `VITE_SUPABASE_PUBLISHABLE` | Publishable key for edge calls | `.env.local` |
 | `VITE_SUPABASE_ANON_KEY` | Legacy fallback only | `.env.local` |
 | `VITE_FIREBASE_*` | Authenticated AI events + optional cloud saves (all six required) | `.env.local` |
+| `VITE_FIREBASE_APPCHECK_SITE_KEY` | reCAPTCHA v3 site key — activates App Check when set | `.env.local` |
+| `VITE_FIREBASE_APPCHECK_DEBUG_TOKEN` | App Check debug token for local dev (`true` = SDK-minted) | `.env.local` |
 | `VITE_ENABLE_DEV_TOOLS` | Debug sheet gate | `.env.local` |
 | `OPENAI_API_KEY` | Server secret for edge function | Supabase secrets |
 | `FIREBASE_PROJECT_ID` | Firebase token audience / issuer validation | Supabase secrets |
@@ -126,6 +128,6 @@ Run after sheet/`gameState` changes or when hunting unwired buttons. Agents are 
 ## Known issues
 
 - `gameState.js` is large; prefer extracted pure helpers to reduce test drift.
-- Firebase App Check or another trusted device/network control is still recommended before a large public launch.
+- App Check client init is wired (set `VITE_FIREBASE_APPCHECK_SITE_KEY`), but the reCAPTCHA v3 key must be registered and enforcement enabled in the Firebase console before a large public launch.
 - `firestore.rules` is committed but not auto-deployed — after changes, apply it in the Firebase console or via `firebase deploy --only firestore:rules`.
 - Death guaranteed at age 100 (may be intentional).
