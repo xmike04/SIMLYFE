@@ -45,7 +45,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, currentEvent, relationships, modifyRelationship, modifyProperty, performGig, startStartup, enlistMilitary, hireViaHeadhunter, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet, consumeYearlyActivity, will, draftWill, authAccount, signInWithGoogle, signOutAccount } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, currentEvent, relationships, modifyRelationship, modifyProperty, performGig, startStartup, enlistMilitary, hireViaHeadhunter, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet, consumeYearlyActivity, will, draftWill, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -504,6 +504,8 @@ export default function MainGame({ engine }) {
         <AccountSheet
           authAccount={authAccount}
           signInWithGoogle={signInWithGoogle}
+          signInWithEmail={signInWithEmail}
+          resetPassword={resetPassword}
           signOutAccount={signOutAccount}
           onClose={closeSheet}
         />

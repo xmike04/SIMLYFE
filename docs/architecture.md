@@ -111,6 +111,8 @@ Firebase Auth is required for generated events because its short-lived ID token 
 
 - Boot adopts the **persisted session** via `onAuthStateChanged` (anonymous or Google); only first-time visitors mint a new anonymous account. Never call bare `signInAnonymously` outside boot — it would replace a persisted Google session.
 - `signInWithGoogle()` (AccountSheet) is **link-first**: an anonymous player is upgraded with `linkWithPopup`, keeping the same uid so the in-progress life survives. On `auth/credential-already-in-use` (the Google account already owns a save under another uid) it **switches** with `signInWithCredential`, clears the local life, and hydrates that account's cloud save.
+- `signInWithEmail(email, password, mode)` follows the same pattern: mode `'signup'` links the anonymous player with `linkWithCredential` (same uid) — `email_in_use` tells the UI to offer Sign in instead; mode `'signin'` switches via `signInWithEmailAndPassword` and loads that account's save. Input is validated by the pure `prepareEmailCredential` first. `resetPassword(email)` sends the reset mail and never reveals whether an account exists.
+- All account actions share `getAuthBackend()` (imports + `adopt` + `loadAccountSave`); reasons returned to the UI are sanitized codes, never raw provider errors.
 - `signOutAccount()` signs out, starts a fresh anonymous session, and clears the local life — it never writes to (or deletes) the Google account's save.
 - `hydrateFromSave(data)` is the shared save→state applier for boot load and account switch; `clearLocalLife()` is the no-cloud-write reset shared by `resetLife` and account changes.
 - `authAccount` (`summarizeAuthUser`) exposes `{ uid, isAnonymous, name, email, photo }` to the UI and is never fed into diagnostics.
