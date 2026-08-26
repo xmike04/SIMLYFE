@@ -13,6 +13,7 @@ import CasinoSheet from './sheets/CasinoSheet';
 import DatingSheet from './sheets/DatingSheet';
 import WillsSheet from './sheets/WillsSheet';
 import PetsSheet from './sheets/PetsSheet';
+import AccountSheet from './sheets/AccountSheet';
 
 const SECTOR_META = {
   tech:          { icon: '💻', label: 'Tech' },
@@ -44,7 +45,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, currentEvent, relationships, modifyRelationship, modifyProperty, performGig, startStartup, enlistMilitary, hireViaHeadhunter, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet, consumeYearlyActivity, will, draftWill } = engine;
+  const { character, age, bank, stats, history, career, careersData, chooseCareer, ageUp, activitiesThisYear, performActivity, isAging, currentEvent, relationships, modifyRelationship, modifyProperty, performGig, startStartup, enlistMilitary, hireViaHeadhunter, playLottery, goGamble, visitDoctor, surrender, addRelationship, proposeMarriage, breakUp, haveChild, giftRelationship, meetFriend, triggerActivityEvent, belongings, properties, buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank, debugAddAge, debugMaxStats, studyHard, trainHiddenSkill, careerMeta, networking, economyCycle, education, checkCareerEligibility, enrollInDegree, attendNetworkingEvent, emigrate, debugGrantDegree, debugSetEconomy, debugAddNetworking, narrativeMode, setNarrativeMode, pets, adoptPet, visitVet, consumeYearlyActivity, will, draftWill, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -112,6 +113,15 @@ export default function MainGame({ engine }) {
       )}
       {/* Header Profile */}
       <div className="glass-panel text-center mb-1" style={{ padding: '0.8rem', flexShrink: 0, position: 'relative' }}>
+        {/* Account: 👤 guest / 🔗 Google-linked */}
+        <button
+          onClick={() => openSheet('account')}
+          disabled={uiFrozen}
+          aria-label="Account"
+          style={{ position: 'absolute', top: '8px', left: '12px', background: 'none', border: 'none', fontSize: '1.1rem', cursor: uiFrozen ? 'not-allowed' : 'pointer', padding: '2px' }}
+        >
+          {authAccount && !authAccount.isAnonymous ? '🔗' : '👤'}
+        </button>
         <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
           {character.name}
           {ENABLE_DEV_TOOLS && (
@@ -486,6 +496,17 @@ export default function MainGame({ engine }) {
           debugModifyBank={debugModifyBank}
           addRelationship={addRelationship}
           triggerActivityEvent={triggerActivityEvent}
+          onClose={closeSheet}
+        />
+      )}
+
+      {visibleSheet === 'account' && (
+        <AccountSheet
+          authAccount={authAccount}
+          signInWithGoogle={signInWithGoogle}
+          signInWithEmail={signInWithEmail}
+          resetPassword={resetPassword}
+          signOutAccount={signOutAccount}
           onClose={closeSheet}
         />
       )}

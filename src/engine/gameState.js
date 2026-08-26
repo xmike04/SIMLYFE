@@ -529,6 +529,31 @@ export function computeInvestmentSale(item, bank, cgtRate) {
   return { isBond: false, proceeds, gain, cgt, newBank: bank + proceeds };
 }
 
+/** Privacy-lean auth summary for the account UI — never fed into diagnostics. */
+export function summarizeAuthUser(user) {
+  if (!user) return null;
+  return {
+    uid: user.uid,
+    isAnonymous: !!user.isAnonymous,
+    provider: user.isAnonymous ? 'anonymous' : (user.providerData?.[0]?.providerId ?? 'unknown'),
+    name: user.displayName ?? null,
+    email: user.email ?? null,
+    photo: user.photoURL ?? null,
+  };
+}
+
+/** Validate email/password input before any auth call — sanitized reasons only. */
+export function prepareEmailCredential(email, password) {
+  const cleanEmail = typeof email === 'string' ? email.trim() : '';
+  if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return { ok: false, reason: 'invalid_email' };
+  }
+  if (typeof password !== 'string' || password.length < 6) {
+    return { ok: false, reason: 'weak_password' };
+  }
+  return { ok: true, email: cleanEmail };
+}
+
 /** Newborn stat roll — used by startLife and tested directly. */
 export function generateInitialStats() {
   return {
@@ -570,6 +595,7 @@ export function useGameState() {
   const [narrativeMode, setNarrativeMode] = useState(false);
   const [pets, setPets] = useState([]);
   const [will, setWill] = useState(null);
+  const [authAccount, setAuthAccount] = useState(null);
   /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
@@ -597,9 +623,31 @@ export function useGameState() {
     relationships, belongings, properties, education, networking, economyCycle, pets, will,
   };
 
-  // 1. Initialize anonymous auth and load cloud datastores if configured
+  /** Apply a cloud save document to local state — used at boot and on account switch. */
+  const hydrateFromSave = useCallback((data) => {
+    if (data.character) setCharacter(data.character);
+    if (data.age !== undefined) setAge(data.age);
+    if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
+    if (data.bank !== undefined) setBank(data.bank);
+    if (data.history) setHistory(data.history);
+    if (data.isDead !== undefined) setIsDead(data.isDead);
+    if (data.career !== undefined) setCareer(data.career);
+    if (data.relationships) setRelationships(data.relationships);
+    if (data.belongings) setBelongings(data.belongings);
+    if (data.properties) setProperties(data.properties);
+    if (data.education) setEducation({ ...INITIAL_EDUCATION, ...data.education });
+    if (data.careerMeta) setCareerMeta({ ...INITIAL_CAREER_META, ...data.careerMeta });
+    if (data.networking !== undefined) setNetworking(data.networking);
+    if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
+    if (data.pets) setPets(data.pets);
+    if (data.will !== undefined) setWill(data.will);
+  }, []);
+
+  // 1. Adopt the persisted auth session (or start an anonymous one) and load
+  // the cloud save if configured
   useEffect(() => {
     let cancelled = false;
+    let unsubscribeFirstAuth = null;
     setFirebaseIdTokenProvider(null);
     const loadOperationId = createDiagnosticId('save-load');
     const loadStartedAt = diagnosticNow();
@@ -628,7 +676,7 @@ export function useGameState() {
           return;
         }
 
-        const { signInAnonymously } = authApi;
+        const { signInAnonymously, onAuthStateChanged } = authApi;
         const { doc, setDoc, getDoc, collection, getDocs } = firestoreApi;
 
         emitDiagnostic('save_load', {
@@ -638,35 +686,29 @@ export function useGameState() {
           fields: [],
         });
 
-        const cred = await signInAnonymously(auth);
+        // Adopt a persisted session (anonymous or Google-linked) so returning
+        // players keep their uid; only first-time visitors mint a new
+        // anonymous account. signInAnonymously would replace a Google session.
+        const persistedUser = await new Promise((resolve) => {
+          unsubscribeFirstAuth = onAuthStateChanged(auth, resolve, () => resolve(null));
+        });
+        unsubscribeFirstAuth?.();
+        unsubscribeFirstAuth = null;
+        const user = persistedUser ?? (await signInAnonymously(auth)).user;
         if (cancelled) return;
 
-        setFirebaseIdTokenProvider(() => cred.user.getIdToken());
-        setCloudSync({ db, userId: cred.user.uid, doc, setDoc });
+        setFirebaseIdTokenProvider(() => user.getIdToken());
+        setCloudSync({ db, userId: user.uid, doc, setDoc });
+        setAuthAccount(summarizeAuthUser(user));
 
         try {
-          const saveRef = doc(db, 'users', cred.user.uid, 'saves', 'currentLife');
+          const saveRef = doc(db, 'users', user.uid, 'saves', 'currentLife');
           const saveSnap = await getDoc(saveRef);
           if (cancelled) return;
           if (!ignoreCloudLoadRef.current && saveSnap.exists()) {
             const data = saveSnap.data();
             const validation = validateHydratedSave(data);
-            if (data.character) setCharacter(data.character);
-            if (data.age !== undefined) setAge(data.age);
-            if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
-            if (data.bank !== undefined) setBank(data.bank);
-            if (data.history) setHistory(data.history);
-            if (data.isDead !== undefined) setIsDead(data.isDead);
-            if (data.career !== undefined) setCareer(data.career);
-            if (data.relationships) setRelationships(data.relationships);
-            if (data.belongings) setBelongings(data.belongings);
-            if (data.properties) setProperties(data.properties);
-            if (data.education) setEducation({ ...INITIAL_EDUCATION, ...data.education });
-            if (data.careerMeta) setCareerMeta({ ...INITIAL_CAREER_META, ...data.careerMeta });
-            if (data.networking !== undefined) setNetworking(data.networking);
-            if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
-            if (data.pets) setPets(data.pets);
-            if (data.will !== undefined) setWill(data.will);
+            hydrateFromSave(data);
             emitDiagnostic('save_load', {
               operationId: loadOperationId,
               status: validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
@@ -714,9 +756,10 @@ export function useGameState() {
     initCloudSync();
     return () => {
       cancelled = true;
+      unsubscribeFirstAuth?.();
       setFirebaseIdTokenProvider(null);
     };
-  }, []);
+  }, [hydrateFromSave]);
 
   // 2. Sync to Cloud — pass { replace: true } on life boundaries to wipe stale fields
   const syncToCloud = useCallback(async (stateData, options = {}) => {
@@ -776,13 +819,8 @@ export function useGameState() {
 
   const isActionLocked = () => isDead || isAging || !!currentEvent;
 
-  /**
-   * Live Again: clear local + full-replace cloud so App shows CharacterCreation.
-   * Must not use location.reload() — that reloads isDead:true from Firestore.
-   * See docs/architecture.md#death-restart-flow.
-   */
-  const resetLife = () => {
-    ignoreCloudLoadRef.current = true;
+  /** Clear the in-memory life only — no cloud write. Shared by resetLife and account changes. */
+  const clearLocalLife = () => {
     setCharacter(null);
     setAge(0);
     setStats({ ...INITIAL_STATS });
@@ -803,7 +841,183 @@ export function useGameState() {
     setEconomyCycle({ ...INITIAL_ECONOMY });
     setPets([]);
     setWill(null);
+  };
+
+  /**
+   * Live Again: clear local + full-replace cloud so App shows CharacterCreation.
+   * Must not use location.reload() — that reloads isDead:true from Firestore.
+   * See docs/architecture.md#death-restart-flow.
+   */
+  const resetLife = () => {
+    ignoreCloudLoadRef.current = true;
+    clearLocalLife();
     syncToCloud(buildLifeSave({ character: null, isDead: false }), { replace: true });
+  };
+
+  /**
+   * Shared backend loader for account actions (Google, email, sign-out).
+   * Returns null when Firebase is unconfigured; otherwise auth handles plus
+   * `adopt` (rebind token provider / cloud sync / authAccount to a user) and
+   * `loadAccountSave` (clear local life, hydrate the uid's cloud save).
+   */
+  const getAuthBackend = async () => {
+    const [firebaseConfig, authApi, firestoreApi] = await Promise.all([
+      import('../config/firebase'),
+      import('firebase/auth'),
+      import('firebase/firestore'),
+    ]);
+    const { auth, db } = firebaseConfig;
+    if (!auth || !db) return null;
+    const adopt = (user) => {
+      setFirebaseIdTokenProvider(() => user.getIdToken());
+      setCloudSync({ db, userId: user.uid, doc: firestoreApi.doc, setDoc: firestoreApi.setDoc });
+      setAuthAccount(summarizeAuthUser(user));
+    };
+    const loadAccountSave = async (uid) => {
+      clearLocalLife();
+      const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
+      if (snap.exists()) hydrateFromSave(snap.data());
+    };
+    return { auth, authApi, adopt, loadAccountSave };
+  };
+
+  /**
+   * Google sign-in for cloud saves. An anonymous player is LINKED (same uid —
+   * the current life survives untouched). If the Google account already
+   * belongs to another uid, we SWITCH to that account and load its save
+   * instead. Returns { ok: true, mode } or { ok: false, reason } — reasons
+   * are sanitized codes, never raw provider errors.
+   */
+  const signInWithGoogle = async () => {
+    try {
+      const backend = await getAuthBackend();
+      if (!backend) return { ok: false, reason: 'unavailable' };
+      const { auth, authApi, adopt, loadAccountSave } = backend;
+      const { GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential } = authApi;
+
+      const provider = new GoogleAuthProvider();
+      const current = auth.currentUser;
+      try {
+        if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
+        if (current) {
+          const result = await linkWithPopup(current, provider);
+          adopt(result.user); // same uid — the in-progress life is untouched
+          return { ok: true, mode: 'linked' };
+        }
+        const result = await signInWithPopup(auth, provider);
+        adopt(result.user);
+        await loadAccountSave(result.user.uid);
+        return { ok: true, mode: 'signed_in' };
+      } catch (e) {
+        if (e?.code === 'auth/credential-already-in-use') {
+          // This Google account already owns a save under another uid — switch to it.
+          const credential = GoogleAuthProvider.credentialFromError(e);
+          if (!credential) return { ok: false, reason: 'error' };
+          const result = await signInWithCredential(auth, credential);
+          adopt(result.user);
+          await loadAccountSave(result.user.uid);
+          return { ok: true, mode: 'switched' };
+        }
+        if (e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-blocked') {
+          return { ok: false, reason: 'cancelled' };
+        }
+        return { ok: false, reason: 'error' };
+      }
+    } catch {
+      return { ok: false, reason: 'error' };
+    }
+  };
+
+  /**
+   * Email/password auth. mode 'signup' links the anonymous player (same uid —
+   * the current life survives untouched) or creates a fresh account; mode
+   * 'signin' switches to the existing account and loads its cloud save.
+   * Sanitized reasons only — raw provider errors never surface.
+   */
+  const signInWithEmail = async (email, password, mode = 'signup') => {
+    const input = prepareEmailCredential(email, password);
+    if (!input.ok) return input;
+    try {
+      const backend = await getAuthBackend();
+      if (!backend) return { ok: false, reason: 'unavailable' };
+      const { auth, authApi, adopt, loadAccountSave } = backend;
+      const { EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword } = authApi;
+      const current = auth.currentUser;
+      try {
+        if (mode === 'signin') {
+          const result = await signInWithEmailAndPassword(auth, input.email, password);
+          adopt(result.user);
+          await loadAccountSave(result.user.uid);
+          return { ok: true, mode: 'switched' };
+        }
+        if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
+        if (current) {
+          const credential = EmailAuthProvider.credential(input.email, password);
+          const result = await linkWithCredential(current, credential);
+          adopt(result.user); // same uid — the in-progress life is untouched
+          return { ok: true, mode: 'linked' };
+        }
+        const result = await createUserWithEmailAndPassword(auth, input.email, password);
+        adopt(result.user);
+        await loadAccountSave(result.user.uid);
+        return { ok: true, mode: 'signed_in' };
+      } catch (e) {
+        const code = e?.code ?? '';
+        if (code === 'auth/email-already-in-use' || code === 'auth/credential-already-in-use') {
+          return { ok: false, reason: 'email_in_use' };
+        }
+        if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+          return { ok: false, reason: 'invalid_credentials' };
+        }
+        if (code === 'auth/weak-password') return { ok: false, reason: 'weak_password' };
+        if (code === 'auth/invalid-email') return { ok: false, reason: 'invalid_email' };
+        if (code === 'auth/too-many-requests') return { ok: false, reason: 'rate_limited' };
+        if (code === 'auth/operation-not-allowed') return { ok: false, reason: 'unavailable' };
+        return { ok: false, reason: 'error' };
+      }
+    } catch {
+      return { ok: false, reason: 'error' };
+    }
+  };
+
+  /** Password-reset email. Never reveals whether the address has an account. */
+  const resetPassword = async (email) => {
+    const cleanEmail = typeof email === 'string' ? email.trim() : '';
+    if (!cleanEmail) return { ok: false, reason: 'invalid_email' };
+    try {
+      const backend = await getAuthBackend();
+      if (!backend) return { ok: false, reason: 'unavailable' };
+      try {
+        await backend.authApi.sendPasswordResetEmail(backend.auth, cleanEmail);
+        return { ok: true };
+      } catch (e) {
+        if (e?.code === 'auth/user-not-found') return { ok: true };
+        if (e?.code === 'auth/invalid-email') return { ok: false, reason: 'invalid_email' };
+        return { ok: false, reason: 'error' };
+      }
+    } catch {
+      return { ok: false, reason: 'error' };
+    }
+  };
+
+  /**
+   * Sign out on this device: a fresh anonymous session starts and the local
+   * life clears. The signed-in account's cloud save is left untouched.
+   */
+  const signOutAccount = async () => {
+    try {
+      const backend = await getAuthBackend();
+      if (!backend) return { ok: false, reason: 'unavailable' };
+      const { auth, authApi, adopt } = backend;
+      if (auth.currentUser?.isAnonymous) return { ok: true, mode: 'already_guest' };
+      await authApi.signOut(auth);
+      const cred = await authApi.signInAnonymously(auth);
+      adopt(cred.user);
+      clearLocalLife();
+      return { ok: true, mode: 'signed_out' };
+    } catch {
+      return { ok: false, reason: 'error' };
+    }
   };
 
   const startLife = (name, gender, country, cityId) => {
@@ -2408,6 +2622,11 @@ export function useGameState() {
     pets,
     will,
     draftWill,
+    authAccount,
+    signInWithGoogle,
+    signInWithEmail,
+    resetPassword,
+    signOutAccount,
     adoptPet,
     visitVet,
     buyAsset,

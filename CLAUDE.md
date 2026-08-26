@@ -23,6 +23,7 @@ Do not duplicate long reference tables here. Update the matching `docs/*.md` fil
 - **Verify:** `npm run lint && npm test && npm run build` (see `_agents/workflows/test-app.md`). E2e: `npm run test:e2e`.
 - **Action audits:** `/audit-job-school`, `/audit-relationships`, `/audit-activities`, or `/audit-actions` (see `docs/agent-guide.md`).
 - **Content:** Mature themes are intentional — do not sanitize without explicit instruction.
+- **Firebase:** Always look for and use the Firebase agent skills for Firebase tasks (`claude plugin install firebase@firebase` from the `firebase/agent-skills` marketplace). Prefer `npx -y firebase-tools@latest` over a bare `firebase` command.
 
 ## Related entry points
 
