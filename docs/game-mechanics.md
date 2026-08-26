@@ -63,6 +63,14 @@ Phases with fixed durations: `normal` 3y → `boom` 2y → `recession` 2y → re
 
 Tier affects gift amounts, date costs, relationship decay, and lifestyle pressure. Source: `src/config/wealthTiers.js`.
 
+**Income tax brackets are keyed off `bank`, not salary** — the same salary is taxed at the tier the player's *wealth* puts them in, so a Broke player pays 0% (`computeCareerYearIncome`).
+
+### City modifiers & lifestyle cost
+
+Each employed year (`computeCareerYearIncome`): gross salary = career salary × the city's `salaryMultiplier`, then income tax for the current wealth tier is deducted before banking.
+
+Each year (`computeLifestyleCost`): the tier's lifestyle cost × the city's `colMultiplier` is charged. If that payment pushes the bank negative, the tier's `happinessPenalty` applies. Cities: `src/config/cityData.js`.
+
 ## Careers
 
 - Standard ladder: `src/engine/careers.json` (`nextTierId`, `promotionRequirements`).

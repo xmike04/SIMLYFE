@@ -48,6 +48,9 @@ import {
   computeEstateDistribution,
   summarizeAuthUser,
   prepareEmailCredential,
+  computeCareerYearIncome,
+  computeLifestyleCost,
+  applyPropertyMarketTick,
   checkDeathPure,
   applyAgeUpDegradation,
   computeGradesDrift,
@@ -73,28 +76,22 @@ function applyEffects(stats, bank, effects) {
   return applyEffectsPure(stats, bank, [], effects);
 }
 
-// MIRROR (stale): the hook's income path now applies city salary multipliers and
-// income tax on top of applyCareerYearEffects. Next extraction candidate.
+// applyCareerIncome / applyPropertyMarket adapters — the real exported helpers
+// (computeCareerYearIncome / applyPropertyMarketTick) now back these legacy call
+// signatures, so the §4 and §6 suites below exercise the source, not a copy.
 function applyCareerIncome(stats, bank, career) {
-  if (!career) return { stats, bank };
-  if (career.id === 'founder') return { stats, bank }; // handled separately
-  const newBank = bank + career.salary;
-  const newStats = applyCareerYearEffects(stats, career);
-  return { stats: newStats, bank: newBank };
+  return computeCareerYearIncome(career, stats, bank, 1);
 }
 
-// MIRROR (stale): the hook's property tick also handles investment returnProfiles,
-// catalog appreciation rates, and passive stat effects. Next extraction candidate.
 function applyPropertyMarket(properties, crashRandom, boomRandom, yearlyRandom) {
   const marketCrash = crashRandom < 0.05;
-  const marketBoom = !marketCrash && boomRandom < 0.10;
-  return properties.map(prop => {
-    let newValue = prop.currentValue;
-    if (marketCrash) newValue = Math.floor(newValue * 0.7);
-    else if (marketBoom) newValue = Math.floor(newValue * 1.3);
-    else newValue = Math.floor(newValue * (1 + yearlyRandom));
-    return { ...prop, currentValue: newValue, yearsOwned: prop.yearsOwned + 1 };
-  });
+  return applyPropertyMarketTick(properties, {}, {
+    marketCrash,
+    marketBoom: !marketCrash && boomRandom < 0.10,
+    // the hook's default appreciation is 1 + (random * 0.03 + 0.02); solve for
+    // the roll that yields the caller's requested yearly rate
+    randomFn: () => (yearlyRandom - 0.02) / 0.03,
+  }).properties;
 }
 
 // ─── 1. Stat clamping & applyEffects ─────────────────────────────────────────
@@ -427,6 +424,178 @@ describe('applyPropertyMarket', () => {
   it('handles empty properties array', () => {
     const result = applyPropertyMarket([], 0.01, 0.01, 0);
     expect(result).toEqual([]);
+  });
+});
+
+// ─── 6b. Year-tick economics (behaviour the old mirrors never covered) ───────
+
+describe('computeCareerYearIncome', () => {
+  const stats = { health: 80, happiness: 80, smarts: 50 };
+  const job = { id: 'sw_eng', salary: 100000, happinessEffect: -10, healthEffect: -15 };
+
+  it('scales gross salary by the city multiplier', () => {
+    const base = computeCareerYearIncome(job, stats, 0, 1);
+    const pricey = computeCareerYearIncome(job, stats, 0, 1.5);
+    expect(base.grossSalary).toBe(100000);
+    expect(pricey.grossSalary).toBe(150000);
+  });
+
+  it('banks salary net of income tax, not gross', () => {
+    // Bank must sit in a taxed tier — the Broke tier is 0%, which would make
+    // "net === gross - tax" hold even if the deduction were dropped entirely.
+    const startingBank = 100_000;
+    const result = computeCareerYearIncome(job, stats, startingBank, 1);
+    expect(result.tax).toBe(calculateIncomeTax(100000, startingBank));
+    expect(result.tax).toBeGreaterThan(0);
+    expect(result.netSalary).toBe(100000 - result.tax);
+    expect(result.netSalary).toBeLessThan(result.grossSalary);
+    expect(result.bank).toBe(startingBank + result.netSalary);
+  });
+
+  it('the Broke tier pays no income tax', () => {
+    expect(computeCareerYearIncome(job, stats, 0, 1).tax).toBe(0);
+  });
+
+  it('taxes by wealth bracket — the same salary is taxed more when already rich', () => {
+    const poor = computeCareerYearIncome(job, stats, 0, 1);
+    const rich = computeCareerYearIncome(job, stats, 5_000_000, 1);
+    expect(rich.tax).toBeGreaterThan(poor.tax);
+  });
+
+  it('applies the career year stat effects', () => {
+    const { stats: next } = computeCareerYearIncome(job, stats, 0, 1);
+    expect(next.happiness).toBe(78); // applyCareerYearEffects scales the raw effect
+    expect(next.health).toBeLessThan(stats.health);
+  });
+
+  it('adds smarts_gain on top, clamped to 100', () => {
+    const teacher = { id: 'prof', salary: 1000, smarts_gain: 5 };
+    expect(computeCareerYearIncome(teacher, stats, 0, 1).stats.smarts).toBe(55);
+    const genius = { ...stats, smarts: 98 };
+    expect(computeCareerYearIncome(teacher, genius, 0, 1).stats.smarts).toBe(100);
+  });
+
+  it('is a no-op for no career or a founder (handled by applyStartupYear)', () => {
+    for (const career of [null, undefined, { id: 'founder', salary: 999, equity: 10 }]) {
+      const result = computeCareerYearIncome(career, stats, 500, 1);
+      expect(result.bank).toBe(500);
+      expect(result.stats).toBe(stats);
+      expect(result.netSalary).toBe(0);
+    }
+  });
+
+  it('falls back to a 1x multiplier on a non-finite city value', () => {
+    expect(computeCareerYearIncome(job, stats, 0, undefined).grossSalary).toBe(100000);
+    expect(computeCareerYearIncome(job, stats, 0, NaN).grossSalary).toBe(100000);
+  });
+
+  it('does not mutate the caller stats', () => {
+    const original = { ...stats };
+    computeCareerYearIncome(job, stats, 0, 1);
+    expect(stats).toEqual(original);
+  });
+});
+
+describe('computeLifestyleCost', () => {
+  const stats = { happiness: 60 };
+
+  it('charges nothing at tiers with no lifestyle expectation', () => {
+    const result = computeLifestyleCost(0, stats, 1);
+    expect(result.cost).toBe(0);
+    expect(result.bank).toBe(0);
+    expect(result.stats).toBe(stats);
+    expect(result.inDebt).toBe(false);
+  });
+
+  it('charges the wealth tier cost scaled by cost of living', () => {
+    const cheap = computeLifestyleCost(100_000, stats, 1);
+    const pricey = computeLifestyleCost(100_000, stats, 2);
+    expect(cheap.cost).toBeGreaterThan(0);
+    expect(pricey.cost).toBe(cheap.cost * 2);
+    expect(pricey.bank).toBe(100_000 - pricey.cost);
+  });
+
+  it('applies the tier happiness penalty only when the charge pushes you into debt', () => {
+    const solvent = computeLifestyleCost(100_000, stats, 1);
+    expect(solvent.inDebt).toBe(false);
+    expect(solvent.stats.happiness).toBe(60);
+
+    // Wealthy tier expectations with a bank that cannot cover them
+    const tier = getWealthTier(1_500_000);
+    const broke = computeLifestyleCost(1_500_000, stats, 1000);
+    expect(broke.inDebt).toBe(true);
+    expect(broke.bank).toBeLessThan(0);
+    expect(broke.stats.happiness).toBe(Math.max(0, 60 - tier.happinessPenalty));
+  });
+
+  it('never drives happiness below zero', () => {
+    const sad = computeLifestyleCost(1_500_000, { happiness: 1 }, 1000);
+    expect(sad.stats.happiness).toBe(0);
+  });
+});
+
+describe('applyPropertyMarketTick', () => {
+  const stats = { health: 50, happiness: 50 };
+  const house = { id: 'p1', catalogId: 'condo', type: 'property', currentValue: 100_000, yearsOwned: 1, upkeep: 500 };
+
+  it('marks investment holdings to market and reports the return as income', () => {
+    const holding = { id: 'i1', type: 'investment', currentValue: 10_000, yearsOwned: 0, returnProfile: { base: 0.1, volatility: 0 } };
+    const tick = applyPropertyMarketTick([holding], stats, { phase: 'normal' });
+    expect(tick.investmentIncome).not.toBe(0);
+    expect(tick.properties[0].currentValue).toBe(Math.max(0, 10_000 + tick.investmentIncome));
+  });
+
+  it('crash beats boom, and both beat catalog appreciation', () => {
+    const crash = applyPropertyMarketTick([house], stats, { marketCrash: true, marketBoom: true });
+    expect(crash.properties[0].currentValue).toBe(70_000);
+    const boom = applyPropertyMarketTick([house], stats, { marketBoom: true });
+    expect(boom.properties[0].currentValue).toBe(130_000);
+  });
+
+  it('prefers the catalog appreciation rate over the random default', () => {
+    const catalogMap = { condo: { appreciationRate: 1.10 } };
+    const tick = applyPropertyMarketTick([house], stats, { catalogMap, randomFn: () => 1 });
+    expect(tick.properties[0].currentValue).toBe(110_000);
+  });
+
+  it('falls back to a +2–5% random band with no catalog entry', () => {
+    const low = applyPropertyMarketTick([house], stats, { randomFn: () => 0 });
+    const high = applyPropertyMarketTick([house], stats, { randomFn: () => 1 });
+    expect(low.properties[0].currentValue).toBe(102_000);
+    expect(high.properties[0].currentValue).toBe(105_000);
+  });
+
+  it('accumulates upkeep across properties and tolerates a missing upkeep field', () => {
+    const noUpkeep = { ...house, id: 'p2', upkeep: undefined };
+    const tick = applyPropertyMarketTick([house, noUpkeep], stats, { marketBoom: true });
+    expect(tick.totalUpkeep).toBe(500);
+  });
+
+  it('applies catalog passive stat effects, clamped, without mutating input stats', () => {
+    const catalogMap = { condo: { appreciationRate: 1, statEffects: { happiness: 5, health: -100 } } };
+    const tick = applyPropertyMarketTick([house], stats, { catalogMap });
+    expect(tick.stats.happiness).toBe(55);
+    expect(tick.stats.health).toBe(0);
+    expect(stats).toEqual({ health: 50, happiness: 50 });
+  });
+
+  it('ignores passive effects for stats the player does not have', () => {
+    const catalogMap = { condo: { appreciationRate: 1, statEffects: { notAStat: 10 } } };
+    const tick = applyPropertyMarketTick([house], stats, { catalogMap });
+    expect(tick.stats.notAStat).toBeUndefined();
+  });
+
+  it('increments yearsOwned, floors value at zero, and handles empty/missing lists', () => {
+    const tick = applyPropertyMarketTick([house], stats, { marketCrash: true });
+    expect(tick.properties[0].yearsOwned).toBe(2);
+    expect(tick.properties[0].currentValue).toBeGreaterThanOrEqual(0);
+
+    for (const empty of [[], null, undefined]) {
+      const result = applyPropertyMarketTick(empty, stats, {});
+      expect(result.properties).toEqual([]);
+      expect(result.totalUpkeep).toBe(0);
+      expect(result.investmentIncome).toBe(0);
+    }
   });
 });
 
@@ -2630,6 +2799,9 @@ function calcNetWorth(bank, properties, belongings) {
     + belongings.reduce((s, b) => s + b.currentValue, 0));
 }
 
+// MIRROR: the belongings/investment leg of the ageUp tick (crypto, stock, penny,
+// bond coupons + maturity, funds) is still inlined in the hook, so this copy can
+// drift from it. NEXT EXTRACTION CANDIDATE — see docs/agent-guide.md known issues.
 function processInvestmentYear(item, econPhase, randomFn = Math.random) {
   const subType = item.subType;
   let newValue = item.currentValue;
