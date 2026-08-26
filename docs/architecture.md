@@ -108,20 +108,39 @@ The deploy step needs one repository secret — without it the workflow still va
 
 | Secret | Value |
 |---|---|
-| `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account holding the **Firebase Rules Admin** role on the project |
+| `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account holding **both** roles below |
 
-Create it once with:
+`firebase deploy --only firestore:rules` needs two roles, not one — it probes the
+Service Usage API before it compiles the rules, so a rules-only role fails with a
+403 on `serviceusage.googleapis.com` (verified against this project):
+
+| Role | Why |
+|---|---|
+| `roles/firebaserules.admin` | compile (`rulesets.test`), create rulesets, update the release |
+| `roles/serviceusage.serviceUsageConsumer` | the pre-deploy "is Firestore enabled?" check |
+
+Create a dedicated deployer once with:
 
 ```bash
+SA=simlyfe-rules-deployer@symlife-cd0b6.iam.gserviceaccount.com
 gcloud iam service-accounts create simlyfe-rules-deployer --project symlife-cd0b6
-gcloud projects add-iam-policy-binding symlife-cd0b6 \
-  --member "serviceAccount:simlyfe-rules-deployer@symlife-cd0b6.iam.gserviceaccount.com" \
-  --role roles/firebaserules.admin
-gcloud iam service-accounts keys create key.json \
-  --iam-account simlyfe-rules-deployer@symlife-cd0b6.iam.gserviceaccount.com
+for ROLE in roles/firebaserules.admin roles/serviceusage.serviceUsageConsumer; do
+  gcloud projects add-iam-policy-binding symlife-cd0b6 \
+    --member "serviceAccount:$SA" --role "$ROLE"
+done
+gcloud iam service-accounts keys create key.json --iam-account "$SA"
 ```
 
-Paste `key.json`'s contents into the repo secret, then delete the local file. Manual fallback stays available: `npx -y firebase-tools@latest deploy --only firestore:rules`.
+Paste `key.json`'s contents into the repo secret, then delete the local file. The
+project's default `firebase-adminsdk-fbsvc@…` account also works and has been
+granted both roles, but it carries full Admin SDK privileges — prefer the
+narrow deployer above for CI.
+
+Manual fallback stays available: `npx -y firebase-tools@latest deploy --only firestore:rules`.
+
+### Local Admin SDK credentials
+
+`scripts/migrateData.js` loads `scripts/serviceAccountKey.json` (git-ignored — never commit a key). Download it from Firebase console → Project settings → Service accounts, or reuse an existing key.
 
 App Check (reCAPTCHA v3) initializes in `src/config/firebase.js` when `VITE_FIREBASE_APPCHECK_SITE_KEY` is set — a no-op otherwise, and a failed init never blocks cloud saves. The activation decision is the pure `getAppCheckSetup(env)` in `src/config/appCheck.js` (tested directly; `firebase.js` stays mocked in tests). Key registration and enforcement are console-side steps.
 
