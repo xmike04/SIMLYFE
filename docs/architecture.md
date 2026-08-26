@@ -100,7 +100,28 @@ Canonical payload builder: exported `buildLifeSave(fields)` in `gameState.js`. A
 
 ### Security rules
 
-Least-privilege rules live in [`firestore.rules`](../firestore.rules): the life save is readable/writable only by its owner (`request.auth.uid == userId`), writes must stay within the known save-field allowlist, `careers` is read-only for signed-in players (seeded via the Admin SDK), and everything else is denied. **Deployment is manual** — Firebase console (Firestore → Rules) or `firebase deploy --only firestore:rules`. `src/tests/firestoreRules.test.js` fails if the allowlist drifts from `LIFE_SAVE_KEYS` / `KNOWN_SAVE_FIELDS`.
+Least-privilege rules live in [`firestore.rules`](../firestore.rules): the life save is readable/writable only by its owner (`request.auth.uid == userId`), writes must stay within the known save-field allowlist, `careers` is read-only for signed-in players (seeded via the Admin SDK), and everything else is denied. `src/tests/firestoreRules.test.js` fails if the allowlist drifts from `LIFE_SAVE_KEYS` / `KNOWN_SAVE_FIELDS`.
+
+**Deploying rules.** Merging a change to `firestore.rules` (or `firebase.json` / `.firebaserc`) on `main` runs [`.github/workflows/deploy-firestore-rules.yml`](../.github/workflows/deploy-firestore-rules.yml), which re-runs the drift test and then deploys. `workflow_dispatch` re-runs it on demand. Deployed rules are the only server-side authorization boundary, so a merged-but-undeployed rules change is invisible until it matters.
+
+The deploy step needs one repository secret — without it the workflow still validates, then **skips the deploy with a notice rather than failing**:
+
+| Secret | Value |
+|---|---|
+| `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account holding the **Firebase Rules Admin** role on the project |
+
+Create it once with:
+
+```bash
+gcloud iam service-accounts create simlyfe-rules-deployer --project symlife-cd0b6
+gcloud projects add-iam-policy-binding symlife-cd0b6 \
+  --member "serviceAccount:simlyfe-rules-deployer@symlife-cd0b6.iam.gserviceaccount.com" \
+  --role roles/firebaserules.admin
+gcloud iam service-accounts keys create key.json \
+  --iam-account simlyfe-rules-deployer@symlife-cd0b6.iam.gserviceaccount.com
+```
+
+Paste `key.json`'s contents into the repo secret, then delete the local file. Manual fallback stays available: `npx -y firebase-tools@latest deploy --only firestore:rules`.
 
 App Check (reCAPTCHA v3) initializes in `src/config/firebase.js` when `VITE_FIREBASE_APPCHECK_SITE_KEY` is set — a no-op otherwise, and a failed init never blocks cloud saves. The activation decision is the pure `getAppCheckSetup(env)` in `src/config/appCheck.js` (tested directly; `firebase.js` stays mocked in tests). Key registration and enforcement are console-side steps.
 

@@ -132,5 +132,5 @@ Run after sheet/`gameState` changes or when hunting unwired buttons. Agents are 
 
 - `gameState.js` is large; prefer extracted pure helpers to reduce test drift.
 - App Check client init is wired (set `VITE_FIREBASE_APPCHECK_SITE_KEY`), but the reCAPTCHA v3 key must be registered and enforcement enabled in the Firebase console before a large public launch.
-- `firestore.rules` is committed but not auto-deployed — after changes, apply it in the Firebase console or via `firebase deploy --only firestore:rules`.
+- `firestore.rules` auto-deploys on merge to `main` via `.github/workflows/deploy-firestore-rules.yml`, but only once the `FIREBASE_SERVICE_ACCOUNT` repo secret exists; until then the workflow validates and skips with a notice, and rules must be applied manually (`npx -y firebase-tools@latest deploy --only firestore:rules`). See [architecture.md](./architecture.md#security-rules).
 - Death guaranteed at age 100 (may be intentional).
