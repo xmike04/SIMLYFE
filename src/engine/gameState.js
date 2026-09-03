@@ -554,6 +554,97 @@ export function prepareEmailCredential(email, password) {
   return { ok: true, email: cleanEmail };
 }
 
+/**
+ * One salaried career year: city-adjusted gross, income tax, and the career's
+ * own stat effects. Founder equity is handled by applyStartupYear instead, and
+ * a null/founder career is a no-op. The hook composes the history text.
+ */
+export function computeCareerYearIncome(career, stats, bank, salaryMultiplier = 1) {
+  if (!career || career.id === 'founder') {
+    return { stats, bank, grossSalary: 0, tax: 0, netSalary: 0 };
+  }
+  const multiplier = Number.isFinite(salaryMultiplier) ? salaryMultiplier : 1;
+  const grossSalary = Math.round((career.salary ?? 0) * multiplier);
+  const tax = calculateIncomeTax(grossSalary, bank);
+  const netSalary = grossSalary - tax;
+  let newStats = applyCareerYearEffects(stats, career);
+  if (career.smarts_gain) {
+    newStats = { ...newStats, smarts: Math.min(100, newStats.smarts + career.smarts_gain) };
+  }
+  return { stats: newStats, bank: bank + netSalary, grossSalary, tax, netSalary };
+}
+
+/**
+ * Yearly lifestyle upkeep expected of the player's wealth tier, scaled by the
+ * city's cost of living. Falling into debt costs the tier's happiness penalty.
+ */
+export function computeLifestyleCost(bank, stats, colMultiplier = 1) {
+  const tier = getWealthTier(bank);
+  if (!(tier.lifestyleCost > 0)) {
+    return { bank, stats, cost: 0, tier, inDebt: false };
+  }
+  const multiplier = Number.isFinite(colMultiplier) ? colMultiplier : 1;
+  const cost = Math.round(tier.lifestyleCost * multiplier);
+  const newBank = bank - cost;
+  const inDebt = newBank < 0;
+  return {
+    bank: newBank,
+    stats: inDebt
+      ? { ...stats, happiness: Math.max(0, stats.happiness - tier.happinessPenalty) }
+      : stats,
+    cost,
+    tier,
+    inDebt,
+  };
+}
+
+/**
+ * One market year for owned properties: investment holdings mark to market via
+ * their return profile, real estate follows crash/boom/catalog appreciation,
+ * and owned assets apply their passive stat effects. Randomness is injected
+ * (marketCrash / marketBoom / randomFn) so the tick is testable.
+ */
+export function applyPropertyMarketTick(properties, stats, options = {}) {
+  const {
+    phase = 'normal',
+    catalogMap = {},
+    marketCrash = false,
+    marketBoom = false,
+    randomFn = Math.random,
+  } = options;
+
+  const nextStats = { ...stats };
+  let totalUpkeep = 0;
+  let investmentIncome = 0;
+
+  const nextProperties = (properties ?? []).map(prop => {
+    let newValue = prop.currentValue;
+    if (prop.type === 'investment') {
+      // Investments use returnProfile for annual gains/losses
+      const ret = estimateInvestmentReturn({ ...prop }, phase);
+      newValue = Math.max(0, prop.currentValue + ret);
+      investmentIncome += ret;
+    } else if (marketCrash) {
+      newValue = Math.floor(newValue * 0.7);
+    } else if (marketBoom) {
+      newValue = Math.floor(newValue * 1.3);
+    } else {
+      // Use catalog appreciation rate if available, else default +2–5%
+      const rate = catalogMap[prop.catalogId]?.appreciationRate ?? (1 + (randomFn() * 0.03 + 0.02));
+      newValue = Math.floor(newValue * rate);
+    }
+    totalUpkeep += prop.upkeep || 0;
+    // Apply passive stat effects from owned assets
+    const fx = catalogMap[prop.catalogId]?.statEffects ?? {};
+    for (const [stat, delta] of Object.entries(fx)) {
+      if (nextStats[stat] !== undefined) nextStats[stat] = Math.min(100, Math.max(0, nextStats[stat] + delta));
+    }
+    return { ...prop, currentValue: Math.max(0, newValue), yearsOwned: prop.yearsOwned + 1 };
+  });
+
+  return { properties: nextProperties, stats: nextStats, totalUpkeep, investmentIncome };
+}
+
 /** Newborn stat roll — used by startLife and tested directly. */
 export function generateInitialStats() {
   return {
@@ -1278,32 +1369,24 @@ export function useGameState() {
           businessHistory += ` Valuation: $${startupYear.career.equity}. Dividend: $${startupYear.dividend}.`;
         }
       } else {
-        const currentCity = getCityById(character?.city);
-        const salaryMultiplier = currentCity?.salaryMultiplier ?? 1.0;
-        const grossSalary = Math.round(nextCareer.salary * salaryMultiplier);
-        const tax = calculateIncomeTax(grossSalary, nextBank);
-        const netSalary = grossSalary - tax;
-        nextBank += netSalary;
-        nextStats = applyCareerYearEffects(nextStats, nextCareer);
-        if (nextCareer.smarts_gain) nextStats.smarts = Math.min(100, nextStats.smarts + nextCareer.smarts_gain);
-        if (tax > 0) businessHistory = (businessHistory ? businessHistory + ' ' : '') + `Paid $${tax.toLocaleString()} in income tax (${Math.round(tax / grossSalary * 100)}% bracket).`;
+        const salaryMultiplier = getCityById(character?.city)?.salaryMultiplier ?? 1.0;
+        const income = computeCareerYearIncome(nextCareer, nextStats, nextBank, salaryMultiplier);
+        nextStats = income.stats;
+        nextBank = income.bank;
+        if (income.tax > 0) businessHistory = (businessHistory ? businessHistory + ' ' : '') + `Paid $${income.tax.toLocaleString()} in income tax (${Math.round(income.tax / income.grossSalary * 100)}% bracket).`;
       }
     }
 
     // ── Lifestyle cost (wealth tier expectation) ──────────────────────────────
-    const currentCity = getCityById(character?.city);
-    const colMultiplier = currentCity?.colMultiplier ?? 1.0;
-    const currentTier = getWealthTier(nextBank);
+    const colMultiplier = getCityById(character?.city)?.colMultiplier ?? 1.0;
+    const lifestyle = computeLifestyleCost(nextBank, nextStats, colMultiplier);
+    nextBank = lifestyle.bank;
+    nextStats = lifestyle.stats;
     let lifestyleHistoryStr = null;
-    if (currentTier.lifestyleCost > 0) {
-      const adjustedLifestyleCost = Math.round(currentTier.lifestyleCost * colMultiplier);
-      nextBank -= adjustedLifestyleCost;
-      if (nextBank < 0) {
-        nextStats.happiness = Math.max(0, nextStats.happiness - currentTier.happinessPenalty);
-        lifestyleHistoryStr = `Lifestyle: You can't maintain your ${currentTier.label} status. Went into debt paying $${adjustedLifestyleCost.toLocaleString()} in lifestyle costs. −${currentTier.happinessPenalty} Happiness.`;
-      } else {
-        lifestyleHistoryStr = `Lifestyle: Spent $${adjustedLifestyleCost.toLocaleString()} maintaining your ${currentTier.label} lifestyle.`;
-      }
+    if (lifestyle.cost > 0) {
+      lifestyleHistoryStr = lifestyle.inDebt
+        ? `Lifestyle: You can't maintain your ${lifestyle.tier.label} status. Went into debt paying $${lifestyle.cost.toLocaleString()} in lifestyle costs. −${lifestyle.tier.happinessPenalty} Happiness.`
+        : `Lifestyle: Spent $${lifestyle.cost.toLocaleString()} maintaining your ${lifestyle.tier.label} lifestyle.`;
     }
 
     // ── Performance review & networking gain ──────────────────────────────────
@@ -1347,44 +1430,26 @@ export function useGameState() {
     // Financial stress flag: unemployed and broke
     if (!nextCareer && nextBank < 0) nextCareerMeta = { ...nextCareerMeta, financialStressFlag: true };
 
-    let nextProperties = [...properties];
     let nextBelongings = [...belongings];
-    let totalUpkeep = 0;
-    
-    const marketCrash = Math.random() < 0.05; 
-    const marketBoom = !marketCrash && Math.random() < 0.10; 
+
+    const marketCrash = Math.random() < 0.05;
+    const marketBoom = !marketCrash && Math.random() < 0.10;
 
     // Resolve catalog appreciation rates for all owned assets
     const catalogMap = Object.fromEntries(getAllAssets().map(a => [a.id, a]));
 
-    let investmentIncome = 0;
     let investmentHistoryStr = null;
 
-    nextProperties = nextProperties.map(prop => {
-      let newValue = prop.currentValue;
-      if (prop.type === 'investment') {
-        // Investments use returnProfile for annual gains/losses
-        const catalogEntry = { ...prop, currentValue: prop.currentValue };
-        const ret = estimateInvestmentReturn(catalogEntry, nextEconomy.phase);
-        newValue = Math.max(0, prop.currentValue + ret);
-        investmentIncome += ret;
-      } else if (marketCrash) {
-        newValue = Math.floor(newValue * 0.7);
-      } else if (marketBoom) {
-        newValue = Math.floor(newValue * 1.3);
-      } else {
-        // Use catalog appreciation rate if available, else default +2–5%
-        const rate = catalogMap[prop.catalogId]?.appreciationRate ?? (1 + (Math.random() * 0.03 + 0.02));
-        newValue = Math.floor(newValue * rate);
-      }
-      totalUpkeep += prop.upkeep || 0;
-      // Apply passive stat effects from owned assets
-      const fx = catalogMap[prop.catalogId]?.statEffects ?? {};
-      for (const [stat, delta] of Object.entries(fx)) {
-        if (nextStats[stat] !== undefined) nextStats[stat] = Math.min(100, Math.max(0, nextStats[stat] + delta));
-      }
-      return { ...prop, currentValue: Math.max(0, newValue), yearsOwned: prop.yearsOwned + 1 };
+    const propertyTick = applyPropertyMarketTick(properties, nextStats, {
+      phase: nextEconomy.phase,
+      catalogMap,
+      marketCrash,
+      marketBoom,
     });
+    const nextProperties = propertyTick.properties;
+    nextStats = propertyTick.stats;
+    let totalUpkeep = propertyTick.totalUpkeep;
+    let investmentIncome = propertyTick.investmentIncome;
 
     const bondMaturities = []; // collect bond principal returns
     nextBelongings = nextBelongings.map(item => {

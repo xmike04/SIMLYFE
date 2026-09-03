@@ -1,0 +1,79 @@
+# Deploys firestore.rules to the Firebase project when they change on main.
+#
+# Rules are the app's only server-side authorization boundary, so a rules
+# change that is merged but never deployed is invisible until it matters. This
+# closes that gap.
+#
+# One-time setup (see docs/architecture.md#security-rules):
+#   Add a repository secret FIREBASE_SERVICE_ACCOUNT containing the JSON key of
+#   a service account with the "Firebase Rules Admin" role on the project.
+#
+# Until that secret exists this workflow validates the rules and then skips the
+# deploy with a notice — it never fails the build for a missing secret.
+name: Deploy Firestore rules
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/deploy-firestore-rules.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never let two rules deploys race; the last merge wins.
+concurrency:
+  group: firestore-rules
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Guards the deploy: fails if the rules' write allowlist has drifted from
+      # LIFE_SAVE_KEYS / KNOWN_SAVE_FIELDS, which would break every cloud save.
+      - name: Validate rules against the save schema
+        run: npx vitest run src/tests/firestoreRules.test.js
+
+      - name: Check for deploy credentials
+        id: creds
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SERVICE_ACCOUNT" ]; then
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo '::notice title=Rules not deployed::FIREBASE_SERVICE_ACCOUNT is not set, so firestore.rules was validated but not deployed. Add the secret (see docs/architecture.md#security-rules) or deploy manually with: npx -y firebase-tools@latest deploy --only firestore:rules'
+          else
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to Firebase
+        if: steps.creds.outputs.present == 'true'
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/service-account.json" >> "$GITHUB_ENV"
+
+      # Project comes from .firebaserc so it stays a single source of truth.
+      - name: Deploy Firestore rules
+        if: steps.creds.outputs.present == 'true'
+        run: npx -y firebase-tools@latest deploy --only firestore:rules --non-interactive
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/service-account.json"
