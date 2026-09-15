@@ -94,6 +94,14 @@ Every request must carry an allowed `Origin`; even a valid Firebase bearer token
 
 ## Vercel frontend deployment
 
+### Verified Git commits
+
+The connected Vercel project requires commits that GitHub marks as verified. An unsigned branch head is automatically canceled before the build starts; the generic GitHub status can say "Canceled from the Vercel Dashboard" even when the deployment details identify an unverified signature. Check the deployment's reason and the commit's verification status before retrying.
+
+Use a configured signing key for local commits, or GitHub's signed web/API commit path. The `createCommitOnBranch` API appends a signed commit as the authenticated user and checks the expected branch head. See [Vercel Git settings](https://vercel.com/docs/project-configuration/git-settings) and [GitHub commit signing through the API](https://docs.github.com/en/graphql/reference/commits#createcommitonbranch). A verified commit still needs successful build and application checks.
+
+### Build and promote
+
 Public browser configuration must exist in the intended Vercel environment before building. The build embeds these values; adding or correcting a value requires a new deployment. Preview and production scopes are independent.
 
 After the [required source checks](./development.md#required-checks), inspect a candidate before promotion. The existing project supports building a production-configured candidate without immediately moving the canonical alias:
