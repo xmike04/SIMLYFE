@@ -14,10 +14,18 @@ npm install
 // turbo
 npm run lint
 
-3. Run the full unit test suite (engine mechanics, LLM service, config data, market, smoke).
+3. Run the full unit test suite (domain mechanics, annual/cloud integration, LLM service, config data, market, smoke).
 // turbo
 npm test
 
 4. Build the application for production to verify successful compilation and hook dependency arrays.
 // turbo
 npm run build
+
+5. Check local documentation links, package commands, and architecture paths.
+// turbo
+npm run check:docs
+
+6. For browser-flow changes, run the Playwright suite (see docs/development.md for browser installation).
+// turbo
+CI=1 npm run test:e2e

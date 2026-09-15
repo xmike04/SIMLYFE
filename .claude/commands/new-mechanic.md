@@ -1,49 +1,55 @@
 # /new-mechanic — Add a New Game Mechanic End-to-End
 
-Full checklist for implementing a new gameplay system in SIMLYFE — from design to tests to UI.
+Implement a gameplay system from a defined rule through real tests, engine commands, and UI wiring.
 
 ## Steps
 
-### 1. Design (read before touching code)
-- Read `src/engine/gameState.js` to understand what state already exists and what the new mechanic might reuse.
-- Read `docs/game-mechanics.md` and `docs/agent-guide.md` to ensure the new mechanic fits the existing model.
-- Define clearly: What state does it add? What triggers it? What does it modify? Does it run every year (in `ageUp`) or on demand?
+### 1. Define the rule and boundary
 
-### 2. State (gameState.js)
-- Add new state variable(s) via `useState` at the top of `useGameState()`.
-- If it runs annually, integrate it into `ageUp()` at the correct position relative to existing logic (order matters — income before tax before lifestyle cost, etc.).
-- If it's on-demand, add a new function and include it in the return object.
-- If the new state must persist: add it to `LIFE_SAVE_KEYS` / `buildLifeSave` and every life-boundary replace; mid-life syncs still use merge — see `docs/architecture.md`.
+- Read [architecture](../../docs/architecture.md), [game mechanics](../../docs/game-mechanics.md), and [agent guide](../../docs/agent-guide.md).
+- Inspect `src/engine/gameState.js` and the relevant modules in `src/engine/mechanics/` and `src/engine/annual/`.
+- Define the trigger, inputs, outputs, costs, guards, and saved fields. Decide whether it runs on demand or inside the annual calculation.
 
-### 3. Tests first (engine.mechanics.test.js)
-- Before the UI exists, write pure-function mirrors of the new logic in `src/tests/engine.mechanics.test.js`.
-- Cover: happy path, edge cases (zero values, max values, invalid inputs), any probability/RNG paths (seed the Math.random mock).
-- Run `npm test` — the new tests should fail until implementation is complete.
+### 2. Test the real calculation
 
-### 4. Config data (if needed)
-- If the mechanic introduces a new catalog (items, tiers, types), add a file to `src/config/`.
-- Add shape validation for it in `src/tests/config.data.test.js`.
+- Define the production helper in the owning `src/engine/mechanics/` module, or a focused annual module when the rule belongs to a year tick.
+- Add tests in the appropriate `src/tests/mechanics/` suite that import that actual export. Do not copy the calculation into the test.
+- Cover meaningful boundaries: invalid inputs, zero/max values, affordability, state changes, and probability branches. Inject random values or a random function instead of making tests depend on uncontrolled draws.
+- Confirm the test detects the missing or incorrect behavior, then implement the rule. Test adapters may translate signatures or inspect outputs; they must not reimplement the rule.
 
-### 5. UI
-- If the mechanic needs a dedicated panel: follow `/new-sheet` checklist.
-- If it's a single action: add it to the appropriate `ACTIVITY_MENUS` entry in `src/config/activities.js` and handle the `specialAction` in `MainGame.jsx`.
-- If it shows passive state (e.g., a score or counter): add it to the stats display area in `MainGame.jsx`.
+### 3. Wire state and persistence
 
-### 6. LLM integration (if needed)
-- If actions should generate AI events, pass a specific `context` string to `generateDynamicEvent()`.
-- Update the prompt in `supabase/functions/generate-event/index.ts` if the new mechanic should influence how the LLM generates events (e.g., "player has X, which affects Y").
+- Keep shared life state and player commands in `useGameState`. Commands own action locks, React state commits, and persistence overrides.
+- Integrate annual work into `src/engine/annual/advanceLifeYear.js` at the correct point. Preserve the existing order: tuition precedes salary/tax settlement; lifestyle cost uses the resulting balance.
+- For a new saved field, update `src/engine/lifeSave.js` defaults and `LIFE_SAVE_KEYS`, hook initialization/clear/start/reset, `hydrateFromSave`, `src/engine/stateValidation.js`, and `firestore.rules`.
+- Keep complete replacement writes at life boundaries. Mid-life `persistLife` overrides must include every field changed in the command.
+- Test the actual command or hook where guards, async behavior, or save wiring can fail; a pure formula test cannot establish those behaviors.
 
-### 7. Verify
-- Run `npm test` — all tests including new ones should pass.
-- Run `npm run build` — no type or import errors.
-- Run `/balance-check` if any stat effects were added.
-- Run `/schema-drift` to confirm mirrors are accurate.
+### 4. Add config data if needed
+
+- Add catalogs under `src/config/` and shape/reference checks in `src/tests/config.data.test.js`.
+- Reuse existing catalog identifiers and domain helpers rather than introducing duplicate rules in UI code.
+
+### 5. Add the UI
+
+- For a dedicated panel, follow [new-sheet](./new-sheet.md).
+- Activity items belong in `src/config/activities.js`; special-action dispatch belongs in `src/components/sheets/ActivitiesSheet.jsx`.
+- `src/components/game/GameSheets.jsx` binds engine commands to sheets. MainGame retains screen-level selection and locking.
+- Passive life-summary displays belong in `src/components/game/GameHeader.jsx` or the relevant existing view.
+
+### 6. Integrate generated events if needed
+
+- Pass a descriptive action context through the engine's event command.
+- Extend the bounded projection in `src/engine/llmService.js` and the request/prompt contract in `supabase/functions/generate-event/contract.ts` together when the model needs a new state field.
+- Keep provider calls and model settings server-owned. Do not add a browser-direct model call or silent static fallback.
+
+### 7. Verify and document
+
+- Run `npm run lint`, `npm test`, and `npm run build` in that order; run `npm run test:e2e` for changed browser flows.
+- Run [balance-check](./balance-check.md) when stat or financial effects change.
+- Run [schema-drift](./schema-drift.md) to identify copied-formula debt and missing production coverage, not to add more mirrors.
+- Update the owning canonical document and record any remaining implementation or deployment gap.
 
 ## When to use
-Use this as a living checklist any time you're building a new system from scratch (new economy mechanic, new social system, new progression track, etc.). Work through each numbered step in order — don't skip to UI before tests.
 
-## Tips & tricks
-- The order in `ageUp()` matters. Salary income should run before tax deduction, which should run before lifestyle cost. Adding a new annual deduction in the wrong position can cause subtle balance bugs.
-- If the mechanic has RNG, mock `Math.random` in tests to cover all probability branches deterministically.
-- New state that isn't initialized in `startLife()` will be `undefined` on new games — always add it to the initial state object.
-- Keep the mechanic's logic self-contained in `gameState.js` first. Only after the logic is tested should you build the UI on top of it.
+Use this checklist for a new economy, social, or progression system. Complete the calculation and persistence contract before building UI on top of it.

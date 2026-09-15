@@ -188,7 +188,7 @@ async function ageUpAndResolveEvent(page) {
   await page.getByRole('button', { name: 'Take the dare' }).click();
 }
 
-test('first-run flow reaches core gameplay sheets with mocked AI events', async ({ page }) => {
+test('first-run flow reaches core gameplay sheets with mocked AI events', async ({ page }, testInfo) => {
   const firebaseIdToken = createFirebaseIdToken();
   const firebaseRequests = await mockFirebase(page, firebaseIdToken);
   const supabaseRequests = await mockSupabaseEvent(page);
@@ -221,6 +221,8 @@ test('first-run flow reaches core gameplay sheets with mocked AI events', async 
   await expect(page.getByText(/Age: 18/)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Morgan Case' })).toBeVisible();
   await expect(page.getByText('🐛')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('gameplay.png'), fullPage: true, animations: 'disabled' });
 
   await page.getByRole('button', { name: /relationships/i }).click();
   await expect(page.getByRole('heading', { name: 'Relationships' })).toBeVisible();
@@ -236,6 +238,7 @@ test('first-run flow reaches core gameplay sheets with mocked AI events', async 
 
   await page.getByRole('button', { name: /assets/i }).click();
   await expect(page.getByRole('heading', { name: '🏦 Assets' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('assets.png'), fullPage: true, animations: 'disabled' });
   await closeSheet(page);
 
   expect(supabaseRequests).toHaveLength(18);

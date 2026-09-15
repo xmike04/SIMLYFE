@@ -9,13 +9,13 @@ Find unnecessary re-renders, expensive inline objects, and bundle weight issues 
    - Are any functions defined inside the hook but not wrapped in `useCallback`? List the ones called from child components as props.
    - Are there expensive `.filter()`, `.map()`, or `.reduce()` operations on large arrays that run on every render without `useMemo`?
 
-2. Read `src/components/MainGame.jsx`. Check for:
+2. Read `src/components/MainGame.jsx`, `src/components/game/GameHeader.jsx`, and `src/components/game/GameSheets.jsx`. Check for:
    - Large inline `style` objects defined directly in JSX (e.g., `style={{ background: 'red', padding: 20 }}`). These re-create on every render.
    - Inline arrow functions passed as event handlers that could cause child re-renders.
    - Any `useEffect` with missing or overly broad dependency arrays.
    - Components that could be memoized with `React.memo` but aren't.
 
-3. Read each sheet in `src/components/sheets/`. Flag the same issues per sheet.
+3. Read sheets and subviews in `src/components/sheets/`, including `sheets/assets/`. Distinguish actual render work from calculation performed only on commands in `src/engine/annual/` and `src/engine/mechanics/`.
 
 4. Check `vite.config.js` for:
    - Whether code splitting is configured (dynamic imports or `manualChunks`).
@@ -35,8 +35,8 @@ Find unnecessary re-renders, expensive inline objects, and bundle weight issues 
 Run when the game feels sluggish during rapid aging (clicking Age+ quickly), when mobile performance degrades, or after adding a large new feature. Also run before any production deploy.
 
 ## Tips & tricks
-- The most impactful fix in React is almost always eliminating inline object literals from render — they're invisible but cause constant child re-renders.
-- `useGameState` returning 50+ values means every consumer of the hook re-renders on any state change. This is the largest architectural perf risk — keep it in mind even if you can't fix it now.
+- Treat fresh objects and callbacks as investigation candidates, not measured bottlenecks. Verify render cost and memoized-child boundaries before recommending memoization.
+- Measure current hook consumers and component render behavior; do not infer the dominant bottleneck from a historical return count. Keep one owner of shared life state.
 - Inline `style` objects in `MainGame.jsx` are expected and intentional for dynamic values — only flag ones with entirely static values that could be CSS classes instead.
 - Use the browser DevTools Performance tab to record a 10-age-up session and look for long tasks before assuming which code is the bottleneck.
-- `@google/generative-ai` being in the bundle unused is a free win — removing it from `package.json` saves bundle weight immediately.
+- Confirm a dependency is installed and included in the built artifact before reporting its bundle impact. This command reports findings; changes require an implementation task.

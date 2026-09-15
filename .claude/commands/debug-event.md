@@ -6,12 +6,12 @@ Investigate why AI-generated events are failing or misbehaving in SIMLYFE withou
 
 1. Read `src/engine/llmService.js` and `src/engine/firebaseToken.js` in full. Confirm:
    - `VITE_SUPABASE_URL` and a publishable/legacy anon gateway key are present.
-   - A Firebase ID-token provider was installed after anonymous sign-in.
+   - A Firebase ID-token provider was installed after adopting a persisted session or creating an anonymous session.
    - `Authorization` carries the Firebase token and `apikey` carries only the Supabase public key.
    - The request contains only `{ state, actionContext, narrativeMode }` and stays within 16 KiB.
    - The 20-second budget covers token retrieval and fetch.
 
-2. Read the lazy Firebase setup in `src/engine/gameState.js` and `src/config/firebase.js`. Check all six `VITE_FIREBASE_*` variables, anonymous-auth success, cancellation guards, and whether the token provider is cleared only during teardown.
+2. Read `src/engine/cloud/useCloudAccount.js`, `src/engine/cloud/authHelpers.js`, and `src/config/firebase.js`. Check the full six-value web-app configuration, the actual API-key/project-ID initialization gate, session adoption or anonymous-auth success, cancellation guards, and token-provider updates at bootstrap, account transitions, and teardown.
 
 3. Read `supabase/functions/generate-event/index.ts` and `contract.ts`. Check:
    - The deployed origin exactly matches `ALLOWED_ORIGINS`.
@@ -21,7 +21,7 @@ Investigate why AI-generated events are failing or misbehaving in SIMLYFE withou
    - The quota RPC is deployed and callable only through the service role.
    - OpenAI returns the strict schema and the edge normalizes it to `{ event, meta }`.
 
-4. Trace both callers in `gameState.js`:
+4. Trace event calls in `src/engine/gameState.js` and the annual result from `src/engine/annual/advanceLifeYear.js`:
    - `ageUp()` must surface an error event, emit redacted diagnostics, and release `isAging` in `finally`.
    - `triggerActivityEvent()` must surface unexpected rejections and release its guard in `finally`.
    - `EventModal` must receive `{ description, choices: [{ text, effects }] }`.

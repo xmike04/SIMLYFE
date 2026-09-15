@@ -5,16 +5,16 @@ Identify exports, state variables, functions, and config entries that are define
 ## Steps
 
 1. Read `src/engine/gameState.js`. Check the `return` statement at the end of `useGameState()`:
-   - For each returned value and function, search for usages in `src/components/` (MainGame.jsx, all sheets, App.jsx).
-   - Flag any returned item with zero usages in components — it's dead return value.
+   - For each returned value and function, search `src/components/`, `src/App.jsx`, tests, and scripts. Trace prop forwarding through `src/components/game/GameSheets.jsx` before deciding a value is unused.
+   - Report items with no verified consumer as candidates, including whether a compatibility export or test/script consumer keeps them live.
    - Flag any internal function that is defined but never called within the hook itself or the return.
 
 2. Read `src/config/activities.js`. For each `specialAction` string defined in `ACTIVITY_MENUS`:
-   - Search `MainGame.jsx` for that string in a `switch` or `if` block.
+   - Search `src/components/sheets/ActivitiesSheet.jsx` for the dispatch and `src/components/game/GameSheets.jsx` for target rendering. Follow MainGame callbacks for special-skill handling.
    - Flag any `specialAction` with no matching handler — it fires into nothing.
 
 3. Read `src/config/specialCareers.js`. For each career's `actions` array:
-   - Check that each action's `specialAction` string (if any) is handled in the sheet or `MainGame.jsx`.
+   - Check that each action's `specialAction` string is handled by JobSheet or the routed engine command; follow GameSheets prop bindings.
    - Flag unhandled actions.
 
 4. Read `src/engine/events.json`. Check for:
@@ -27,7 +27,7 @@ Identify exports, state variables, functions, and config entries that are define
    - Jobs with `minAge` greater than the death cap.
    - Careers in a `sector` not referenced anywhere in the UI.
 
-6. Scan all files in `src/components/` and `src/config/` for:
+6. Scan files in `src/components/`, `src/config/`, `src/engine/mechanics/`, `src/engine/annual/`, and `src/engine/cloud/` for:
    - `import` statements where the imported symbol is never used in the file.
    - `const` declarations that are never referenced below them.
 
@@ -42,7 +42,8 @@ Identify exports, state variables, functions, and config entries that are define
 Run this before a major refactor or before cutting a release. Run whenever `gameState.js` or `activities.js` gets a significant update, since those are the most common sources of orphaned references. Not needed to run frequently — quarterly or per major feature is enough.
 
 ## Tips & tricks
-- Dead returns in `useGameState` are harmless but add noise — they make the hook harder to understand.
+- Retained named exports from `gameState.js` provide compatibility. Follow actual importers before recommending their removal.
+- This is a read-only inventory; remove candidates only when deletion is within the requested scope.
 - Orphaned `specialAction` strings are silent bugs — the activity fires but nothing happens, which looks like a broken feature to the player.
 - `events.json` stat key typos are a common source of "why isn't this choice doing anything" bugs. The game silently ignores unknown keys.
 - Don't delete dead config entries without confirming they're not referenced in tests — `config.data.test.js` may test for their existence.

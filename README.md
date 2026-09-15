@@ -1,112 +1,57 @@
 # SIMLYFE
 
-SIMLYFE is a mobile-first browser life simulator built with React 19 and Vite. Players create a character, age one year at a time, and navigate careers, relationships, education, assets, cities, pets, health, gambling, and AI-generated life events.
+SIMLYFE is a mobile-first browser life simulator. Create a character, age one year at a time, and navigate education, careers, relationships, assets, cities, pets, health, gambling, and AI-generated life events.
 
-- Live demo: https://simlyfe.vercel.app
-- **Source of truth (for contributors & models):** [docs/README.md](docs/README.md)
-  - [Architecture](docs/architecture.md) · [Game mechanics](docs/game-mechanics.md) · [Agent guide](docs/agent-guide.md)
-- Technical case study: [docs/case-study.md](docs/case-study.md)
-- Agent entry stubs: [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md)
+**[Play SIMLYFE](https://simlyfe.vercel.app)** · [Documentation](./docs/README.md) · [Technical case study](./docs/case-study.md)
 
-AI events use an authenticated Supabase Edge Function backed by OpenAI. Firebase anonymous authentication supplies the player identity used by the proxy and also enables optional Firestore cloud saves. The browser never receives an OpenAI credential.
+The project combines a React interface with explicit gameplay calculations and generated narrative. Firebase supplies guest/account identity and cloud saves. An authenticated Supabase Edge Function owns the OpenAI call, prompt, and quotas; the browser receives no OpenAI credential.
 
-## Why It Exists
+## Start locally
 
-SIMLYFE is a playable portfolio project with a darker, faster life-sim loop. Its deterministic systems make stats and prior choices matter: athleticism affects physical actions, karma changes crime outcomes, wealth tiers create lifestyle pressure, and generated events receive a bounded snapshot of current game state.
-
-## Stack
-
-| Layer | Technology |
-|---|---|
-| App | React 19, Vite 8, plain JSX |
-| Styling | Pure CSS with CSS variables |
-| State | Custom `useGameState()` hook |
-| Identity and saves | Firebase anonymous auth and optional Firestore persistence |
-| AI events | Authenticated Supabase Edge Function; OpenAI `gpt-4.1-nano` default |
-| Tests | Vitest, Testing Library, Playwright |
-| Hosting | Vercel |
-
-## Local Setup
+Use Node.js 22.12 or newer on the Node 22 line, then:
 
 ```bash
-npm install
+npm ci
 cp .env.example .env.local
 npm run dev
 ```
 
-The app opens at `http://localhost:5173`. It is designed mobile-first and is best reviewed first around `390px` wide.
+Fill in the public Firebase web-app configuration and Supabase URL/publishable key in `.env.local`. The default Vite address is `http://localhost:5173`. See [development setup](./docs/development.md) for the exact variables and backend requirements.
 
-Configure the browser-visible values in `.env.local`:
+## Stack and structure
 
-```bash
-VITE_SUPABASE_URL=your_supabase_project_url
-VITE_SUPABASE_PUBLISHABLE=your_supabase_publishable_key
+| Area | Choice |
+|---|---|
+| Frontend | React 19, Vite 8, JavaScript/JSX |
+| UI | Pure CSS, responsive sheets, mobile-first layout |
+| Game engine | One `useGameState` owner with pure domain and annual-simulation modules |
+| Identity and saves | Firebase Auth: anonymous, Google, email/password; Firestore |
+| Generated events | Authenticated Supabase Edge Function and OpenAI |
+| Verification | ESLint, Vitest, Testing Library, Playwright |
+| Hosting | Vercel |
 
-VITE_FIREBASE_API_KEY=...
-VITE_FIREBASE_AUTH_DOMAIN=...
-VITE_FIREBASE_PROJECT_ID=...
-VITE_FIREBASE_STORAGE_BUCKET=...
-VITE_FIREBASE_MESSAGING_SENDER_ID=...
-VITE_FIREBASE_APP_ID=...
-```
-
-`VITE_SUPABASE_ANON_KEY` is supported only for legacy Supabase projects. All six Firebase values are required for authenticated AI events and cloud saves. When Firebase or the proxy is unavailable, gameplay surfaces a sanitized error event; it does not call OpenAI from the browser or silently substitute static content. Debug tools remain hidden unless `VITE_ENABLE_DEV_TOOLS=true`.
-
-## Supabase Backend
-
-Apply the checked-in quota migration, configure server-only secrets, and deploy the function:
+## Verify changes
 
 ```bash
-supabase db push
-supabase secrets set \
-  OPENAI_API_KEY=your_openai_key \
-  FIREBASE_PROJECT_ID=your_firebase_project_id \
-  ALLOWED_ORIGINS=http://localhost:5173,https://your-production-origin.example \
-  RATE_LIMIT_HMAC_SECRET=replace-with-at-least-32-random-characters \
-  GENERATE_EVENT_GLOBAL_DAILY_LIMIT=1000
-supabase functions deploy generate-event
-```
-
-`ALLOWED_ORIGINS` is an exact, comma-separated origin allowlist: add each production or preview origin that should call the function. `OPENAI_MODEL` is an optional server-only override; the default is `gpt-4.1-nano`. Supabase supplies `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the function runtime.
-
-`supabase/config.toml` disables the Supabase gateway's JWT check for this function because the caller carries a Firebase token. The function itself verifies that token's RS256 signature, issuer, audience, timestamps, and subject before quota or provider access.
-
-The durable quota layer allows a burst of 2, sustains 6 requests per minute, and caps each authenticated identity at 100 requests per UTC day. A project-wide circuit breaker defaults to 1,000 daily admissions and can be configured from 100 to 100,000. Inactive pseudonymous quota rows are pruned after seven days. Before a large public launch, also add Firebase App Check or a trusted device/network control and configure an OpenAI project spend limit.
-
-## Scripts
-
-```bash
-npm run dev            # Start Vite
-npm run lint           # ESLint
-npm test               # Vitest unit and contract suite
-npm run test:e2e       # Playwright first-run and proxy-contract flow
-npm run build          # Production build
-npm run preview        # Preview the built app
-```
-
-For a manual authenticated proxy probe, provide a short-lived Firebase ID token and run:
-
-```bash
-FIREBASE_ID_TOKEN=... \
-VITE_SUPABASE_URL=... \
-VITE_SUPABASE_PUBLISHABLE=... \
-node scripts/test-llm.js
-```
-
-## Testing Coverage
-
-The Vitest suite covers engine mechanics, market behavior, static catalogs, authenticated proxy requests, input and output schemas, redacted diagnostics, save hydration validation, timeouts, failure injection, and quota migration invariants. The Playwright test verifies the first-run flow through character creation, 18 age transitions, normalized AI events, bearer/API-key separation, and core sheet navigation.
-
-## Production Notes
-
-The Vercel project is `xmike04s-projects/simlyfe`. Local Vercel metadata lives in the ignored `.vercel/` directory. Before promotion, run:
-
-```bash
-vercel pull --yes --environment=production
 npm run lint
 npm test
 npm run build
+npm run check:docs
 CI=1 npm run test:e2e
 ```
 
-Deploy and inspect a preview first. Production also requires all six Firebase browser variables, the Supabase URL and publishable key, a deployed migration/function, matching server secrets, and an `ALLOWED_ORIGINS` entry for the final frontend origin.
+Install Playwright Chromium once if needed with `npx playwright install chromium`. Unit and browser tests use controlled service responses; live authentication, AI generation, and save/reload require separate [deployment verification](./docs/operations.md#verify-a-deployment).
+
+## Documentation by task
+
+| Task | Read |
+|---|---|
+| Understand runtime and save boundaries | [Architecture](./docs/architecture.md) |
+| Understand implemented game rules | [Game mechanics](./docs/game-mechanics.md) |
+| Extend the code safely | [Agent guide](./docs/agent-guide.md) |
+| Configure local development or run tests | [Development](./docs/development.md) |
+| Connect cloud services or deploy | [Operations](./docs/operations.md) |
+| Review refactor scope and evidence | [Refactor plan](./docs/refactor-plan.md) |
+| Understand the portfolio story | [Case study](./docs/case-study.md) |
+
+The three canonical contributor entry points remain architecture, game mechanics, and agent guide. [AGENTS.md](./AGENTS.md) and [CLAUDE.md](./CLAUDE.md) point to them. Setup commands, operational procedures, and validation results have dedicated owners to limit documentation drift.

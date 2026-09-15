@@ -409,10 +409,10 @@ export function calculateCapitalGainsTax(purchasePrice, currentValue, capitalGai
  * Calculates the annual investment return for one investment asset.
  * economyPhase: 'normal' | 'boom' | 'recession'
  */
-export function estimateInvestmentReturn(asset, economyPhase) {
+export function estimateInvestmentReturn(asset, economyPhase, randomFn = Math.random) {
   if (asset.type !== 'investment' || !asset.returnProfile) return 0;
   const { base, boomBonus, recessionPenalty, volatility } = asset.returnProfile;
-  let rate = base + (Math.random() * 2 - 1) * volatility;
+  let rate = base + (randomFn() * 2 - 1) * volatility;
   if (economyPhase === 'boom')       rate += boomBonus;
   if (economyPhase === 'recession')  rate += recessionPenalty;
   return Math.floor(asset.currentValue * rate);

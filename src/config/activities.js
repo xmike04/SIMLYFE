@@ -1,6 +1,6 @@
 // ─── Activity categories ─────────────────────────────────────────────────────
 // isSpecial values: 'doctor' | 'lottery' | 'casino'
-// These categories bypass the sub-menu and call engine functions directly in MainGame.jsx.
+// These categories bypass the sub-menu and call engine functions directly in ActivitiesSheet.jsx.
 // All other categories must have a matching key in ACTIVITY_MENUS.
 
 export const ACTIVITY_CATEGORIES = [
@@ -33,7 +33,7 @@ export const ACTIVITY_CATEGORIES = [
 // Item fields:
 //   text         — button label (required)
 //   context      — LLM prompt string (required unless specialAction)
-//   specialAction— bypasses LLM, routed in MainGame.jsx
+//   specialAction— bypasses LLM, routed in ActivitiesSheet.jsx
 //   cost         — bank deducted before activity fires (positive number)
 //   yearlyLimit  — max times player can do this per year (integer)
 //   statGuard    — { stat, op:'gte'|'lte', value } — client-side lock

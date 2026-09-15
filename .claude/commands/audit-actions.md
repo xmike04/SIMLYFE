@@ -9,8 +9,8 @@ Fan out three independent read-only audits of SIMLYFE’s main action surfaces, 
 | Agent | Command / skill | Focus |
 |---|---|---|
 | Job & School | Follow `.claude/commands/audit-job-school.md` | JobSheet + careers + education |
-| Relationships | Follow `.claude/commands/audit-relationships.md` | RelationshipsSheet + dating + ageUp NPC |
-| Activities | Follow `.claude/commands/audit-activities.md` | activities.js + MainGame routing + special sheets |
+| Relationships | Follow `.claude/commands/audit-relationships.md` | RelationshipsSheet + dating + annual relationship/NPC module |
+| Activities | Follow `.claude/commands/audit-activities.md` | activities.js + ActivitiesSheet/GameSheets routing + special sheets |
 
 2. Brief each agent with:
    - Repo root: this project

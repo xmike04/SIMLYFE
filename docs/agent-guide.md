@@ -1,136 +1,88 @@
 # SIMLYFE Agent Guide
 
-> **Source of truth #3 of 3.** Conventions for humans and coding agents.
-> Also see [architecture.md](./architecture.md) and [game-mechanics.md](./game-mechanics.md).
+> **Source of truth #3 of 3.** Contribution rules and extension patterns.
+> Read [architecture](./architecture.md), then [game mechanics](./game-mechanics.md), then this guide.
 
-Root stubs: [`AGENTS.md`](../AGENTS.md) and [`CLAUDE.md`](../CLAUDE.md) point here. Prefer updating **this file** when conventions change.
+Root [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) are short entry points. Update the document that owns a fact instead of copying its details into every entry point.
 
 ## Hard constraints
 
-- React 19 functional components only — no TypeScript, no Tailwind, no external UI libraries.
-- All shared game logic in `useGameState()` or extracted pure helpers in/near `src/engine/gameState.js`.
-- Static styles in `src/index.css` (CSS variables); dynamic values may use inline styles in `MainGame.jsx`.
-- Gameplay panels belong in `src/components/sheets/`, not inlined into `MainGame.jsx`.
-- LLM: pass a descriptive `context` string to `generateDynamicEvent()`. Keep prompts/model settings server-owned in `supabase/functions/generate-event/contract.ts`; do not add browser-direct OpenAI calls or silent static fallbacks.
-- Mature content is intentional — do not sanitize without explicit user instruction.
+- Frontend: React 19 functional components, JavaScript/JSX, Vite 8, pure CSS. Do not introduce TypeScript, Tailwind, or UI libraries. The existing Supabase edge function uses TypeScript.
+- Keep one shared state owner: `useGameState()` orchestrates life state and commands. Extract calculations into the appropriate `src/engine/mechanics/` or `src/engine/annual/` module.
+- Pure helpers return values. Keep React setters, cloud writes, and network calls in their owning hooks or services.
+- Gameplay panels belong in `src/components/sheets/`; keep MainGame focused on the game screen and navigation.
+- Static styles belong in `src/index.css`; computed values can use inline styles.
+- Pass a descriptive `context` to `generateDynamicEvent`. Keep prompts and model settings in the server contract. Do not add browser-direct OpenAI calls or silent static fallbacks.
+- Mature content is intentional. Do not sanitize it without an explicit request.
 
-## How to extend
+## Before changing code
 
-### Activities
+1. Read the owning implementation and its callers. For a mechanic, inspect both its engine command and its visible UI action.
+2. Check the working tree and preserve unrelated changes.
+3. Identify the observable behavior and persistence boundary that must remain stable.
+4. Add or update meaningful tests of real exports where behavior can regress.
+5. Run the [development checks](./development.md#required-checks) and update the relevant canonical document in the same change.
 
-1. Category → `ACTIVITY_CATEGORIES` in `src/config/activities.js`.
-2. Sub-menu → `ACTIVITY_MENUS`.
-3. Special UI → `specialAction` handled in `MainGame.jsx`.
-4. Generated event → descriptive `context` string.
+For a large refactor, keep a written plan with bounded phases and evidence. The current extraction plan and validation ledger are in [refactor-plan.md](./refactor-plan.md).
 
-### Careers
+## Extension map
 
-- Standard → `src/engine/careers.json`.
-- Special → `src/config/specialCareers.js` (`label`, `context`, optional `cost` / `specialAction`).
-
-### Static events
-
-`src/engine/events.json`: `id`, `description`, `ageRange`, `choices[]` with `text` + `effects`.
-
-### Cloud life boundaries
-
-- New life / reset must use `buildLifeSave(...)` + `syncToCloud(..., { replace: true })`.
-- Mid-life updates may keep `{ merge: true }`.
-- Always include `career`, `pets`, and `isDead` on replace writes.
-- Death UI must call `resetLife()`, never bare `location.reload()`.
-
-## Environment variables
-
-| Variable | Purpose | Where |
+| Change | Start here | Keep aligned |
 |---|---|---|
-| `VITE_SUPABASE_URL` | Event proxy project URL | `.env.local` |
-| `VITE_SUPABASE_PUBLISHABLE` | Publishable key for edge calls | `.env.local` |
-| `VITE_SUPABASE_ANON_KEY` | Legacy fallback only | `.env.local` |
-| `VITE_FIREBASE_*` | Authenticated AI events + optional cloud saves (all six required) | `.env.local` |
-| `VITE_FIREBASE_APPCHECK_SITE_KEY` | reCAPTCHA v3 site key — activates App Check when set | `.env.local` |
-| `VITE_FIREBASE_APPCHECK_DEBUG_TOKEN` | App Check debug token for local dev (`true` = SDK-minted) | `.env.local` |
-| `VITE_ENABLE_DEV_TOOLS` | Debug sheet gate | `.env.local` |
-| `OPENAI_API_KEY` | Server secret for edge function | Supabase secrets |
-| `FIREBASE_PROJECT_ID` | Firebase token audience / issuer validation | Supabase secrets |
-| `ALLOWED_ORIGINS` | Exact frontend-origin allowlist | Supabase secrets |
-| `RATE_LIMIT_HMAC_SECRET` | Pseudonymous user quota key | Supabase secrets |
-| `GENERATE_EVENT_GLOBAL_DAILY_LIMIT` | Project-wide daily admission cap | Supabase secrets |
+| Activity | `src/config/activities.js`: `ACTIVITY_CATEGORIES`, `ACTIVITY_MENUS` | Special-action routing in ActivitiesSheet, yearly consumption, descriptive event context |
+| Standard career | `src/engine/careers.json` | Eligibility, next-tier requirements, performance review |
+| Special career | `src/config/specialCareers.js` | Engine command, actual cost, UI disabled state |
+| New gameplay panel | `src/components/sheets/` | GameSheets routing and action locking |
+| Annual mechanic | `src/engine/annual/`, supporting domain helper | Tick ordering, injected randomness, full annual save |
+| New saved field | `src/engine/lifeSave.js` | Hydration, reset defaults, validation, Firestore allowlist |
+| AI event request | `src/engine/llmService.js` | Bounded client projection and server contract |
+| Static event | `src/engine/events.json` | `id`, `description`, `ageRange`, and choices with text/effects |
 
-## Development workflow
+Existing `gameState.js` named exports remain compatible with existing callers. New tests and domain modules should import the implementation owner directly when practical; do not create duplicate implementations just to test them.
 
-```bash
-npm install
-npm run dev
-npm run lint
-npm test
-npm run build
-npm run test:e2e
-npm run preview
-```
+## Persistence and account invariants
 
-Substantive app changes: follow `_agents/workflows/test-app.md` — `npm install`, `npm run lint`, `npm test`, `npm run build`. Use e2e for browser-flow changes.
+- `startLife` and `resetLife` must use `buildLifeSave` plus `syncToCloud(..., { replace: true })`. Include every save field, especially `career`, `pets`, and `isDead`.
+- Death UI calls `resetLife`, never bare `location.reload()`.
+- Mid-life commands use `persistLife(overrides)` with every field changed in that command. React state may not have flushed when the save is built.
+- Add persisted fields to the Firestore write allowlist and save-validation contract. The drift test must keep those contracts aligned.
+- Account commands use the shared cloud account hook. Preserve link-first anonymous upgrades and explicit account-switch hydration.
+- Validate email credentials before provider calls. Bootstrap and explicit sign-out own anonymous-session creation; sheets must not replace persisted sessions themselves.
+- Sign-out and account switching must not write or delete the previous account's save.
 
-### Manual scripts (not npm-wired)
+See [architecture](./architecture.md#life-state-and-save-contract) for the complete data flow.
 
-- `node scripts/test-llm.js` — needs `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE`.
-- `node scripts/migrateData.js` — needs `scripts/serviceAccountKey.json` + temporary `firebase-admin`.
+## Domain invariants
 
-## Testing
+- **Education:** use `yearsInProgram`; charge year-one tuition at enrollment. Both eligibility and headhunter placement use `hasRequiredDegree` for minimum career requirements.
+- **Recruiter:** `hireViaHeadhunter` charges `HEADHUNTER_COST`, including an unsuccessful placement. An LLM event alone does not perform placement.
+- **Startup:** `startStartup` owns `STARTUP_COST` through `computeStartupLaunch`. The UI must not debit separately, and an existing founder must not relaunch or reset equity.
+- **Military:** route enlistment through `enlistMilitary`, which sets the `soldier` career. Branch text is flavor.
+- **Relationships:** use `normalizeRelationshipNpc` when adding dating NPCs, `markAsEx` for breakup/divorce, and `findSpouse` for a living current marriage.
+- **Yearly activity limits:** special skills such as gym/run must consume the same tracker used by ordinary activities. Preserve `categoryId__itemText` IDs.
+- **Investments:** purchases go through `prepareInvestmentPurchase`; normalize subtype aliases before mutation. Paper returns on investment belongings change asset value without also crediting bank.
+- **Gambling:** use `computeGambleResult` so malformed amounts cannot corrupt bank state.
+- **Wills:** validate with `prepareWillDraft`, persist through `draftWill`, and settle with `computeEstateDistribution`.
 
-| File | Covers |
-|---|---|
-| `engine.mechanics.test.js` | Mechanics (imported helpers + remaining mirrors) |
-| `llmService.test.js` | Authenticated proxy / bounded projections / sanitized failures / catalog schema |
-| `supabase/functions/generate-event/contract.test.ts` | Edge request, prompt, response, and quota contracts |
-| `config.data.test.js` | Activity, career, asset, store shapes |
-| `firestoreRules.test.js` | `firestore.rules` owner scoping + save-field allowlist sync |
-| `market.test.js` | Investment market |
-| `App.test.jsx` | Render smoke |
+## Test design
 
-Conventions:
+- Test real helpers, commands, and components. Avoid local replicas of the implementation.
+- Inject random values or random functions into pure calculations; keep the production order and number of random draws stable when extracting a tick.
+- Use a bank inside a taxed wealth tier when testing income tax. A 0% tier cannot prove that a deduction happened.
+- Test life-boundary replacement and account changes separately from ordinary mid-life saves.
+- Test interaction locking across the asynchronous event request, not only the final rendered result.
+- LLM tests that change environment variables must call `vi.resetModules()` and `vi.stubEnv()` before importing the client.
+- [setup.js](../src/tests/setup.js) mocks Firebase and the LLM client by default. A passing mocked suite does not prove live cloud connectivity.
 
-- Prefer testing real exported helpers (`buildLifeSave`, `enrollDegree`, `advanceDegreeYear`, `applyPaperInvestmentReturn`, `findSpouse`, `markAsEx`, `normalizeRelationshipNpc`, `applyEffectsPure`, `yearlyActivityTrackId`, `canConsumeYearlyActivity`, `pickHeadhunterPlacement`, `prepareWillDraft`, `computeEstateDistribution`, `checkDeathPure`, `applyAgeUpDegradation`, `computeGradesDrift`, `applyStartupYear`, `executeTradePure`, `computeInvestmentSale`, `generateInitialStats`, `computeCareerYearIncome`, `computeLifestyleCost`, `applyPropertyMarketTick`) over forever-diverging mirrors when possible. The remaining known mirror — the belongings/investment leg of the ageUp tick (`processInvestmentYear` / `calcCryptoYear`) — is flagged in `engine.mechanics.test.js` as the next extraction candidate.
-- Extracted tick helpers take injected randomness (`randomFn`, `marketCrash`/`marketBoom`) rather than calling `Math.random()` internally, so the hook stays the only source of entropy.
-- When adding a test for a tax/tier-dependent path, pick a `bank` inside a **taxed** wealth tier — the Broke tier is 0%, which makes assertions like "net = gross − tax" pass even if the deduction is removed.
-- Education UI must bind `yearsInProgram`; headhunter must charge `HEADHUNTER_COST` inside `hireViaHeadhunter` (not a lone LLM event).
-- Career eligibility and headhunter placement must both use `hasRequiredDegree` so higher completed degrees satisfy lower minimum requirements.
-- Mid-life cloud writes use `persistLife(overrides)` with a full `buildLifeSave` payload; pass every field mutated in the same tick.
-- New persisted fields must be added to the `firestore.rules` write allowlist too — `firestoreRules.test.js` enforces sync with `LIFE_SAVE_KEYS` / `KNOWN_SAVE_FIELDS`.
-- Dating NPCs must go through `normalizeRelationshipNpc(..., { asDating: true })` / `addRelationship`.
-- Divorce / breakup must use `markAsEx` so `findSpouse` and romance actions stay correct.
-- Gym/run and other special skills with `yearlyLimit` must call `consumeYearlyActivity` (or `performActivity`).
-- Military Job menu must call `enlistMilitary` (sets `soldier` career), not LLM-only enlist flavor.
-- `startStartup` owns `STARTUP_COST` ($500) via `computeStartupLaunch` — JobSheet must not also `debugModifyBank` for that action.
-- An active founder cannot launch again: keep the engine `already_founder` guard and the disabled JobSheet state aligned.
-- Investment purchases must go through `prepareInvestmentPurchase`; store canonical singular sub-types and reject malformed input before state mutation.
-- Gambling must use `computeGambleResult` so invalid/non-finite stakes cannot corrupt bank state.
-- Will drafting must go through `draftWill` (validated by `prepareWillDraft`); DeathScreen settles the estate with `computeEstateDistribution`, never ad-hoc math.
-- Account changes go through `signInWithGoogle` / `signInWithEmail` (link-first, switch on `credential-already-in-use` / `email_in_use`) and `signOutAccount`. Email input must pass `prepareEmailCredential` before any auth call. Never call bare `signInAnonymously` outside boot — it replaces a persisted session. Sign-out must not write to the old account's save.
-- New mechanics: pure-function tests first, then wire into `gameState.js`.
-- LLM tests: `vi.resetModules()` + `vi.stubEnv()` before import.
-- `src/tests/setup.js` mocks Firebase and `llmService` by default.
+Commands, coverage locations, and browser verification belong in [development.md](./development.md).
 
-## Action-tree audit agents
+## Action-tree audits
 
-Slash commands (Claude) and matching skills under `.agents/skills/`:
-
-| Command | Skill | Walks |
+| Command | Skill under `.agents/skills/` | Coverage |
 |---|---|---|
-| `/audit-job-school` | `simlyfe-job-school` | Job sheet, careers, education, recruiter |
-| `/audit-relationships` | `simlyfe-relationships` | Relationships + dating + ageUp NPC |
-| `/audit-activities` | `simlyfe-activities` | Activity categories/menus + special sheets |
-| `/audit-actions` | — | Orchestrates all three in parallel, then synthesizes |
+| `/audit-job-school` | `simlyfe-job-school` | Jobs, education, recruiting |
+| `/audit-relationships` | `simlyfe-relationships` | Relationships, dating, NPC annual updates |
+| `/audit-activities` | `simlyfe-activities` | Activity menus and special panels |
+| `/audit-actions` | Orchestrating command | All three audits and combined findings |
 
-Run after sheet/`gameState` changes or when hunting unwired buttons. Agents are read-only unless asked to fix.
-
-1. The three SOT files under `docs/` are authoritative: `architecture.md`, `game-mechanics.md`, `agent-guide.md`.
-2. When behavior changes, update the relevant SOT file in the same PR/change.
-3. Keep `CLAUDE.md` / `AGENTS.md` as short pointers + critical bullets — do not fork long mechanics tables there.
-4. `docs/case-study.md` is portfolio narrative, not gameplay SOT.
-
-## Known issues
-
-- `gameState.js` is large; prefer extracted pure helpers to reduce test drift.
-- App Check client init is wired (set `VITE_FIREBASE_APPCHECK_SITE_KEY`), but the reCAPTCHA v3 key must be registered and enforcement enabled in the Firebase console before a large public launch.
-- `firestore.rules` auto-deploys on merge to `main` via `.github/workflows/deploy-firestore-rules.yml`, but only once the `FIREBASE_SERVICE_ACCOUNT` repo secret exists; until then the workflow validates and skips with a notice, and rules must be applied manually (`npx -y firebase-tools@latest deploy --only firestore:rules`). See [architecture.md](./architecture.md#security-rules).
-- Death guaranteed at age 100 (may be intentional).
+Use these after sheet/engine changes or when hunting unwired actions. Audits are read-only unless the task also authorizes fixes. See [the documentation index](./README.md) for ownership and [operations](./operations.md) for live-service checks.
