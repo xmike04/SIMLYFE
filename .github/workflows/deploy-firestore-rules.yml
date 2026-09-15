@@ -4,9 +4,10 @@
 # change that is merged but never deployed is invisible until it matters. This
 # closes that gap.
 #
-# One-time setup (see docs/architecture.md#security-rules):
+# One-time setup (see docs/operations.md):
 #   Add a repository secret FIREBASE_SERVICE_ACCOUNT containing the JSON key of
-#   a service account with the "Firebase Rules Admin" role on the project.
+#   a service account with "Firebase Rules Admin" and "Service Usage Consumer"
+#   roles on the project.
 #
 # Until that secret exists this workflow validates the rules and then skips the
 # deploy with a notice — it never fails the build for a missing secret.
@@ -56,7 +57,7 @@ jobs:
         run: |
           if [ -z "$SERVICE_ACCOUNT" ]; then
             echo 'present=false' >> "$GITHUB_OUTPUT"
-            echo '::notice title=Rules not deployed::FIREBASE_SERVICE_ACCOUNT is not set, so firestore.rules was validated but not deployed. Add the secret (see docs/architecture.md#security-rules) or deploy manually with: npx -y firebase-tools@latest deploy --only firestore:rules'
+            echo '::notice title=Rules not deployed::FIREBASE_SERVICE_ACCOUNT is not set, so firestore.rules was validated but not deployed. Add the secret (see docs/operations.md#firestore-rules) or deploy manually with: npx -y firebase-tools@latest deploy --only firestore:rules'
           else
             echo 'present=true' >> "$GITHUB_OUTPUT"
           fi

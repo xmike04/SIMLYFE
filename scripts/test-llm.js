@@ -5,6 +5,8 @@ const supabaseKey = process.env.VITE_SUPABASE_PUBLISHABLE
   ?? process.env.SUPABASE_PUBLISHABLE_KEY
   ?? process.env.VITE_SUPABASE_ANON_KEY;
 const firebaseIdToken = process.env.FIREBASE_ID_TOKEN;
+// The authenticated proxy also checks the browser origin allowlist.
+const frontendOrigin = process.env.FRONTEND_ORIGIN?.trim() || 'http://localhost:5173';
 
 const missing = [
   !supabaseUrl && 'VITE_SUPABASE_URL (or SUPABASE_URL)',
@@ -64,6 +66,7 @@ try {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${firebaseIdToken}`,
       apikey: supabaseKey,
+      Origin: frontendOrigin,
     },
     body: JSON.stringify(body),
     signal: controller.signal,

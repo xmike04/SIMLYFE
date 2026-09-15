@@ -4,8 +4,8 @@ import { getFirestore } from "firebase/firestore";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAppCheckSetup } from "./appCheck";
 
-// Read credentials from environment variables (set in .env.local, never committed).
-// All VITE_FIREBASE_* vars must be set to activate cloud saves.
+// Read public web-app configuration from .env.local (see docs/development.md).
+// Copy all six values; the initialization gate below checks API key + project ID.
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,

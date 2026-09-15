@@ -2,10 +2,10 @@ rules_version = '2';
 
 // Least-privilege Firestore rules for SIMLYFE cloud saves.
 //
-// Not deployed automatically: apply in the Firebase console (Firestore →
-// Rules) or with `firebase deploy --only firestore:rules`.
+// Deploys on matching main-branch changes when the GitHub service-account
+// secret is configured. Manual deployment: `firebase deploy --only firestore:rules`.
 //
-// Client access (src/engine/gameState.js) is limited to:
+// Client access (src/engine/cloud/useCloudAccount.js) is limited to:
 //   users/{uid}/saves/currentLife — the player's single life save
 //   careers                       — read-only catalog, seeded by
 //                                   scripts/migrateData.js via the Admin SDK
@@ -17,7 +17,7 @@ service cloud.firestore {
     }
 
     // Post-write document may only contain known save fields: LIFE_SAVE_KEYS
-    // (gameState.js) plus legacy fields tolerated by validateHydratedSave
+    // (src/engine/lifeSave.js) plus legacy fields tolerated by validateHydratedSave
     // (stateValidation.js KNOWN_SAVE_FIELDS). Merge writes see the merged
     // result, so a legacy doc with a rogue field is rejected until a life
     // boundary (death/reset/new life) full-replaces it with a clean payload.

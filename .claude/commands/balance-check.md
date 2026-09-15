@@ -7,7 +7,7 @@ Scan all stat effect sources across the entire codebase and flag values that are
 1. Read these files in full:
    - `src/engine/events.json` — all static events and their choice effects
    - `src/engine/careers.json` — per-career stat effects applied annually
-   - `src/config/activities.js` — activity context strings (note: LLM handles effects, but check for hardcoded effects if any)
+   - `src/config/activities.js` — deterministic `baseEffects`, costs, guards, and descriptive contexts
    - `src/config/specialCareers.js` — special career action costs and contexts
    - `src/config/wealthTiers.js` — lifestyle costs and wealth tier thresholds
    - `src/config/assetCatalog.js` — upkeep costs and stat effects per asset
@@ -22,10 +22,10 @@ Scan all stat effect sources across the entire codebase and flag values that are
    - **Karma conflicts**: events that reward crime (negative karma source) but also give positive karma effects — contradictory
    - **Stat floor/ceiling risk**: any chain of effects that could push a stat to 0 or 100 in a single year
 
-4. Check stat degradation in `src/engine/gameState.js` (`ageUp` function) and confirm it aligns with `docs/game-mechanics.md`:
-   - Health: -1 at 30+, -2 at 50+
-   - Looks: -1 at 50+
-   - All other stats stable unless modified
+4. Check real calculations in `src/engine/mechanics/life.js`, `src/engine/mechanics/careers.js`, and `src/engine/annual/advanceLifeYear.js` against `docs/game-mechanics.md`:
+   - Aging uses next age: health -1 after 30; another -2 after 50 (-3 total), and looks -1 after 50
+   - Grades, careers, education, assets, pets, and relationships can also change stats
+   - Career catalog stress intensity is normalized before annual stat application; do not treat raw catalog values as yearly deltas
 
 5. Output a balance report:
    - List each outlier with file:line, the problematic value, and a suggested correction
@@ -39,4 +39,5 @@ Run after adding new events, activities, or careers. Run before any major conten
 - Bank effects from investments (assetCatalog, investmentMarket) intentionally have large ranges — these are expected. Focus on event `choices` for bank outliers.
 - A karma effect of ±20 in a single event is already large. ±30 is a red flag.
 - "Dead choices" (no effects object) in events.json are often left as placeholders — confirm with the game designer before deleting.
-- Cross-reference outliers against the LLM prompt in `llmService.js` — the prompt constrains LLM-generated effects but static events bypass those constraints.
+- Cross-reference generated effects against the server prompt/schema in `supabase/functions/generate-event/contract.ts` and the client validator in `src/engine/llmService.js`. The static event catalog is validated content, not a silent fallback for failed AI calls.
+- Use direct-export tests in `src/tests/mechanics/` when checking a formula. This audit reports balance findings; do not rebalance content without authorization.

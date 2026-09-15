@@ -14,11 +14,13 @@ Deep-walk every player-facing path under **Relationships** (sheet + dating + age
 2. `src/components/sheets/DatingSheet.jsx` — app dating flow
 3. Love / fertility / adoption activities that create or alter relationships (`src/config/activities.js`)
 4. `DeathScreen` spouse display (`findSpouse`)
-5. `MainGame.jsx` RelationshipsSheet / DatingSheet props
+5. `src/components/game/GameSheets.jsx` RelationshipsSheet / DatingSheet props and ActivitiesSheet redirects
 
 ### Engine
-- `addRelationship`, `modifyRelationship`, `giftRelationship`, `proposeMarriage`, `breakUp`, `haveChild`, `meetFriend`
-- `ageUp` relationship pass: decay, auto-breakup, parent death, jealousy, NPC autonomy, child support
+- Commands in `src/engine/gameState.js`: `addRelationship`, `modifyRelationship`, `giftRelationship`, `proposeMarriage`, `breakUp`, `haveChild`, `meetFriend`
+- `src/engine/mechanics/relationships.js`: normalization, spouse lookup, and ex status
+- `src/engine/annual/relationships.js`: decay, auto-breakup, parent death, jealousy, NPC autonomy
+- `src/engine/annual/advanceLifeYear.js`: composition and child-support charges
 - Custody battle event path in `handleChoice`
 - Cloud: relationships + bank in `persistLife` overrides
 
@@ -35,7 +37,7 @@ Deep-walk every player-facing path under **Relationships** (sheet + dating + age
 | Interaction | `rel_interact__{id}` / decay exemption when expected |
 | Lock | Blocked while aging/event when appropriate |
 | Persist | Relationship + bank/stats overrides on `persistLife` |
-| Tests | Real helpers or mirrors cover the path |
+| Tests | Direct-export tests in `src/tests/mechanics/` and real command/UI coverage; copied formulas in its README inventory remain debt |
 
 ## Output format
 

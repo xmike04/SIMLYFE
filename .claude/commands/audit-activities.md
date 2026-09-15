@@ -9,17 +9,18 @@ Deep-walk every player-facing path under **Activities** (categories, menus, spec
    - Every `ACTIVITY_CATEGORIES` entry (age, `minBank`, `isSpecial`)
    - Every `ACTIVITY_MENUS` item (`text`, `context`, `cost`, `yearlyLimit`, `statGuard`, `baseEffects`, `specialAction`)
 2. Cross-check: every category `id` (non-special) has a matching `ACTIVITY_MENUS` key
-3. Special categories: `doctor`, `lottery`, `casino` → sheet routing in `MainGame.jsx`
+3. Special categories: `doctor`, `lottery`, `casino` → dispatch in `src/components/sheets/ActivitiesSheet.jsx` and rendering in `src/components/game/GameSheets.jsx`
 
 ### UI / routing
-1. `MainGame.jsx` activities sheet — category open, item click, `performActivity`, `handleSpecialSkill`, sheet redirects (`open_wills_ui`, `open_dating_ui`, `open_pets_ui`, doctor/lottery/casino)
+1. `src/components/sheets/ActivitiesSheet.jsx` — category open, item click, `performActivity`, special-action dispatch, sheet redirects (`open_wills_ui`, `open_dating_ui`, `open_pets_ui`, doctor/lottery/casino). Follow GameSheets prop wiring and MainGame active-sheet/skill-feedback callbacks.
 2. Sheets: `DoctorSheet`, `LotterySheet`, `CasinoSheet`, `WillsSheet`, `PetsSheet`, emigrate city picker if any
 3. Crime / rehab / lawsuit / licenses / nightclub / vacation / etc. — confirm `context` + `performActivity` path
 
 ### Engine
-- `performActivity` (cost, baseEffects, yearlyLimit, locks, `persistLife`)
+- Commands in `src/engine/gameState.js`, including `performActivity` (cost, baseEffects, yearlyLimit, locks, `persistLife`)
 - `triggerActivityEvent`, `playLottery`, `goGamble`, `visitDoctor`, `adoptPet`, `visitVet`, `emigrate`, `trainHiddenSkill`
-- Wills: confirm flavor-only vs estate (document, don’t “fix” without ask)
+- Pure calculations in `src/engine/mechanics/activities.js` and `src/engine/mechanics/life.js`; annual pet updates in `src/engine/annual/pets.js`
+- Wills: trace `draftWill` → `prepareWillDraft` → saved will → `computeEstateDistribution` in DeathScreen, separately from its generated flavor event
 
 ### Docs
 - Align with `docs/agent-guide.md` (adding activities) and `docs/game-mechanics.md`
@@ -28,13 +29,13 @@ Deep-walk every player-facing path under **Activities** (categories, menus, spec
 
 | Field | Check |
 |---|---|
-| Catalog shape | Required fields present; `specialAction` handled in MainGame |
+| Catalog shape | Required fields present; `specialAction` dispatched by ActivitiesSheet and rendered through GameSheets |
 | Cost | `cost` deducted once; UI label matches |
 | Guards | `minAge` / `minBank` / `statGuard` / `yearlyLimit` enforced |
 | Effects | `baseEffects` applied and persisted before LLM |
 | Lock | No spend while `isAging` / event |
 | Event | Non-special items have a descriptive `context` |
-| Tests | `config.data.test.js` + mechanic coverage for money paths |
+| Tests | `src/tests/config.data.test.js` + direct-export tests in `src/tests/mechanics/`; actual command/UI coverage for money and wiring paths |
 
 ## Output format
 

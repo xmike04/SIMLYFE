@@ -1,205 +1,149 @@
 # SIMLYFE Architecture
 
-> **Source of truth #1 of 3.** Stack, layout, state, events, and persistence.
-> Also see [game-mechanics.md](./game-mechanics.md) and [agent-guide.md](./agent-guide.md).
+> **Source of truth #1 of 3.** Runtime boundaries, data flow, identity, and persistence.
+> Read alongside [game mechanics](./game-mechanics.md) and the [agent guide](./agent-guide.md).
 
-## Overview
+SIMLYFE is a mobile-first browser life simulator. React owns the player interface, pure engine modules calculate outcomes, Firebase identifies players and stores lives, and a Supabase Edge Function generates events through OpenAI.
 
-SIMLYFE is a mobile-first, browser-based life simulation game. Players create a character and age one year at a time through careers, relationships, finances, and LLM-generated life events. The UI uses a dark glassmorphism aesthetic.
+## Runtime boundaries
 
-Optional cloud saves use Firebase (anonymous auth, optionally upgraded to Google sign-in, + Firestore). Generated events go through a Supabase Edge Function to OpenAI `gpt-4.1-nano`.
-
-## Tech stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 19 functional components and hooks |
-| Bundler | Vite 8 with React/Oxc plugin |
-| Styling | Pure CSS with CSS custom properties (`src/index.css`) |
-| State | Custom `useGameState()` in `src/engine/gameState.js` |
-| Identity / cloud | Firebase Auth (anonymous, upgradable to Google) + optional Firestore saves |
-| Event proxy | `supabase/functions/generate-event/` |
-| LLM client | Authenticated, bounded `fetch` via Supabase proxy; no browser-direct OpenAI path |
-| Lint / test | ESLint 9 flat config; Vitest; Playwright e2e |
-
-## Directory map
-
-```text
-SIMLYFE/
-  src/
-    components/          # Presentational screens + ActionSheet
-      sheets/            # Gameplay panels (Job, Assets, Relationships, …)
-    config/              # Catalogs, wealth tiers, Firebase config
-    engine/
-      gameState.js       # All shared game logic + cloud sync
-      llmService.js      # Authenticated, typed event proxy client
-      firebaseToken.js   # Firebase ID-token provider bridge
-      diagnostics.js     # Redacted operational diagnostics
-      stateValidation.js # Observe-only cloud-save validation
-      events.json        # Static event catalog (validated; not silent fallback)
-      careers.json       # Standard career ladder data
-    tests/
-    App.jsx              # View routing
-    index.css
-  supabase/functions/generate-event/
-    index.ts             # Auth, CORS, quotas, provider call
-    contract.ts          # Request, prompt, and response contract
-  supabase/migrations/   # Durable event-generation quotas
-  scripts/               # Manual tools (not npm-wired)
-  docs/                  # This folder — three SOT files + case study
+```mermaid
+flowchart LR
+  UI["Screens and gameplay sheets"] -->|"Commands"| Game["useGameState"]
+  Game -->|"State and handlers"| UI
+  Game --> Mechanics["Pure mechanics and annual simulation"]
+  Game --> Save["Canonical life save"]
+  Game --> Cloud["Cloud account hook"]
+  Cloud --> Firebase["Firebase Auth and Firestore"]
+  Firebase -->|"Short-lived ID token"| Token["Token provider bridge"]
+  Game --> Client["Event client"]
+  Token --> Client
+  Client -->|"Bounded request"| Edge["Supabase Edge Function"]
+  Edge --> Quota["Durable quota RPC"]
+  Edge --> OpenAI["OpenAI"]
 ```
 
-## State management
+| Layer | Implementation | Responsibility |
+|---|---|---|
+| App | React 19, JSX, Vite 8 | Route between creation, gameplay, and death |
+| Styling | [index.css](../src/index.css) | Pure CSS, custom properties, responsive layouts |
+| State owner | [gameState.js](../src/engine/gameState.js) | React state, player commands, async transitions, persistence decisions |
+| Mechanics | `src/engine/mechanics/` | Domain calculations and validation without React state |
+| Annual simulation | `src/engine/annual/` | Compose one year's financial, relationship, and pet outcomes |
+| Save contract | [lifeSave.js](../src/engine/lifeSave.js) | Defaults, persisted field names, complete save payloads |
+| Cloud account | `src/engine/cloud/` | Auth bootstrap, account linking/switching, Firestore transport |
+| Event client | [llmService.js](../src/engine/llmService.js) | Bounded request projection, authentication, deadlines, response validation |
+| Event server | [generate-event](../supabase/functions/generate-event/index.ts) | Origin and identity checks, quota admission, provider request |
+| Server contract | [contract.ts](../supabase/functions/generate-event/contract.ts) | Input schema, prompts, age guidance, model output contract |
+| Content | `src/config/`, `src/engine/careers.json` | Activities, careers, assets, markets, cities, pets, and wealth tiers |
 
-All game logic lives in `useGameState()`. Components are presentational and receive state plus handlers from the hook.
+`useGameState()` remains the single owner of the life shown to the player. Extracted helpers return values; they do not call React setters, write saves, or generate network requests. Existing named exports from `gameState.js` remain available for callers during the refactor. New domain code should import the owning module directly.
 
-### Persisted life fields (`LIFE_SAVE_KEYS`)
+## View routing
 
-Written to Firestore at `users/{uid}/saves/currentLife`:
+[App.jsx](../src/App.jsx) selects one of three routes:
 
-`character`, `age`, `stats`, `bank`, `history`, `isDead`, `flags`, `career`, `careerMeta`, `relationships`, `belongings`, `properties`, `education`, `networking`, `economyCycle`, `pets`, `will`
+1. No character and not dead: session splash, then `CharacterCreation`.
+2. Dead: `DeathScreen`.
+3. Living character: `MainGame`, plus `EventModal` when an event is open.
 
-### Ephemeral (local only)
+[MainGame.jsx](../src/components/MainGame.jsx) owns the active sheet, activity-menu selection, skill feedback, stats panel, and frozen-state visibility. [GameHeader.jsx](../src/components/game/GameHeader.jsx) renders the life summary and badges. [GameSheets.jsx](../src/components/game/GameSheets.jsx) binds engine commands to the gameplay panels.
 
-`currentEvent`, `isAging`, `activitiesThisYear`, `narrativeMode`, `cloudSync`, `careersData`
+Panels live under `src/components/sheets/`. [ActivitiesSheet.jsx](../src/components/sheets/ActivitiesSheet.jsx) routes activity special actions; [AssetsSheet.jsx](../src/components/sheets/AssetsSheet.jsx) retains asset navigation and delegates views to `sheets/assets/`. Components receive engine state and commands; they must not maintain a second copy of bank, career, education, or other life state.
 
-### Key local state
+## Life state and save contract
 
-- `character` — name, gender, country, optional city
-- `age`, `stats` — health, happiness, smarts, looks, grades, athleticism, karma, acting, voice, modeling
-- `bank`, `career`, `careerMeta`, `networking`, `economyCycle`, `education`
-- `relationships`, `belongings`, `properties`, `pets`, `history`
-- `isDead`, `isAging`, `currentEvent`, `activitiesThisYear`
+The current life is stored at `users/{uid}/saves/currentLife`. [lifeSave.js](../src/engine/lifeSave.js) owns `LIFE_SAVE_KEYS` and `buildLifeSave(fields)`:
 
-## Component routing (`App.jsx`)
+```text
+character, age, stats, bank, history, isDead, flags,
+career, careerMeta, relationships, belongings, properties,
+education, networking, economyCycle, pets, will
+```
 
-1. No character and not dead → splash (once per session) then `CharacterCreation`
-2. `isDead` → `DeathScreen`
-3. Otherwise → `MainGame` + optional `EventModal`
+`buildLifeSave` emits every key, including intentional nulls and empty arrays. It supplies defaults; it is not a full validator or migration engine. [stateValidation.js](../src/engine/stateValidation.js) observes loaded saves and emits warnings containing field paths and codes. It does not reject, coerce, or migrate the document.
 
-### Death restart flow
+Transient state includes `currentEvent`, `isAging`, `activitiesThisYear`, `narrativeMode`, cloud connection status, account summary, and the loaded career catalog. These fields are not part of current life writes. The validation and Firestore allowlists also tolerate specific legacy fields; tolerating a field does not make it part of the current save contract.
 
-1. Player dies → `isDead: true` synced to cloud (merge).
-2. **Live Again** calls `resetLife()` (not `location.reload()`).
-3. `resetLife` clears local state (`character: null`, `isDead: false`, empty pets/career/etc.) and **full-replaces** the cloud document via `buildLifeSave` + `syncToCloud(..., { replace: true })`.
-4. App routes to `CharacterCreation`.
-5. `startLife(...)` births a new life and again **full-replaces** the cloud doc (includes `career: null`, `pets: []`).
-
-`ignoreCloudLoadRef` prevents a late initial `getDoc` from overwriting a life started or reset before cloud load finishes.
+One preserved hydration gap is explicit: `flags` is written in the save payload, but `hydrateFromSave` currently does not restore it. Treat correcting that behavior as a separate tested change rather than assuming the refactor fixed it.
 
 ### Cloud sync modes
 
-| Call | Mode | When |
+| Operation | Write | Purpose |
 |---|---|---|
-| `syncToCloud(data, { replace: true })` | `setDoc` without merge | `startLife`, `resetLife` — wipes stale prior-life fields |
-| `persistLife(overrides)` | full `buildLifeSave` + merge | Mid-life mutations (choices, lottery, buys, etc.) |
+| `startLife`, `resetLife` | `syncToCloud(fullSave, { replace: true })` | Replace the complete document at a life boundary |
+| Mid-life mutation | `persistLife(overrides)` | Build a full current snapshot and merge it into the document |
+| Account switch or sign-out | Clear local state, then load the selected account | Preserve the previous account's saved life |
 
-`persistLife` keeps a `lifeSnapshotRef` (updated every render and eagerly on persist). Callers must pass every field they just mutated as `overrides` because React `setState` has not flushed yet.
+`lifeSnapshotRef` tracks the current life on render and is updated eagerly by `persistLife`. React state updates have not necessarily flushed when a handler writes. Every field changed by that handler must therefore appear in its persistence overrides.
 
-Canonical payload builder: exported `buildLifeSave(fields)` in `gameState.js`. Always emits every `LIFE_SAVE_KEYS` entry (nulls/empties intentional on replace).
+### Death restart flow
+
+1. A death result sets `isDead: true` and persists the final life.
+2. **Live Again** calls `resetLife()`.
+3. Reset clears local state and replaces the cloud document with a blank `buildLifeSave` payload, including `career: null`, `pets: []`, and `isDead: false`.
+4. `App` routes to character creation; `startLife` replaces the document again with the newborn life.
+
+A page reload is not a reset: it can load the dead save again. `ignoreCloudLoadRef` protects a life started or reset while the initial cloud load is still pending from being overwritten by that late load.
+
+## Identity and account transitions
+
+Firebase is loaded asynchronously after mount. Boot adopts an existing persisted session through `onAuthStateChanged`; it creates an anonymous session only when no account is present. The token-provider bridge in [firebaseToken.js](../src/engine/firebaseToken.js) supplies a short-lived Firebase ID token to the event client.
+
+| Command | Behavior |
+|---|---|
+| Google sign-in | Link an anonymous account first, preserving its UID and save. If the credential belongs to an existing account, switch and load that account's save. |
+| Email sign-up | Validate input, then link the anonymous account. An existing email returns a sanitized code so the UI can offer sign-in. |
+| Email sign-in | Switch accounts, clear the local life, and load the signed-in account's save. |
+| Password reset | Request a reset without revealing whether the account exists. |
+| Sign-out | End the current session, start a fresh anonymous session, and clear local state without writing to the previous account. |
+
+Account actions share the cloud transport rather than issuing Firebase calls from sheets. `authAccount` contains the UI's sanitized account summary, including provider, name, email, and photo; it is excluded from diagnostics.
 
 ### Security rules
 
-Least-privilege rules live in [`firestore.rules`](../firestore.rules): the life save is readable/writable only by its owner (`request.auth.uid == userId`), writes must stay within the known save-field allowlist, `careers` is read-only for signed-in players (seeded via the Admin SDK), and everything else is denied. `src/tests/firestoreRules.test.js` fails if the allowlist drifts from `LIFE_SAVE_KEYS` / `KNOWN_SAVE_FIELDS`.
+[firestore.rules](../firestore.rules) allows an authenticated player to read and write only their own current-life document. Writes must use known top-level save fields. Authenticated players can read `careers`; only the Admin SDK seeds that catalog. Other client access is denied.
 
-**Deploying rules.** Merging a change to `firestore.rules` (or `firebase.json` / `.firebaserc`) on `main` runs [`.github/workflows/deploy-firestore-rules.yml`](../.github/workflows/deploy-firestore-rules.yml), which re-runs the drift test and then deploys. `workflow_dispatch` re-runs it on demand. Deployed rules are the only server-side authorization boundary, so a merged-but-undeployed rules change is invisible until it matters.
+The rules constrain ownership and field names; they do not make browser-computed stats or money authoritative server calculations. [firestoreRules.test.js](../src/tests/firestoreRules.test.js) checks field-allowlist drift against the save contract. Rules deployment and service-account roles belong in the [operations runbook](./operations.md#firestore-rules).
 
-The deploy step needs one repository secret — without it the workflow still validates, then **skips the deploy with a notice rather than failing**:
+App Check initialization is optional and controlled by [appCheck.js](../src/config/appCheck.js). Initializing the client is separate from registering a site and enabling enforcement in Firebase. See [operations](./operations.md#firebase).
 
-| Secret | Value |
-|---|---|
-| `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account holding **both** roles below |
+## Annual transition and action locking
 
-`firebase deploy --only firestore:rules` needs two roles, not one — it probes the
-Service Usage API before it compiles the rules, so a rules-only role fails with a
-403 on `serviceusage.googleapis.com` (verified against this project):
+`ageUp` composes the annual calculation, commits the resulting state, checks death, then requests one event for a surviving life. The annual modules keep domain calculations separate from React setters and the asynchronous event request. The order of calculations matters: for example, tuition precedes income tax, while lifestyle costs use the balance after income.
 
-| Role | Why |
-|---|---|
-| `roles/firebaserules.admin` | compile (`rulesets.test`), create rulesets, update the release |
-| `roles/serviceusage.serviceUsageConsumer` | the pre-deploy "is Firestore enabled?" check |
+While `isAging` is true or an event is open:
 
-Create a dedicated deployer once with:
+- Mutating commands return through the action lock, except `handleChoice`, which resolves the event.
+- MainGame hides open sheets and disables action tabs, Age, and narrative-mode controls.
+- The annual save contains the calculated fields explicitly, protecting them from a stale React closure after the request resolves.
 
-```bash
-SA=simlyfe-rules-deployer@symlife-cd0b6.iam.gserviceaccount.com
-gcloud iam service-accounts create simlyfe-rules-deployer --project symlife-cd0b6
-for ROLE in roles/firebaserules.admin roles/serviceusage.serviceUsageConsumer; do
-  gcloud projects add-iam-policy-binding symlife-cd0b6 \
-    --member "serviceAccount:$SA" --role "$ROLE"
-done
-gcloud iam service-accounts keys create key.json --iam-account "$SA"
-```
+The gameplay rules and timing belong in [game mechanics](./game-mechanics.md#core-loop). Extraction must preserve calculation order, random draws, event timing, and save boundaries unless a behavior change is explicitly included and tested.
 
-Paste `key.json`'s contents into the repo secret, then delete the local file. The
-project's default `firebase-adminsdk-fbsvc@…` account also works and has been
-granted both roles, but it carries full Admin SDK privileges — prefer the
-narrow deployer above for CI.
+The annual event request currently receives the pre-tick relationship and pet arrays, while most other request fields use the calculated next state. The saved life receives the updated arrays. This existing request timing is preserved by the extraction.
 
-Manual fallback stays available: `npx -y firebase-tools@latest deploy --only firestore:rules`.
+## Generated event contract
 
-### Local Admin SDK credentials
+The browser sends only `{ state, actionContext, narrativeMode }` to the configured Supabase function. `state` is a bounded projection rather than the entire save. The Firebase token is the bearer credential; the Supabase public key is the separate `apikey` gateway header.
 
-`scripts/migrateData.js` loads `scripts/serviceAccountKey.json` (git-ignored — never commit a key). Download it from Firebase console → Project settings → Service accounts, or reuse an existing key.
+The server checks the exact request origin and the Firebase token's signature, issuer, audience, timestamps, and subject. It validates the request, admits it through durable per-identity and project-wide quotas, and calls OpenAI with a server-owned prompt, model, temperature, schema, and token ceiling. The default model is `gpt-4.1-nano`.
 
-App Check (reCAPTCHA v3) initializes in `src/config/firebase.js` when `VITE_FIREBASE_APPCHECK_SITE_KEY` is set — a no-op otherwise, and a failed init never blocks cloud saves. The activation decision is the pure `getAppCheckSetup(env)` in `src/config/appCheck.js` (tested directly; `firebase.js` stays mocked in tests). Key registration and enforcement are console-side steps.
-
-Firebase is skipped when any `VITE_FIREBASE_*` credential is missing (`auth` / `db` are `null`).
-Firebase Auth is required for generated events because its short-lived ID token authenticates the Supabase proxy caller (anonymous and Google-linked sessions both work — same project, same audience).
-
-### Accounts (Google sign-in)
-
-- Boot adopts the **persisted session** via `onAuthStateChanged` (anonymous or Google); only first-time visitors mint a new anonymous account. Never call bare `signInAnonymously` outside boot — it would replace a persisted Google session.
-- `signInWithGoogle()` (AccountSheet) is **link-first**: an anonymous player is upgraded with `linkWithPopup`, keeping the same uid so the in-progress life survives. On `auth/credential-already-in-use` (the Google account already owns a save under another uid) it **switches** with `signInWithCredential`, clears the local life, and hydrates that account's cloud save.
-- `signInWithEmail(email, password, mode)` follows the same pattern: mode `'signup'` links the anonymous player with `linkWithCredential` (same uid) — `email_in_use` tells the UI to offer Sign in instead; mode `'signin'` switches via `signInWithEmailAndPassword` and loads that account's save. Input is validated by the pure `prepareEmailCredential` first. `resetPassword(email)` sends the reset mail and never reveals whether an account exists.
-- All account actions share `getAuthBackend()` (imports + `adopt` + `loadAccountSave`); reasons returned to the UI are sanitized codes, never raw provider errors.
-- `signOutAccount()` signs out, starts a fresh anonymous session, and clears the local life — it never writes to (or deletes) the Google account's save.
-- `hydrateFromSave(data)` is the shared save→state applier for boot load and account switch; `clearLocalLife()` is the no-cloud-write reset shared by `resetLife` and account changes.
-- `authAccount` (`summarizeAuthUser`) exposes `{ uid, isAnonymous, name, email, photo }` to the UI and is never fed into diagnostics.
-- Console prerequisite: enable the **Google provider** under Firebase Authentication → Sign-in method, using the project's OAuth web client ID/secret. The secret lives in the console only — never in this repo.
-
-### Aging / event UI freeze
-
-While `isAging` or `currentEvent` is set:
-
-- Mutating handlers early-return via `isActionLocked()` (except `handleChoice`, which resolves the open event).
-- `MainGame` closes any open sheet and disables action tabs / Age / narrative toggle.
-
-This prevents mid-await spends from racing the post-`ageUp` cloud write.
-
-## Event system
-
-`src/engine/llmService.js`:
-
-- Sends only a bounded `{ state, actionContext, narrativeMode }` projection to the configured Supabase function.
-- Uses the Firebase ID token as the bearer credential and the Supabase publishable key (or legacy anon key) only as the `apikey` gateway header.
-- Enforces one 20-second client budget across token retrieval and the proxy call, validates the normalized response envelope, and emits redacted diagnostics.
-- Returns sanitized player-visible error events on auth, timeout, network, rate-limit, service, or validation failure. There is no browser-direct OpenAI path or silent static fallback.
-
-The edge function verifies exact origins and Firebase tokens, validates the bounded request, consumes per-user and project-wide durable quota, owns the prompt/model/temperature/token ceiling, and forwards to OpenAI `gpt-4.1-nano` by default. Strict Structured Outputs are normalized into the browser envelope and validated again by the client.
-
-Expected model JSON:
+The provider's result is normalized to this browser envelope:
 
 ```json
 {
-  "description": "Event text",
-  "choices": [
-    { "text": "Choice label", "effects": { "health": 10, "bank": -50, "happiness": 5 } }
-  ]
+  "event": {
+    "description": "Event text",
+    "choices": [
+      { "text": "Choice label", "effects": { "health": 10, "bank": -50 } }
+    ]
+  },
+  "meta": { "requestId": "request-id", "model": "model-name", "latencyMs": 1200 }
 }
 ```
 
-Default max tokens are 200 (400 in narrative mode); the server-owned prompt asks for 1–2 sentences under 35 words. Prompt rules include athleticism gating physical tasks and karma gating crime.
+Both server and browser validate the event. Auth, network, timeout, quota, service, and validation failures produce sanitized error events. Static events remain a validated catalog; they are not a silent fallback for a failed AI request. The browser has no direct OpenAI path.
 
-Annual age-up prompts also include an explicit server-owned life-stage contract from `getAgeEventGuidance(age)` in `contract.ts`. Infancy stays grounded and low-stakes; age 3 onward requires an engaging situation with age-plausible, materially different choices. Recent history is included with a no-repeat rule. See [game-mechanics.md](./game-mechanics.md#annual-event-pacing) for the public gameplay contract.
+The client budget is 20 seconds across token acquisition and proxy fetch. The edge operation has a 15-second deadline, including an 8-second provider deadline. Calls do not retry automatically. [diagnostics.js](../src/engine/diagnostics.js) emits only allowlisted operational metadata and never whole saves, credentials, or raw provider errors.
 
-## Related code
-
-| Concern | Primary file |
-|---|---|
-| Life save / reset | `src/engine/gameState.js` (`buildLifeSave`, `resetLife`, `startLife`, `syncToCloud`, `persistLife`) |
-| Death UI | `src/components/DeathScreen.jsx` |
-| Routing | `src/App.jsx` |
-| LLM client | `src/engine/llmService.js` |
-| LLM prompt / edge contract | `supabase/functions/generate-event/contract.ts` |
-| Firebase init | `src/config/firebase.js` |
+Environment setup, quota configuration, and deployment verification are owned by [development](./development.md) and [operations](./operations.md), rather than duplicated here.

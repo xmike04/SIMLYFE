@@ -1,54 +1,42 @@
 # /new-sheet — Add a New Sheet Component
 
-Step-by-step checklist for adding a new gameplay panel (sheet) to SIMLYFE, following the established pattern.
+Add a gameplay panel using the existing sheet-routing and engine-command boundaries.
 
 ## Steps
 
-1. Read an existing simple sheet for reference — `src/components/sheets/LotterySheet.jsx` is a good baseline. Note:
-   - Props it receives (always: `isOpen`, `onClose`, plus any game state/methods it needs)
-   - How it uses `<ActionSheet>` as the wrapper
-   - How it calls `generateDynamicEvent()` for LLM-driven actions
-   - How it calls game state methods vs reads state
+1. Read `src/components/sheets/LotterySheet.jsx` and `src/components/ActionSheet.jsx`. Confirm the actual props: the wrapper accepts `title`, `onClose`, and children. Visibility is controlled by mounting the selected sheet; there is no required `isOpen` prop.
 
-2. Read `src/components/ActionSheet.jsx` to understand the wrapper API.
+2. Read the current routing:
+   - `src/components/MainGame.jsx` owns `activeSheet`, activity-menu selection, close/open callbacks, and frozen-state visibility.
+   - `src/components/game/GameSheets.jsx` imports sheets and passes their state and handlers.
+   - `src/components/sheets/ActivitiesSheet.jsx` handles category navigation and special-action dispatch.
 
-3. Read `src/components/MainGame.jsx` to understand:
-   - How existing sheets are imported at the top
-   - How sheet open/close state is managed (`useState` booleans, one per sheet)
-   - Where sheet components are rendered at the bottom of the JSX
-   - How the sheet trigger button is wired in the activities/actions area
+3. Define the panel's purpose, state inputs, engine commands, and entry path. Resolve missing product choices from the task context before inventing behavior.
 
-4. Ask: what is the name of the new sheet? What game state does it need to read? What methods does it need to call? What actions should it offer — LLM-driven, deterministic, or both?
+4. If new deterministic rules are needed, implement them in `src/engine/mechanics/` or `src/engine/annual/` with tests importing the real exports in `src/tests/mechanics/`. Add actual hook coverage for guards, persistence, and async interactions. Never create a test-local copy of the rule.
 
-5. Create `src/components/sheets/[SheetName]Sheet.jsx` following the exact prop pattern:
+5. Create `src/components/sheets/[Noun]Sheet.jsx`. For example:
+
    ```jsx
-   export default function [SheetName]Sheet({ isOpen, onClose, /* game state props */ }) {
+   import ActionSheet from '../ActionSheet';
+
+   export default function ExampleSheet({ value, onAction, onClose }) {
      return (
-       <ActionSheet isOpen={isOpen} onClose={onClose} title="Sheet Title">
-         {/* content */}
+       <ActionSheet title="Example" onClose={onClose}>
+         <button onClick={onAction}>Use {value}</button>
        </ActionSheet>
      );
    }
    ```
 
-6. In `MainGame.jsx`:
-   - Add `import [SheetName]Sheet from './sheets/[SheetName]Sheet'`
-   - Add `const [show[SheetName], setShow[SheetName]] = useState(false)`
-   - Add `<[SheetName]Sheet isOpen={show[SheetName]} onClose={() => setShow[SheetName](false)} ... />` near the other sheet renders
-   - Add the trigger button in the appropriate activity category
+6. Register its render branch and explicit props in `GameSheets.jsx`. Wire its trigger through the appropriate existing screen or activity route. Reuse the shared `activeSheet` selection rather than introducing a separate visibility boolean for every panel. Preserve close/back behavior and the freeze while aging or resolving an event.
 
-7. If the sheet needs new game state or methods, add them to `src/engine/gameState.js` and return them from `useGameState()`.
+7. Add needed commands to `src/engine/gameState.js` and return them from `useGameState`. Keep presentation-only submenu/input state local to the sheet. For new persisted life fields, follow [new-mechanic](./new-mechanic.md#3-wire-state-and-persistence), including save defaults, hydration, validation, and Firestore rules.
 
-8. If the sheet has deterministic mechanics, add pure-function mirrors and tests to `src/tests/engine.mechanics.test.js` before implementing.
+8. Add component tests that click the real panel and verify its engine-command arguments, disabled state, and navigation. Generated-event actions should call the engine with a descriptive context; the sheet should not own a separate LLM transport.
 
-9. Run `npm test` and `npm run build` to confirm no regressions.
+9. Run `npm run lint`, `npm test`, and `npm run build`; run `npm run test:e2e` for the new browser flow. Check mobile layout and use [balance-check](./balance-check.md) if effects changed.
 
 ## When to use
-Run this command any time you're about to add a new gameplay panel. Use it as a live checklist — work through each step in order. Do not skip step 8 (tests first for deterministic logic).
 
-## Tips & tricks
-- Keep props flat — don't pass the entire game state object. Explicitly list only what the sheet needs.
-- LLM-driven actions in sheets should always pass a specific `context` string describing the action, not a generic one. The more specific, the better the event quality.
-- If the sheet has tabs or sub-modes, manage that state locally inside the sheet — don't add it to `useGameState`.
-- Name the file exactly `[Noun]Sheet.jsx` (e.g., `PrisonSheet.jsx`, `TherapySheet.jsx`) — no `Panel`, `Modal`, or `Screen` suffixes.
-- After adding the sheet, run `/balance-check` if any new stat effects were added.
+Use this checklist when adding a gameplay panel. Keep the filename convention `[Noun]Sheet.jsx`, flat explicit props, and one engine owner for shared life state.

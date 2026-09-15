@@ -1,668 +1,36 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useCloudAccount } from './cloud/useCloudAccount';
+import { advanceLifeYear } from './annual/advanceLifeYear';
+import { checkCareerEligibility as evaluateCareerEligibility } from './mechanics/careers';
+import { useState, useCallback, useRef } from 'react';
 import { generateDynamicEvent } from './llmService';
-import { getWealthTier, calculateIncomeTax } from '../config/wealthTiers';
-import { calculateCapitalGainsTax, estimateInvestmentReturn, getAllAssets } from '../config/assetCatalog';
+import { getWealthTier } from '../config/wealthTiers';
+import { calculateCapitalGainsTax } from '../config/assetCatalog';
 import { PET_CATALOG } from '../config/petCatalog.js';
 import { getCityById } from '../config/cityData.js';
-import {
-  createDiagnosticId,
-  diagnosticNow,
-  emitDiagnostic,
-  emitLlmDiagnostic,
-  getDiagnosticStateFields,
-  getErrorClass,
-} from './diagnostics';
-import { validateHydratedSave } from './stateValidation';
-import { setFirebaseIdTokenProvider } from './firebaseToken';
+import { createDiagnosticId, diagnosticNow, emitDiagnostic, emitLlmDiagnostic, getErrorClass } from './diagnostics';
 
 import staticCareers from './careers.json';
 
-const INITIAL_STATS = { health: 80, happiness: 80, smarts: 50, looks: 50, grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0 };
-const MATERNAL_NAMES = ["Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen"];
-const PATERNAL_NAMES = ["James", "Robert", "John", "Michael", "David", "William", "Richard", "Joseph", "Thomas", "Charles"];
-const NAMES = [...MATERNAL_NAMES, ...PATERNAL_NAMES];
-const NPC_JOB_LABELS = ['teacher', 'nurse', 'accountant', 'engineer', 'chef',
-                        'electrician', 'journalist', 'manager', 'therapist', 'designer'];
-const NPC_STARTER_JOBS = ['barista', 'intern', 'junior developer', 'sales rep', 'assistant'];
+import { INITIAL_STATS, INITIAL_EDUCATION, INITIAL_CAREER_META, INITIAL_ECONOMY, buildLifeSave } from './lifeSave';
+import { DEGREE_CONFIG, DEGREE_LABELS, enrollDegree } from './mechanics/education';
+import { NAMES, pickParentName, markAsEx, normalizeRelationshipNpc, prepareWillDraft } from './mechanics/relationships';
+import { HEADHUNTER_COST, STARTUP_COST, MILITARY_ENLIST_CAREER_ID, canAffordHeadhunter, computeStartupLaunch, pickHeadhunterPlacement } from './mechanics/careers';
+import { prepareInvestmentPurchase, computeInvestmentSale } from './mechanics/investments';
+import { yearlyActivityTrackId, canConsumeYearlyActivity, computeGambleResult, executeTradePure } from './mechanics/activities';
+import { applyEffectsPure, checkDeathPure, generateInitialStats } from './mechanics/life';
 
-export const DEGREE_CONFIG = {
-  highSchool: { years: 0,  annualCost: 0,     requires: null,         happinessEffect: 0   },
-  associate:  { years: 2,  annualCost: 10000,  requires: 'highSchool', happinessEffect: 0   },
-  bachelor:   { years: 4,  annualCost: 20000,  requires: 'highSchool', happinessEffect: 0   },
-  master:     { years: 2,  annualCost: 30000,  requires: 'bachelor',   happinessEffect: 0   },
-  phd:        { years: 4,  annualCost: 0,      requires: 'master',     happinessEffect: -20 },
-};
-
-export const DEGREE_LABELS = {
-  highSchool: 'HS Diploma',
-  associate:  "Associate's Degree",
-  bachelor:   "Bachelor's Degree",
-  master:     "Master's Degree",
-  phd:        'PhD',
-};
-
-const DEGREE_RANK = { highSchool: 0, associate: 1, bachelor: 2, master: 3, phd: 4 };
-
-/** Career degree requirements are minimum levels, so higher completed degrees qualify. */
-export function hasRequiredDegree(education, requiredDegree) {
-  if (!requiredDegree) return true;
-  const requiredRank = DEGREE_RANK[requiredDegree];
-  if (requiredRank === undefined) return false;
-  return Object.entries(DEGREE_RANK).some(
-    ([degree, rank]) => rank >= requiredRank && education?.[degree] === true
-  );
-}
-
-/** Keep gendered parent labels aligned with the generated first-name pool. */
-export function pickParentName(parentType, randomValue = Math.random()) {
-  const pool = parentType === 'Mother' ? MATERNAL_NAMES : PATERNAL_NAMES;
-  const safeRandom = Number.isFinite(randomValue) ? Math.min(0.999999, Math.max(0, randomValue)) : 0;
-  return pool[Math.floor(safeRandom * pool.length)];
-}
-
-const INITIAL_EDUCATION = { highSchool: false, associate: false, bachelor: false, master: false, phd: false, currentDegree: null };
-const INITIAL_CAREER_META = { yearsInRole: 0, isOnPIP: false, financialStressFlag: false, unemploymentYearsLeft: 0 };
-const INITIAL_ECONOMY = { year: 0, phase: 'normal', yearsInPhase: 0 };
-
-/** Keys always written on life-boundary cloud replaces (startLife / resetLife).
- * See docs/architecture.md — Cloud sync modes / Death restart flow.
- */
-export const LIFE_SAVE_KEYS = [
-  'character', 'age', 'stats', 'bank', 'history', 'isDead', 'flags',
-  'career', 'careerMeta', 'relationships', 'belongings', 'properties',
-  'education', 'networking', 'economyCycle', 'pets', 'will',
-];
-
-/**
- * Canonical persisted life document. Always includes every LIFE_SAVE_KEYS entry.
- * Nulls/empties are intentional so setDoc without merge wipes prior-life leftovers.
- * See docs/architecture.md.
- */
-export function buildLifeSave(fields = {}) {
-  return {
-    character: fields.character ?? null,
-    age: fields.age ?? 0,
-    stats: fields.stats ?? { ...INITIAL_STATS },
-    bank: fields.bank ?? 0,
-    history: fields.history ?? [],
-    isDead: fields.isDead ?? false,
-    flags: fields.flags ?? [],
-    career: fields.career ?? null,
-    careerMeta: fields.careerMeta ? { ...fields.careerMeta } : { ...INITIAL_CAREER_META },
-    relationships: fields.relationships ?? [],
-    belongings: fields.belongings ?? [],
-    properties: fields.properties ?? [],
-    education: fields.education ? { ...fields.education } : { ...INITIAL_EDUCATION },
-    networking: fields.networking ?? 0,
-    economyCycle: fields.economyCycle ? { ...fields.economyCycle } : { ...INITIAL_ECONOMY },
-    pets: fields.pets ?? [],
-    will: fields.will ?? null,
-  };
-}
-
-const DEGREE_SMARTS_BONUS = { associate: 3, bachelor: 10, master: 5, phd: 3 };
-
-/**
- * Enroll in a degree: charge year-1 tuition and set yearsInProgram = 1 (year 1 prepaid).
- * See docs/game-mechanics.md — Education.
- */
-export function enrollDegree(degreeType, education, bank) {
-  const cfg = DEGREE_CONFIG[degreeType];
-  if (!cfg) return { error: 'Unknown degree type' };
-  if (education.currentDegree !== null) return { error: 'Already enrolled in a program' };
-  if (cfg.requires && !education[cfg.requires]) {
-    return { error: `Requires ${DEGREE_LABELS[cfg.requires]} first` };
-  }
-  if (bank < cfg.annualCost) return { error: 'Insufficient funds for first year' };
-  return {
-    newEducation: {
-      ...education,
-      currentDegree: {
-        type: degreeType,
-        yearsInProgram: 1,
-        totalYears: cfg.years,
-        annualCost: cfg.annualCost,
-      },
-    },
-    newBank: bank - cfg.annualCost,
-  };
-}
-
-/**
- * Advance one enrolled school year.
- * yearsInProgram = years already paid. Charge then increment while yearsInProgram < totalYears.
- * Legacy saves with yearsInProgram === 0: skip charge (enroll already paid), bump to 1.
- */
-export function advanceDegreeYear(education, stats, bank) {
-  const deg = education.currentDegree;
-  if (!deg) return { education, stats, bank, completed: false, history: null, charged: 0 };
-
-  let newBank = bank;
-  const newStats = { ...stats };
-  const cfg = DEGREE_CONFIG[deg.type];
-  if (cfg?.happinessEffect) {
-    newStats.happiness = Math.max(0, Math.min(100, newStats.happiness + cfg.happinessEffect));
-  }
-
-  let newYears;
-  let charged = 0;
-  if (deg.yearsInProgram === 0) {
-    newYears = 1;
-  } else if (deg.yearsInProgram < deg.totalYears) {
-    charged = deg.annualCost;
-    newBank -= deg.annualCost;
-    newYears = deg.yearsInProgram + 1;
-  } else {
-    newYears = deg.yearsInProgram;
-  }
-
-  if (newYears >= deg.totalYears) {
-    const bonus = DEGREE_SMARTS_BONUS[deg.type] ?? 0;
-    newStats.smarts = Math.max(0, Math.min(100, newStats.smarts + bonus));
-    newStats.happiness = Math.max(0, Math.min(100, newStats.happiness + 3));
-    return {
-      education: { ...education, [deg.type]: true, currentDegree: null },
-      stats: newStats,
-      bank: newBank,
-      completed: true,
-      completedType: deg.type,
-      charged,
-      history: `Education: You earned your ${DEGREE_LABELS[deg.type]}! +${bonus} Smarts.`,
-    };
-  }
-
-  return {
-    education: { ...education, currentDegree: { ...deg, yearsInProgram: newYears } },
-    stats: newStats,
-    bank: newBank,
-    completed: false,
-    charged,
-    history: charged
-      ? `Education: Year ${newYears}/${deg.totalYears} of your ${DEGREE_LABELS[deg.type]}. ($${charged.toLocaleString()} paid)`
-      : `Education: Year ${newYears}/${deg.totalYears} of your ${DEGREE_LABELS[deg.type]}.`,
-  };
-}
-
-/** Mark-to-market only — do not also credit bank (avoids double-counting net worth). */
-export function applyPaperInvestmentReturn(currentValue, ret) {
-  return {
-    newValue: Math.max(0, (currentValue ?? 0) + (ret ?? 0)),
-    cashDelta: 0,
-  };
-}
-
-/** Spouse lookup for death summary / UI. Only current marriages (status), not leftover type. */
-export function findSpouse(relationships) {
-  return (relationships ?? []).find(
-    (r) => r.status === 'married' && r.isAlive !== false
-  ) ?? null;
-}
-
-/** Clear romantic status/type on breakup or divorce so findSpouse / romance UI stay correct. */
-export function markAsEx(rel) {
-  if (!rel) return rel;
-  const wasMarried = rel.status === 'married' || rel.type === 'Spouse';
-  const wasLover = rel.type === 'Lover' || rel.status === 'dating';
-  return {
-    ...rel,
-    status: 'ex',
-    type: wasMarried || wasLover ? 'Ex' : rel.type,
-  };
-}
-
-/**
- * Normalize an NPC before adding to relationships.
- * Dating-app matches historically omitted status/isAlive, which broke romance UI + ageUp.
- */
-export function normalizeRelationshipNpc(npc, { asDating = false } = {}) {
-  if (!npc || typeof npc !== 'object') return npc;
-  const next = { ...npc };
-  if (next.isAlive === undefined || next.isAlive === null) next.isAlive = true;
-  if (asDating) {
-    next.status = 'dating';
-    next.isAlive = true;
-    if (!next.type || next.type === 'Lover') next.type = next.type || 'Lover';
-  } else if (!next.status && (next.type === 'Lover' || next.type === 'Partner')) {
-    next.status = 'dating';
-    next.isAlive = true;
-  }
-  return next;
-}
-
-export const HEADHUNTER_COST = 1000;
-/** Single source of truth for Launch Tech Startup — charged only inside startStartup(). */
-export const STARTUP_COST = 500;
-export const MILITARY_ENLIST_CAREER_ID = 'soldier';
-
-const INVESTMENT_SUBTYPE_ALIASES = {
-  crypto: 'crypto',
-  stock: 'stock',
-  stocks: 'stock',
-  penny: 'penny_stock',
-  penny_stock: 'penny_stock',
-  bond: 'bond',
-  bonds: 'bond',
-  fund: 'fund',
-  funds: 'fund',
-};
-
-export function normalizeInvestmentSubType(subType) {
-  return INVESTMENT_SUBTYPE_ALIASES[subType] ?? null;
-}
-
-export function yearlyActivityTrackId(categoryId, itemText) {
-  return `${categoryId}__${itemText}`;
-}
-
-export function canConsumeYearlyActivity(activitiesThisYear, categoryId, itemText, yearlyLimit) {
-  if (!yearlyLimit) return true;
-  const count = (activitiesThisYear ?? {})[yearlyActivityTrackId(categoryId, itemText)] ?? 0;
-  return count < yearlyLimit;
-}
-
-export function canAffordHeadhunter(bank, cost = HEADHUNTER_COST) {
-  return (bank ?? 0) >= cost;
-}
-
-/** Pure startup launch math — exactly one STARTUP_COST deduction and no founder reset. */
-export function computeStartupLaunch(bank, currentCareer = null, cost = STARTUP_COST) {
-  if (currentCareer?.id === 'founder') return { ok: false, reason: 'already_founder' };
-  if ((bank ?? 0) < cost) return { ok: false, reason: 'insufficient_funds' };
-  return {
-    ok: true,
-    newBank: bank - cost,
-    career: { id: 'founder', title: 'Startup Founder', salary: 0, type: 'business', equity: 500 },
-    cost,
-  };
-}
-
-/** Convert catalog stress intensity into a bounded yearly stat delta. */
-export function normalizeCareerEffect(effect) {
-  if (!Number.isFinite(effect) || effect === 0) return 0;
-  return Math.sign(effect) * Math.max(1, Math.ceil(Math.abs(effect) / 8));
-}
-
-export function applyCareerYearEffects(stats, career) {
-  if (!career || career.id === 'founder') return { ...stats };
-  return {
-    ...stats,
-    happiness: Math.min(100, Math.max(0, (stats.happiness ?? 0) + normalizeCareerEffect(career.happinessEffect))),
-    health: Math.min(100, Math.max(0, (stats.health ?? 0) + normalizeCareerEffect(career.healthEffect))),
-  };
-}
-
-export function computeGambleResult(bank, amount, randomValue) {
-  if (!Number.isFinite(bank) || !Number.isFinite(amount) || amount <= 0) {
-    return { ok: false, reason: 'invalid_amount' };
-  }
-  if (bank < amount) return { ok: false, reason: 'insufficient_funds' };
-  if (!Number.isFinite(randomValue) || randomValue < 0 || randomValue >= 1) {
-    return { ok: false, reason: 'invalid_random' };
-  }
-  if (randomValue < 0.45) {
-    return { ok: true, outcome: 'win', newBank: bank + amount, happinessDelta: 5, payout: amount * 2 };
-  }
-  if (randomValue < 0.70) {
-    const payout = Math.floor(amount * 0.5);
-    return { ok: true, outcome: 'partial', newBank: bank - amount + payout, happinessDelta: -5, payout };
-  }
-  return { ok: true, outcome: 'loss', newBank: bank - amount, happinessDelta: -5, payout: 0 };
-}
-
-export function prepareInvestmentPurchase(instrument, amountDollars, subType, bank) {
-  if (!instrument || typeof instrument !== 'object' || Array.isArray(instrument) || !instrument.id || !instrument.name) {
-    return { ok: false, reason: 'invalid_instrument' };
-  }
-  const normalizedSubType = normalizeInvestmentSubType(subType);
-  if (!normalizedSubType) return { ok: false, reason: 'invalid_subtype' };
-  const amount = Math.floor(Number(amountDollars));
-  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: 'invalid_amount' };
-  if (!Number.isFinite(bank) || bank < amount) return { ok: false, reason: 'insufficient_funds' };
-
-  const basePrice = Number(instrument.basePrice ?? 1);
-  if (!Number.isFinite(basePrice) || basePrice <= 0) return { ok: false, reason: 'invalid_instrument' };
-  const minimum = Number(instrument.minInvestment ?? (instrument.basePrice ? Math.ceil(basePrice) : 1));
-  if (!Number.isFinite(minimum) || minimum <= 0 || amount < minimum) {
-    return { ok: false, reason: 'below_minimum' };
-  }
-
-  const units = normalizedSubType === 'bond' ? amount : Math.floor(amount / basePrice);
-  if (!Number.isFinite(units) || units <= 0) return { ok: false, reason: 'below_minimum' };
-  const pricePerUnit = normalizedSubType === 'bond' ? 1 : basePrice;
-  const actualCost = normalizedSubType === 'bond' ? amount : units * pricePerUnit;
-  if (!Number.isFinite(actualCost) || actualCost <= 0 || actualCost > bank) {
-    return { ok: false, reason: 'insufficient_funds' };
-  }
-  return { ok: true, subType: normalizedSubType, amount, units, pricePerUnit, actualCost };
-}
-
-/** Highest-salary eligible full-time career for headhunter placement. */
-export function pickHeadhunterPlacement(careersData, { age, education, stats, networking }) {
-  const list = (careersData ?? [])
-    .filter((c) => c.type === 'full_time')
-    .filter((c) => {
-      if (age < (c.minAge ?? 0)) return false;
-      if (!hasRequiredDegree(education, c.requiresDegree)) return false;
-      if ((c.requiresNetworking ?? 0) > (networking ?? 0)) return false;
-      for (const [stat, min] of Object.entries(c.statRequirements ?? {})) {
-        if ((stats?.[stat] ?? 0) < min) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => (b.salary ?? 0) - (a.salary ?? 0));
-  return list[0] ?? null;
-}
-
-const EFFECT_STAT_KEYS = ['health', 'happiness', 'smarts', 'looks', 'athleticism', 'karma', 'acting', 'voice', 'modeling', 'grades'];
-
-/** Pure apply of event/activity effects — used by handleChoice + tests. */
-export function applyEffectsPure(stats, bank, flags, effects = {}) {
-  const newStats = { ...stats };
-  for (const key of EFFECT_STAT_KEYS) {
-    if (effects[key] != null) {
-      newStats[key] = Math.min(100, Math.max(0, (newStats[key] ?? 0) + effects[key]));
-    }
-  }
-  const newBank = bank + (effects.bank ?? 0);
-  const newFlags = effects.flags
-    ? [...new Set([...(flags ?? []), ...effects.flags])]
-    : (flags ?? []);
-  return { stats: newStats, bank: newBank, flags: newFlags };
-}
-
-/**
- * Validate a drafted will before state mutation.
- * allocations: [{ id, pct }] — whole percents, ids must be current relationships,
- * total ≤ 100. Zero-pct entries are dropped; an empty result is a valid
- * "standard will" (even split across living relationships at death).
- */
-export function prepareWillDraft(allocations, relationships) {
-  if (!Array.isArray(allocations)) return { ok: false, reason: 'invalid_allocations' };
-  const known = new Set((relationships ?? []).map(r => r?.id).filter(Boolean));
-  const seen = new Set();
-  const cleaned = [];
-  let total = 0;
-  for (const entry of allocations) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      return { ok: false, reason: 'invalid_allocations' };
-    }
-    const pct = Math.floor(Number(entry.pct));
-    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return { ok: false, reason: 'invalid_pct' };
-    if (pct === 0) continue;
-    if (typeof entry.id !== 'string' || !known.has(entry.id)) {
-      return { ok: false, reason: 'unknown_beneficiary' };
-    }
-    if (seen.has(entry.id)) return { ok: false, reason: 'duplicate_beneficiary' };
-    seen.add(entry.id);
-    total += pct;
-    cleaned.push({ id: entry.id, pct });
-  }
-  if (total > 100) return { ok: false, reason: 'over_allocated' };
-  return { ok: true, allocations: cleaned, allocatedPct: total };
-}
-
-/**
- * Settle the estate at death — pure, rendered by DeathScreen.
- * - No will → 'unwilled': the whole estate is taxed/donated.
- * - Will with no allocations → 'even_split' across living relationships.
- * - Directed will → living beneficiaries get their pct of net worth; lapsed
- *   shares (beneficiary dead or no longer known) fall to the residue, which is
- *   taxed/donated. Payouts never exceed the estate even on malformed saves.
- */
-export function computeEstateDistribution(will, relationships, netWorth) {
-  const rawWorth = Number(netWorth);
-  const estate = Number.isFinite(rawWorth) ? Math.max(0, Math.floor(rawWorth)) : 0;
-  const living = (relationships ?? []).filter(r => r && r.id && r.isAlive !== false);
-
-  if (!will || !Array.isArray(will.allocations)) {
-    return { mode: 'unwilled', estateValue: estate, bequests: [], residualValue: estate };
-  }
-
-  if (will.allocations.length === 0) {
-    if (living.length === 0 || estate === 0) {
-      return { mode: 'even_split', estateValue: estate, bequests: [], residualValue: estate };
-    }
-    const share = Math.floor(estate / living.length);
-    const bequests = living.map(r => ({ id: r.id, name: r.name, type: r.type, pct: null, amount: share }));
-    return { mode: 'even_split', estateValue: estate, bequests, residualValue: estate - share * living.length };
-  }
-
-  const byId = new Map(living.map(r => [r.id, r]));
-  const bequests = [];
-  let paid = 0;
-  for (const alloc of will.allocations) {
-    const pct = Math.floor(Number(alloc?.pct));
-    if (!Number.isFinite(pct) || pct <= 0) continue;
-    const rel = byId.get(alloc?.id);
-    if (!rel) continue; // lapsed bequest — share stays in the residue
-    const amount = Math.min(Math.floor(estate * Math.min(pct, 100) / 100), estate - paid);
-    if (amount <= 0) continue;
-    paid += amount;
-    bequests.push({ id: rel.id, name: rel.name, type: rel.type, pct, amount });
-  }
-  return { mode: 'directed', estateValue: estate, bequests, residualValue: estate - paid };
-}
-
-/** Death check with injectable randomness — the hook's checkDeath supplies Math.random(). */
-export function checkDeathPure(stats, age, randomValue) {
-  if (stats.health <= 0) return true;
-  if (age >= 60) {
-    const chance = (age - 60) / 40; // 0% at 60, 100% at 100
-    return randomValue < chance;
-  }
-  return false;
-}
-
-/** Yearly aging wear: −1 health after 30; a further −2 health and −1 looks after 50. */
-export function applyAgeUpDegradation(stats, age) {
-  const next = { ...stats };
-  if (age > 30) next.health = Math.max(0, next.health - 1);
-  if (age > 50) {
-    next.health = Math.max(0, next.health - 2);
-    next.looks = Math.max(0, next.looks - 1);
-  }
-  return next;
-}
-
-/**
- * School-year grades drift by smarts. Missing grades default to 70; an earned
- * grade of 0 stays 0 (nullish default, not falsy — see engine.mechanics tests).
- */
-export function computeGradesDrift(grades, smarts) {
-  const current = grades ?? 70;
-  if (smarts > 70) return Math.min(100, current + 2);
-  if (smarts < 40) return Math.max(0, current - 5);
-  return Math.max(0, current - 1);
-}
-
-/**
- * One founder equity year with injectable randomness. Non-founder careers pass
- * through unchanged. A career of null means the startup folded (the hook
- * applies the happiness penalty and history text).
- */
-export function applyStartupYear(career, randomValue) {
-  if (!career || career.id !== 'founder') return { career, outcome: null, dividend: 0 };
-  let newEquity = career.equity;
-  let outcome;
-  if (randomValue < 0.2) {
-    newEquity = 0;
-    outcome = 'bankrupt';
-  } else if (randomValue < 0.5) {
-    newEquity = Math.floor(newEquity * 0.8);
-    outcome = 'downturn';
-  } else if (randomValue < 0.8) {
-    newEquity = Math.floor(newEquity * 1.5);
-    outcome = 'steady';
-  } else {
-    newEquity = Math.floor(newEquity * 3);
-    outcome = 'moonshot';
-  }
-  if (newEquity === 0) return { career: null, outcome, dividend: 0 };
-  const dividend = Math.floor(newEquity * 0.1);
-  return { career: { ...career, equity: newEquity, salary: dividend }, outcome, dividend };
-}
-
-/** Day-trade outcome with injectable randomness — the hook supplies Math.random(). */
-export function executeTradePure(bank, percentage, randomValue) {
-  if (!Number.isFinite(bank) || bank <= 0) return { ok: false, reason: 'no_funds' };
-  const wager = Math.floor(bank * (percentage / 100));
-  let multiplier;
-  if (randomValue < 0.4) multiplier = 0;
-  else if (randomValue < 0.6) multiplier = 0.5;
-  else if (randomValue < 0.8) multiplier = 1.5;
-  else if (randomValue < 0.95) multiplier = 2;
-  else multiplier = 5;
-  const payout = Math.floor(wager * multiplier);
-  const profit = payout - wager;
-  return { ok: true, bank: bank + profit, wager, payout, profit, multiplier };
-}
-
-/** Investment sale settlement: bonds recover par early; others net CGT on realized gains. */
-export function computeInvestmentSale(item, bank, cgtRate) {
-  if (normalizeInvestmentSubType(item.subType) === 'bond') {
-    const proceeds = Math.floor(item.purchasePrice ?? item.currentValue);
-    return { isBond: true, proceeds, gain: 0, cgt: 0, newBank: bank + proceeds };
-  }
-  const gain = Math.floor(item.currentValue) - (item.purchasePrice ?? 0);
-  const cgt = gain > 0 ? calculateCapitalGainsTax(item.purchasePrice ?? 0, item.currentValue, cgtRate) : 0;
-  const proceeds = Math.floor(item.currentValue) - cgt;
-  return { isBond: false, proceeds, gain, cgt, newBank: bank + proceeds };
-}
-
-/** Privacy-lean auth summary for the account UI — never fed into diagnostics. */
-export function summarizeAuthUser(user) {
-  if (!user) return null;
-  return {
-    uid: user.uid,
-    isAnonymous: !!user.isAnonymous,
-    provider: user.isAnonymous ? 'anonymous' : (user.providerData?.[0]?.providerId ?? 'unknown'),
-    name: user.displayName ?? null,
-    email: user.email ?? null,
-    photo: user.photoURL ?? null,
-  };
-}
-
-/** Validate email/password input before any auth call — sanitized reasons only. */
-export function prepareEmailCredential(email, password) {
-  const cleanEmail = typeof email === 'string' ? email.trim() : '';
-  if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-    return { ok: false, reason: 'invalid_email' };
-  }
-  if (typeof password !== 'string' || password.length < 6) {
-    return { ok: false, reason: 'weak_password' };
-  }
-  return { ok: true, email: cleanEmail };
-}
-
-/**
- * One salaried career year: city-adjusted gross, income tax, and the career's
- * own stat effects. Founder equity is handled by applyStartupYear instead, and
- * a null/founder career is a no-op. The hook composes the history text.
- */
-export function computeCareerYearIncome(career, stats, bank, salaryMultiplier = 1) {
-  if (!career || career.id === 'founder') {
-    return { stats, bank, grossSalary: 0, tax: 0, netSalary: 0 };
-  }
-  const multiplier = Number.isFinite(salaryMultiplier) ? salaryMultiplier : 1;
-  const grossSalary = Math.round((career.salary ?? 0) * multiplier);
-  const tax = calculateIncomeTax(grossSalary, bank);
-  const netSalary = grossSalary - tax;
-  let newStats = applyCareerYearEffects(stats, career);
-  if (career.smarts_gain) {
-    newStats = { ...newStats, smarts: Math.min(100, newStats.smarts + career.smarts_gain) };
-  }
-  return { stats: newStats, bank: bank + netSalary, grossSalary, tax, netSalary };
-}
-
-/**
- * Yearly lifestyle upkeep expected of the player's wealth tier, scaled by the
- * city's cost of living. Falling into debt costs the tier's happiness penalty.
- */
-export function computeLifestyleCost(bank, stats, colMultiplier = 1) {
-  const tier = getWealthTier(bank);
-  if (!(tier.lifestyleCost > 0)) {
-    return { bank, stats, cost: 0, tier, inDebt: false };
-  }
-  const multiplier = Number.isFinite(colMultiplier) ? colMultiplier : 1;
-  const cost = Math.round(tier.lifestyleCost * multiplier);
-  const newBank = bank - cost;
-  const inDebt = newBank < 0;
-  return {
-    bank: newBank,
-    stats: inDebt
-      ? { ...stats, happiness: Math.max(0, stats.happiness - tier.happinessPenalty) }
-      : stats,
-    cost,
-    tier,
-    inDebt,
-  };
-}
-
-/**
- * One market year for owned properties: investment holdings mark to market via
- * their return profile, real estate follows crash/boom/catalog appreciation,
- * and owned assets apply their passive stat effects. Randomness is injected
- * (marketCrash / marketBoom / randomFn) so the tick is testable.
- */
-export function applyPropertyMarketTick(properties, stats, options = {}) {
-  const {
-    phase = 'normal',
-    catalogMap = {},
-    marketCrash = false,
-    marketBoom = false,
-    randomFn = Math.random,
-  } = options;
-
-  const nextStats = { ...stats };
-  let totalUpkeep = 0;
-  let investmentIncome = 0;
-
-  const nextProperties = (properties ?? []).map(prop => {
-    let newValue = prop.currentValue;
-    if (prop.type === 'investment') {
-      // Investments use returnProfile for annual gains/losses
-      const ret = estimateInvestmentReturn({ ...prop }, phase);
-      newValue = Math.max(0, prop.currentValue + ret);
-      investmentIncome += ret;
-    } else if (marketCrash) {
-      newValue = Math.floor(newValue * 0.7);
-    } else if (marketBoom) {
-      newValue = Math.floor(newValue * 1.3);
-    } else {
-      // Use catalog appreciation rate if available, else default +2–5%
-      const rate = catalogMap[prop.catalogId]?.appreciationRate ?? (1 + (randomFn() * 0.03 + 0.02));
-      newValue = Math.floor(newValue * rate);
-    }
-    totalUpkeep += prop.upkeep || 0;
-    // Apply passive stat effects from owned assets
-    const fx = catalogMap[prop.catalogId]?.statEffects ?? {};
-    for (const [stat, delta] of Object.entries(fx)) {
-      if (nextStats[stat] !== undefined) nextStats[stat] = Math.min(100, Math.max(0, nextStats[stat] + delta));
-    }
-    return { ...prop, currentValue: Math.max(0, newValue), yearsOwned: prop.yearsOwned + 1 };
-  });
-
-  return { properties: nextProperties, stats: nextStats, totalUpkeep, investmentIncome };
-}
-
-/** Newborn stat roll — used by startLife and tested directly. */
-export function generateInitialStats() {
-  return {
-    health: 80 + Math.floor(Math.random() * 20),
-    happiness: 80 + Math.floor(Math.random() * 20),
-    smarts: 40 + Math.floor(Math.random() * 40),
-    looks: 40 + Math.floor(Math.random() * 40),
-    grades: 70 + Math.floor(Math.random() * 20),
-    athleticism: 30 + Math.floor(Math.random() * 60),
-    karma: 50,
-    acting: 0,
-    voice: 0,
-    modeling: 0,
-  };
-}
+// Historical named exports remain available; new callers should import their domain directly.
+export { DEGREE_CONFIG, DEGREE_LABELS, hasRequiredDegree, enrollDegree, advanceDegreeYear, computeGradesDrift } from './mechanics/education';
+export { pickParentName, findSpouse, markAsEx, normalizeRelationshipNpc, prepareWillDraft, computeEstateDistribution } from './mechanics/relationships';
+export { LIFE_SAVE_KEYS, buildLifeSave } from './lifeSave';
+export { applyPaperInvestmentReturn, normalizeInvestmentSubType, prepareInvestmentPurchase, computeInvestmentSale, applyPropertyMarketTick } from './mechanics/investments';
+export { HEADHUNTER_COST, STARTUP_COST, MILITARY_ENLIST_CAREER_ID, canAffordHeadhunter, computeStartupLaunch, normalizeCareerEffect, applyCareerYearEffects, pickHeadhunterPlacement, applyStartupYear, computeCareerYearIncome } from './mechanics/careers';
+export { yearlyActivityTrackId, canConsumeYearlyActivity, computeGambleResult, executeTradePure } from './mechanics/activities';
+export { applyEffectsPure, checkDeathPure, applyAgeUpDegradation, generateInitialStats } from './mechanics/life';
+export { summarizeAuthUser, prepareEmailCredential } from './cloud/authHelpers';
+export { computeLifestyleCost } from './mechanics/economy';
 
 export function useGameState() {
-  const [cloudSync, setCloudSync] = useState(null);
   const [careersData, setCareersData] = useState(staticCareers);
 
   const [character, setCharacter] = useState(null);
@@ -686,29 +54,10 @@ export function useGameState() {
   const [narrativeMode, setNarrativeMode] = useState(false);
   const [pets, setPets] = useState([]);
   const [will, setWill] = useState(null);
-  const [authAccount, setAuthAccount] = useState(null);
   /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
-  const lifeSnapshotRef = useRef({
-    character: null,
-    age: 0,
-    stats: INITIAL_STATS,
-    bank: 0,
-    history: [],
-    isDead: false,
-    flags: [],
-    career: null,
-    careerMeta: INITIAL_CAREER_META,
-    relationships: [],
-    belongings: [],
-    properties: [],
-    education: INITIAL_EDUCATION,
-    networking: 0,
-    economyCycle: INITIAL_ECONOMY,
-    pets: [],
-    will: null,
-  });
+  const lifeSnapshotRef = useRef(buildLifeSave());
   lifeSnapshotRef.current = {
     character, age, stats, bank, history, isDead, flags, career, careerMeta,
     relationships, belongings, properties, education, networking, economyCycle, pets, will,
@@ -734,184 +83,8 @@ export function useGameState() {
     if (data.will !== undefined) setWill(data.will);
   }, []);
 
-  // 1. Adopt the persisted auth session (or start an anonymous one) and load
-  // the cloud save if configured
-  useEffect(() => {
-    let cancelled = false;
-    let unsubscribeFirstAuth = null;
-    setFirebaseIdTokenProvider(null);
-    const loadOperationId = createDiagnosticId('save-load');
-    const loadStartedAt = diagnosticNow();
-
-    async function initCloudSync() {
-      try {
-        const [
-          firebaseConfig,
-          authApi,
-          firestoreApi,
-        ] = await Promise.all([
-          import('../config/firebase'),
-          import('firebase/auth'),
-          import('firebase/firestore'),
-        ]);
-
-        const { auth, db } = firebaseConfig;
-        if (cancelled) return;
-        if (!auth || !db) {
-          emitDiagnostic('save_load', {
-            operationId: loadOperationId,
-            status: 'skipped',
-            durationMs: diagnosticNow() - loadStartedAt,
-            fields: [],
-          });
-          return;
-        }
-
-        const { signInAnonymously, onAuthStateChanged } = authApi;
-        const { doc, setDoc, getDoc, collection, getDocs } = firestoreApi;
-
-        emitDiagnostic('save_load', {
-          operationId: loadOperationId,
-          status: 'started',
-          durationMs: 0,
-          fields: [],
-        });
-
-        // Adopt a persisted session (anonymous or Google-linked) so returning
-        // players keep their uid; only first-time visitors mint a new
-        // anonymous account. signInAnonymously would replace a Google session.
-        const persistedUser = await new Promise((resolve) => {
-          unsubscribeFirstAuth = onAuthStateChanged(auth, resolve, () => resolve(null));
-        });
-        unsubscribeFirstAuth?.();
-        unsubscribeFirstAuth = null;
-        const user = persistedUser ?? (await signInAnonymously(auth)).user;
-        if (cancelled) return;
-
-        setFirebaseIdTokenProvider(() => user.getIdToken());
-        setCloudSync({ db, userId: user.uid, doc, setDoc });
-        setAuthAccount(summarizeAuthUser(user));
-
-        try {
-          const saveRef = doc(db, 'users', user.uid, 'saves', 'currentLife');
-          const saveSnap = await getDoc(saveRef);
-          if (cancelled) return;
-          if (!ignoreCloudLoadRef.current && saveSnap.exists()) {
-            const data = saveSnap.data();
-            const validation = validateHydratedSave(data);
-            hydrateFromSave(data);
-            emitDiagnostic('save_load', {
-              operationId: loadOperationId,
-              status: validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
-              durationMs: diagnosticNow() - loadStartedAt,
-              fields: validation.hasWarnings
-                ? validation.warningFields
-                : getDiagnosticStateFields(data),
-            });
-          } else if (!ignoreCloudLoadRef.current) {
-            emitDiagnostic('save_load', {
-              operationId: loadOperationId,
-              status: 'not_found',
-              durationMs: diagnosticNow() - loadStartedAt,
-              fields: [],
-            });
-          }
-        } catch (e) {
-          if (!cancelled) {
-            emitDiagnostic('save_load', {
-              operationId: loadOperationId,
-              status: 'failed',
-              durationMs: diagnosticNow() - loadStartedAt,
-              fields: [],
-              errorClass: getErrorClass(e),
-            });
-          }
-        }
-
-        getDocs(collection(db, 'careers')).then(snapshot => {
-          if (!cancelled && !snapshot.empty) setCareersData(snapshot.docs.map(skip => skip.data()));
-        }).catch(console.error);
-      } catch (error) {
-        if (!cancelled) {
-          emitDiagnostic('save_load', {
-            operationId: loadOperationId,
-            status: 'failed',
-            durationMs: diagnosticNow() - loadStartedAt,
-            fields: [],
-            errorClass: getErrorClass(error),
-          });
-        }
-      }
-    }
-
-    initCloudSync();
-    return () => {
-      cancelled = true;
-      unsubscribeFirstAuth?.();
-      setFirebaseIdTokenProvider(null);
-    };
-  }, [hydrateFromSave]);
-
-  // 2. Sync to Cloud — pass { replace: true } on life boundaries to wipe stale fields
-  const syncToCloud = useCallback(async (stateData, options = {}) => {
-    const saveOperationId = createDiagnosticId('save-sync');
-    const saveStartedAt = diagnosticNow();
-    const fields = getDiagnosticStateFields(stateData);
-    if (!cloudSync) {
-      emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'skipped',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
-      });
-      return;
-    }
-    emitDiagnostic('save_sync', {
-      operationId: saveOperationId,
-      status: 'started',
-      durationMs: 0,
-      fields,
-    });
-    try {
-      const saveRef = cloudSync.doc(cloudSync.db, 'users', cloudSync.userId, 'saves', 'currentLife');
-      if (options.replace) {
-        await cloudSync.setDoc(saveRef, stateData);
-      } else {
-        await cloudSync.setDoc(saveRef, stateData, { merge: true });
-      }
-      emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'saved',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
-      });
-    } catch (e) {
-      emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'failed',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
-        errorClass: getErrorClass(e),
-      });
-    }
-  }, [cloudSync]);
-
-  /**
-   * Mid-life persist: always write a full buildLifeSave payload (merge).
-   * Pass every field you just mutated as overrides — React setState has not flushed yet.
-   * Eagerly updates lifeSnapshotRef so chained persists in the same tick stay consistent.
-   * See docs/architecture.md — mid-life sync.
-   */
-  const persistLife = useCallback((overrides = {}) => {
-    const next = { ...lifeSnapshotRef.current, ...overrides };
-    lifeSnapshotRef.current = next;
-    syncToCloud(buildLifeSave(next));
-  }, [syncToCloud]);
-
-  const isActionLocked = () => isDead || isAging || !!currentEvent;
-
   /** Clear the in-memory life only — no cloud write. Shared by resetLife and account changes. */
-  const clearLocalLife = () => {
+  const clearLocalLife = useCallback(() => {
     setCharacter(null);
     setAge(0);
     setStats({ ...INITIAL_STATS });
@@ -932,7 +105,25 @@ export function useGameState() {
     setEconomyCycle({ ...INITIAL_ECONOMY });
     setPets([]);
     setWill(null);
-  };
+  }, []);
+
+  const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
+    hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData,
+  });
+
+  /**
+   * Mid-life persist: always write a full buildLifeSave payload (merge).
+   * Pass every field you just mutated as overrides — React setState has not flushed yet.
+   * Eagerly updates lifeSnapshotRef so chained persists in the same tick stay consistent.
+   * See docs/architecture.md — mid-life sync.
+   */
+  const persistLife = useCallback((overrides = {}) => {
+    const next = { ...lifeSnapshotRef.current, ...overrides };
+    lifeSnapshotRef.current = next;
+    syncToCloud(buildLifeSave(next));
+  }, [syncToCloud]);
+
+  const isActionLocked = () => isDead || isAging || !!currentEvent;
 
   /**
    * Live Again: clear local + full-replace cloud so App shows CharacterCreation.
@@ -943,172 +134,6 @@ export function useGameState() {
     ignoreCloudLoadRef.current = true;
     clearLocalLife();
     syncToCloud(buildLifeSave({ character: null, isDead: false }), { replace: true });
-  };
-
-  /**
-   * Shared backend loader for account actions (Google, email, sign-out).
-   * Returns null when Firebase is unconfigured; otherwise auth handles plus
-   * `adopt` (rebind token provider / cloud sync / authAccount to a user) and
-   * `loadAccountSave` (clear local life, hydrate the uid's cloud save).
-   */
-  const getAuthBackend = async () => {
-    const [firebaseConfig, authApi, firestoreApi] = await Promise.all([
-      import('../config/firebase'),
-      import('firebase/auth'),
-      import('firebase/firestore'),
-    ]);
-    const { auth, db } = firebaseConfig;
-    if (!auth || !db) return null;
-    const adopt = (user) => {
-      setFirebaseIdTokenProvider(() => user.getIdToken());
-      setCloudSync({ db, userId: user.uid, doc: firestoreApi.doc, setDoc: firestoreApi.setDoc });
-      setAuthAccount(summarizeAuthUser(user));
-    };
-    const loadAccountSave = async (uid) => {
-      clearLocalLife();
-      const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
-      if (snap.exists()) hydrateFromSave(snap.data());
-    };
-    return { auth, authApi, adopt, loadAccountSave };
-  };
-
-  /**
-   * Google sign-in for cloud saves. An anonymous player is LINKED (same uid —
-   * the current life survives untouched). If the Google account already
-   * belongs to another uid, we SWITCH to that account and load its save
-   * instead. Returns { ok: true, mode } or { ok: false, reason } — reasons
-   * are sanitized codes, never raw provider errors.
-   */
-  const signInWithGoogle = async () => {
-    try {
-      const backend = await getAuthBackend();
-      if (!backend) return { ok: false, reason: 'unavailable' };
-      const { auth, authApi, adopt, loadAccountSave } = backend;
-      const { GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential } = authApi;
-
-      const provider = new GoogleAuthProvider();
-      const current = auth.currentUser;
-      try {
-        if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
-        if (current) {
-          const result = await linkWithPopup(current, provider);
-          adopt(result.user); // same uid — the in-progress life is untouched
-          return { ok: true, mode: 'linked' };
-        }
-        const result = await signInWithPopup(auth, provider);
-        adopt(result.user);
-        await loadAccountSave(result.user.uid);
-        return { ok: true, mode: 'signed_in' };
-      } catch (e) {
-        if (e?.code === 'auth/credential-already-in-use') {
-          // This Google account already owns a save under another uid — switch to it.
-          const credential = GoogleAuthProvider.credentialFromError(e);
-          if (!credential) return { ok: false, reason: 'error' };
-          const result = await signInWithCredential(auth, credential);
-          adopt(result.user);
-          await loadAccountSave(result.user.uid);
-          return { ok: true, mode: 'switched' };
-        }
-        if (e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-blocked') {
-          return { ok: false, reason: 'cancelled' };
-        }
-        return { ok: false, reason: 'error' };
-      }
-    } catch {
-      return { ok: false, reason: 'error' };
-    }
-  };
-
-  /**
-   * Email/password auth. mode 'signup' links the anonymous player (same uid —
-   * the current life survives untouched) or creates a fresh account; mode
-   * 'signin' switches to the existing account and loads its cloud save.
-   * Sanitized reasons only — raw provider errors never surface.
-   */
-  const signInWithEmail = async (email, password, mode = 'signup') => {
-    const input = prepareEmailCredential(email, password);
-    if (!input.ok) return input;
-    try {
-      const backend = await getAuthBackend();
-      if (!backend) return { ok: false, reason: 'unavailable' };
-      const { auth, authApi, adopt, loadAccountSave } = backend;
-      const { EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword } = authApi;
-      const current = auth.currentUser;
-      try {
-        if (mode === 'signin') {
-          const result = await signInWithEmailAndPassword(auth, input.email, password);
-          adopt(result.user);
-          await loadAccountSave(result.user.uid);
-          return { ok: true, mode: 'switched' };
-        }
-        if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
-        if (current) {
-          const credential = EmailAuthProvider.credential(input.email, password);
-          const result = await linkWithCredential(current, credential);
-          adopt(result.user); // same uid — the in-progress life is untouched
-          return { ok: true, mode: 'linked' };
-        }
-        const result = await createUserWithEmailAndPassword(auth, input.email, password);
-        adopt(result.user);
-        await loadAccountSave(result.user.uid);
-        return { ok: true, mode: 'signed_in' };
-      } catch (e) {
-        const code = e?.code ?? '';
-        if (code === 'auth/email-already-in-use' || code === 'auth/credential-already-in-use') {
-          return { ok: false, reason: 'email_in_use' };
-        }
-        if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
-          return { ok: false, reason: 'invalid_credentials' };
-        }
-        if (code === 'auth/weak-password') return { ok: false, reason: 'weak_password' };
-        if (code === 'auth/invalid-email') return { ok: false, reason: 'invalid_email' };
-        if (code === 'auth/too-many-requests') return { ok: false, reason: 'rate_limited' };
-        if (code === 'auth/operation-not-allowed') return { ok: false, reason: 'unavailable' };
-        return { ok: false, reason: 'error' };
-      }
-    } catch {
-      return { ok: false, reason: 'error' };
-    }
-  };
-
-  /** Password-reset email. Never reveals whether the address has an account. */
-  const resetPassword = async (email) => {
-    const cleanEmail = typeof email === 'string' ? email.trim() : '';
-    if (!cleanEmail) return { ok: false, reason: 'invalid_email' };
-    try {
-      const backend = await getAuthBackend();
-      if (!backend) return { ok: false, reason: 'unavailable' };
-      try {
-        await backend.authApi.sendPasswordResetEmail(backend.auth, cleanEmail);
-        return { ok: true };
-      } catch (e) {
-        if (e?.code === 'auth/user-not-found') return { ok: true };
-        if (e?.code === 'auth/invalid-email') return { ok: false, reason: 'invalid_email' };
-        return { ok: false, reason: 'error' };
-      }
-    } catch {
-      return { ok: false, reason: 'error' };
-    }
-  };
-
-  /**
-   * Sign out on this device: a fresh anonymous session starts and the local
-   * life clears. The signed-in account's cloud save is left untouched.
-   */
-  const signOutAccount = async () => {
-    try {
-      const backend = await getAuthBackend();
-      if (!backend) return { ok: false, reason: 'unavailable' };
-      const { auth, authApi, adopt } = backend;
-      if (auth.currentUser?.isAnonymous) return { ok: true, mode: 'already_guest' };
-      await authApi.signOut(auth);
-      const cred = await authApi.signInAnonymously(auth);
-      adopt(cred.user);
-      clearLocalLife();
-      return { ok: true, mode: 'signed_out' };
-    } catch {
-      return { ok: false, reason: 'error' };
-    }
   };
 
   const startLife = (name, gender, country, cityId) => {
@@ -1235,70 +260,6 @@ export function useGameState() {
     });
   };
 
-  const runPerformanceReview = useCallback((currentStats, currentCareer, currentMeta, currentNetworking, currentEconomy) => {
-    let roll = 0.5;
-    roll += Math.min(0.10, ((currentStats.smarts  - 50) / 10) * 0.02);
-    roll += Math.min(0.06, ((currentStats.health  - 50) / 10) * 0.02);
-    roll += Math.min(0.05, ((currentStats.karma   - 50) / 10) * 0.01);
-    roll += Math.min(0.10, (currentNetworking / 20) * 0.02);
-    if (currentMeta.isOnPIP)             roll -= 0.05;
-    if (currentMeta.financialStressFlag) roll -= 0.10;
-    if (currentEconomy?.phase === 'boom')      roll += 0.05;
-    if (currentEconomy?.phase === 'recession') roll -= 0.05;
-
-    let outcome;
-    if (roll < 0.10)      outcome = 'fired';
-    else if (roll < 0.25) outcome = 'pip';
-    else if (roll < 0.55) outcome = 'no_change';
-    else if (roll < 0.85) outcome = 'raise';
-    else                  outcome = 'promoted';
-
-    if (currentEconomy?.phase === 'recession' && roll < 0.15) outcome = 'fired';
-    if (currentEconomy?.phase === 'boom' && outcome === 'fired' && roll >= 0.12) outcome = 'pip';
-
-    let newCareer = { ...currentCareer };
-    let setIsOnPIP = false;
-    let unemploymentYears = 0;
-    let newFinancialStressFlag = currentMeta.financialStressFlag ?? false;
-
-    if (outcome === 'promoted') {
-      if (!currentCareer.nextTierId) {
-        outcome = 'raise';
-      } else {
-        const reqs = currentCareer.promotionRequirements ?? {};
-        const meetsReqs = (
-          (currentMeta.yearsInRole >= (reqs.minYearsInRole ?? 0)) &&
-          (currentStats.smarts >= (reqs.minSmarts ?? 0)) &&
-          (currentStats.health >= (reqs.minHealth ?? 0)) &&
-          (currentStats.karma  >= (reqs.minKarma  ?? 0))
-        );
-        if (!meetsReqs) outcome = 'raise';
-      }
-    }
-
-    if (outcome === 'raise') {
-      newCareer = { ...currentCareer, salary: Math.round(currentCareer.salary * 1.05) };
-    } else if (outcome === 'pip') {
-      setIsOnPIP = true;
-      newCareer = { ...currentCareer };
-    } else if (outcome === 'fired') {
-      newCareer = null;
-      unemploymentYears = 2;
-      newFinancialStressFlag = true;
-    }
-
-    const texts = {
-      promoted:  `Career: Outstanding performance — you've been promoted! Your manager wants to discuss next steps.`,
-      raise:     `Career: Good performance. You received a 5% salary raise ($${Math.round(currentCareer.salary * 0.05).toLocaleString()}).`,
-      no_change: `Career: Satisfactory year. No change in compensation.`,
-      pip:       `Career: Your manager placed you on a Performance Improvement Plan. Shape up.`,
-      fired:     `Career: You were let go. Your position has been eliminated. Unemployment benefits activated.`,
-    };
-
-    return { outcome, newCareer, setIsOnPIP, unemploymentYears, newFinancialStressFlag, historyText: texts[outcome],
-      statEffects: { happiness: outcome === 'pip' ? -10 : outcome === 'fired' ? -30 : 0 } };
-  }, []);
-
   const ageUp = useCallback(async () => {
     if (isDead || currentEvent || isAging) return;
 
@@ -1314,526 +275,106 @@ export function useGameState() {
     });
 
     try {
-    const nextAge = age + 1;
-    let nextStats = { ...stats };
-    if (nextAge >= 5 && nextAge <= 22) {
-      nextStats.grades = computeGradesDrift(nextStats.grades, nextStats.smarts);
-    }
-    let nextBank = bank;
-    let nextCareer = career;
-    let businessHistory = null;
-    let educationHistory = null;
+      const annual = advanceLifeYear({
+        age, stats, bank, career, economyCycle, education, character, careerMeta,
+        networking, belongings, properties, relationships, pets, activitiesThisYear,
+      }, { careersData });
+      const {
+        age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer,
+        careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy,
+        education: nextEducation, relationships: nextRelationships,
+        properties: nextProperties, belongings: nextBelongings, pets: petUpdates,
+      } = annual.state;
 
-    // ── Economy cycle ─────────────────────────────────────────────────────────
-    const PHASE_DURATIONS = { normal: 3, boom: 2, recession: 2 };
-    const phaseTransitions = { normal: 'boom', boom: 'recession', recession: 'normal' };
-    const newYearsInPhase = economyCycle.yearsInPhase + 1;
-    const nextEconomy = newYearsInPhase >= PHASE_DURATIONS[economyCycle.phase]
-      ? { year: economyCycle.year + 1, phase: phaseTransitions[economyCycle.phase], yearsInPhase: 0 }
-      : { year: economyCycle.year + 1, phase: economyCycle.phase, yearsInPhase: newYearsInPhase };
+      setAge(nextAge);
+      setStats(nextStats);
+      setBank(nextBank);
+      setCareer(nextCareer);
+      setCareerMeta(nextCareerMeta);
+      setNetworking(nextNetworking);
+      setEconomyCycle(nextEconomy);
+      setEducation(nextEducation);
+      setActivitiesThisYear({});
+      setProperties(nextProperties);
+      setBelongings(nextBelongings);
+      setPets(petUpdates);
+      setRelationships(nextRelationships);
 
-    // ── Auto high-school diploma at 18 ────────────────────────────────────────
-    let nextEducation = { ...education };
-    if (nextAge >= 18 && !nextEducation.highSchool) {
-      nextEducation = { ...nextEducation, highSchool: true };
-      educationHistory = `Education: You earned your High School Diploma!`;
-    }
+      const died = checkDeath(nextStats, nextAge);
 
-    // ── Process in-progress degree ────────────────────────────────────────────
-    if (nextEducation.currentDegree) {
-      const advanced = advanceDegreeYear(nextEducation, nextStats, nextBank);
-      nextEducation = advanced.education;
-      nextStats = advanced.stats;
-      nextBank = advanced.bank;
-      if (advanced.history) educationHistory = advanced.history;
-    }
-
-    nextStats = applyAgeUpDegradation(nextStats, nextAge);
-
-    if (nextCareer) {
-      if (nextCareer.id === 'founder') {
-        const startupYear = applyStartupYear(nextCareer, Math.random());
-        businessHistory = {
-          bankrupt: "Your startup went bankrupt. You lost everything.",
-          downturn: "Your startup had a tough year.",
-          steady: "Your startup grew steadily.",
-          moonshot: "Your startup valuation skyrocketed!",
-        }[startupYear.outcome];
-
-        if (!startupYear.career) {
-          nextStats.happiness = Math.max(0, nextStats.happiness - 30);
-          nextCareer = null;
-        } else {
-          nextCareer = startupYear.career;
-          nextBank += startupYear.dividend;
-          businessHistory += ` Valuation: $${startupYear.career.equity}. Dividend: $${startupYear.dividend}.`;
-        }
-      } else {
-        const salaryMultiplier = getCityById(character?.city)?.salaryMultiplier ?? 1.0;
-        const income = computeCareerYearIncome(nextCareer, nextStats, nextBank, salaryMultiplier);
-        nextStats = income.stats;
-        nextBank = income.bank;
-        if (income.tax > 0) businessHistory = (businessHistory ? businessHistory + ' ' : '') + `Paid $${income.tax.toLocaleString()} in income tax (${Math.round(income.tax / income.grossSalary * 100)}% bracket).`;
-      }
-    }
-
-    // ── Lifestyle cost (wealth tier expectation) ──────────────────────────────
-    const colMultiplier = getCityById(character?.city)?.colMultiplier ?? 1.0;
-    const lifestyle = computeLifestyleCost(nextBank, nextStats, colMultiplier);
-    nextBank = lifestyle.bank;
-    nextStats = lifestyle.stats;
-    let lifestyleHistoryStr = null;
-    if (lifestyle.cost > 0) {
-      lifestyleHistoryStr = lifestyle.inDebt
-        ? `Lifestyle: You can't maintain your ${lifestyle.tier.label} status. Went into debt paying $${lifestyle.cost.toLocaleString()} in lifestyle costs. −${lifestyle.tier.happinessPenalty} Happiness.`
-        : `Lifestyle: Spent $${lifestyle.cost.toLocaleString()} maintaining your ${lifestyle.tier.label} lifestyle.`;
-    }
-
-    // ── Performance review & networking gain ──────────────────────────────────
-    let nextCareerMeta = { ...careerMeta };
-    let nextNetworking = networking;
-    let reviewHistory  = null;
-
-    if (nextCareer && nextCareer.id !== 'founder') {
-      nextCareerMeta = { ...nextCareerMeta, yearsInRole: nextCareerMeta.yearsInRole + 1 };
-      // Networking gain from job
-      nextNetworking = Math.min(100, nextNetworking + (nextCareer.networking_gain ?? 0));
-
-      const review = runPerformanceReview(nextStats, nextCareer, nextCareerMeta, nextNetworking, nextEconomy);
-      reviewHistory = review.historyText;
-      nextStats.happiness = Math.min(100, Math.max(0, nextStats.happiness + review.statEffects.happiness));
-      nextCareerMeta = { ...nextCareerMeta, isOnPIP: review.setIsOnPIP, financialStressFlag: review.newFinancialStressFlag, unemploymentYearsLeft: review.unemploymentYears };
-
-      if (review.outcome === 'promoted' && review.newCareer?.nextTierId) {
-        // Resolve the promotion to the actual next-tier career object
-        const promoted = careersData.find(c => c.id === nextCareer.nextTierId);
-        if (promoted) {
-          nextCareer = promoted;
-          nextCareerMeta = { ...nextCareerMeta, yearsInRole: 0 };
-        }
-      } else if (review.outcome === 'raise' || review.outcome === 'no_change') {
-        nextCareer = review.newCareer;
-      } else if (review.outcome === 'fired') {
-        nextCareer = null;
-        nextCareerMeta = { ...nextCareerMeta, yearsInRole: 0 };
-      }
-    } else if (!nextCareer && nextCareerMeta.unemploymentYearsLeft > 0) {
-      // Unemployment stipend
-      const stipend = 4000;
-      nextBank += stipend;
-      nextCareerMeta = { ...nextCareerMeta, unemploymentYearsLeft: nextCareerMeta.unemploymentYearsLeft - 1 };
-      reviewHistory = nextCareerMeta.unemploymentYearsLeft > 0
-        ? `Unemployment: Received $${stipend.toLocaleString()} in benefits.`
-        : `Unemployment: Benefits expired. Time to find work.`;
-    }
-
-    // Financial stress flag: unemployed and broke
-    if (!nextCareer && nextBank < 0) nextCareerMeta = { ...nextCareerMeta, financialStressFlag: true };
-
-    let nextBelongings = [...belongings];
-
-    const marketCrash = Math.random() < 0.05;
-    const marketBoom = !marketCrash && Math.random() < 0.10;
-
-    // Resolve catalog appreciation rates for all owned assets
-    const catalogMap = Object.fromEntries(getAllAssets().map(a => [a.id, a]));
-
-    let investmentHistoryStr = null;
-
-    const propertyTick = applyPropertyMarketTick(properties, nextStats, {
-      phase: nextEconomy.phase,
-      catalogMap,
-      marketCrash,
-      marketBoom,
-    });
-    const nextProperties = propertyTick.properties;
-    nextStats = propertyTick.stats;
-    let totalUpkeep = propertyTick.totalUpkeep;
-    let investmentIncome = propertyTick.investmentIncome;
-
-    const bondMaturities = []; // collect bond principal returns
-    nextBelongings = nextBelongings.map(item => {
-      let newValue = item.currentValue;
-      const subType = item.type === 'investment' ? normalizeInvestmentSubType(item.subType) : null;
-      if (item.type === 'investment') {
-        if (subType === 'bond') {
-          // Annual coupon income, then principal back at maturity
-          const couponIncome = Math.floor((item.purchasePrice ?? 0) * (item.couponRate ?? 0.04));
-          investmentIncome += couponIncome;
-          const newYTM = (item.yearsToMaturity ?? 1) - 1;
-          if (newYTM <= 0) {
-            // Bond matures: principal returned, bond removed
-            bondMaturities.push({ name: item.name, principal: item.purchasePrice ?? item.currentValue });
-            return null; // will be filtered out below
-          }
-          return { ...item, subType, currentValue: item.purchasePrice ?? item.currentValue, yearsOwned: item.yearsOwned + 1, yearsToMaturity: newYTM };
-
-        } else if (subType === 'crypto') {
-          const vol = item.volatility ?? 0.60;
-          const trend = ((item.trendiness ?? 0.5) - 0.5) * 0.30;
-          const crashRoll = Math.random();
-          const moonRoll  = Math.random();
-          // Moonshot: small chance of insane multi (higher chance for ultra-volatile coins)
-          if (vol >= 1.5 && moonRoll < 0.02) {
-            const mult = 50 + Math.random() * 950; // 50x–1000x
-            newValue = Math.floor(item.currentValue * mult);
-          } else if (vol >= 0.80 && moonRoll < 0.015) {
-            const mult = 5 + Math.random() * 95;   // 5x–100x
-            newValue = Math.floor(item.currentValue * mult);
-          // Crash: small chance of near-total wipe
-          } else if (crashRoll < 0.05 + (vol - 0.6) * 0.1) {
-            const survive = 0.02 + Math.random() * 0.18; // lose 80–98%
-            newValue = Math.max(0, Math.floor(item.currentValue * survive));
-          } else {
-            let swing = (Math.random() * 2 - 1) * vol;
-            if (nextEconomy.phase === 'boom') swing += 0.20 + trend;
-            if (nextEconomy.phase === 'recession') swing -= 0.30;
-            else swing += trend;
-            newValue = Math.max(0, Math.floor(item.currentValue * (1 + swing)));
-          }
-
-        } else if (subType === 'stock') {
-          let swing = (Math.random() * 2 - 1) * (item.volatility ?? 0.25);
-          let rate = swing + (item.baseReturn ?? 0.08);
-          if (nextEconomy.phase === 'boom') rate += 0.10;
-          if (nextEconomy.phase === 'recession') rate -= 0.15;
-          newValue = Math.max(0, Math.floor(item.currentValue * (1 + rate)));
-
-        } else if (subType === 'penny_stock') {
-          const roll = Math.random();
-          if (roll < 0.12) {
-            newValue = 0; // bankrupt
-          } else if (roll < 0.22) {
-            newValue = Math.floor(item.currentValue * (2 + Math.random() * 4)); // 2x–6x
-          } else {
-            const swing = (Math.random() - 0.45) * 0.70;
-            newValue = Math.max(0, Math.floor(item.currentValue * (1 + swing)));
-          }
-
-        } else if (subType === 'fund' || item.returnProfile) {
-          const ret = estimateInvestmentReturn({ ...item }, nextEconomy.phase);
-          // Paper gain/loss only — do not also add to bank (net-worth double-count)
-          newValue = applyPaperInvestmentReturn(item.currentValue, ret).newValue;
-
-        } else {
-          // Legacy catalog-based investment — same mark-to-market treatment
-          const ret = estimateInvestmentReturn({ ...item }, nextEconomy.phase);
-          newValue = applyPaperInvestmentReturn(item.currentValue, ret).newValue;
-        }
-      } else {
-        // Non-investment belongings: use catalog appreciation rate
-        const rate = catalogMap[item.catalogId]?.appreciationRate;
-        if (rate) {
-          newValue = Math.floor(item.currentValue * rate);
-        } else if (item.type === 'luxury' || item.type === 'heirloom' || item.type === 'jewelry') {
-          newValue = Math.floor(item.currentValue * 1.025);
-        } else {
-          newValue = Math.floor(item.currentValue * 0.85);
-        }
-      }
-      totalUpkeep += item.upkeep || 0;
-      const fx = catalogMap[item.catalogId]?.statEffects ?? {};
-      for (const [stat, delta] of Object.entries(fx)) {
-        if (nextStats[stat] !== undefined) nextStats[stat] = Math.min(100, Math.max(0, nextStats[stat] + delta));
-      }
-      return { ...item, subType: subType ?? item.subType, currentValue: Math.max(0, newValue), yearsOwned: item.yearsOwned + 1 };
-    }).filter(Boolean); // remove matured bonds
-
-    // Add matured bond principals to bank + history
-    for (const bond of bondMaturities) {
-      nextBank += bond.principal;
-      investmentHistoryStr = (investmentHistoryStr ? investmentHistoryStr + ' ' : '') + `Bond Maturity: ${bond.name} matured — principal of $${bond.principal.toLocaleString()} returned.`;
-    }
-
-    if (investmentIncome !== 0) {
-      nextBank += investmentIncome;
-      const incomeMsg = investmentIncome > 0
-        ? `Investments: Your portfolio returned $${investmentIncome.toLocaleString()} this year.`
-        : `Investments: Your portfolio lost $${Math.abs(investmentIncome).toLocaleString()} this year.`;
-      investmentHistoryStr = investmentHistoryStr
-        ? `${investmentHistoryStr} | ${incomeMsg}`
-        : incomeMsg;
-    }
-
-    nextBank -= totalUpkeep;
-    let upkeepHistoryStr = null;
-    let marketHistoryStr = null;
-
-    if (totalUpkeep > 0) {
-      if (nextBank < 0) {
-         nextStats.happiness = Math.max(0, nextStats.happiness - 20);
-         upkeepHistoryStr = `Economy: You went into debt paying $${totalUpkeep.toLocaleString()} in maintenance fees!`;
-      } else {
-         upkeepHistoryStr = `Economy: Paid $${totalUpkeep.toLocaleString()} in property taxes and maintenance.`;
-      }
-    }
-    
-    if (marketCrash && properties.length > 0) marketHistoryStr = "Economy: The housing market crashed! Real estate shed 30% of its value.";
-    if (marketBoom && properties.length > 0) marketHistoryStr = "Economy: A booming housing market skyrocketed your property values!";
-
-    // ── Child support obligations ─────────────────────────────────────────────
-    let childSupportTotal = 0;
-    let childSupportHistoryStr = null;
-    relationships.forEach(r => {
-      if (r.childSupport && r.childSupport > 0) childSupportTotal += r.childSupport;
-    });
-    if (childSupportTotal > 0) {
-      nextBank -= childSupportTotal;
-      childSupportHistoryStr = `Family: Child support payments: -$${childSupportTotal.toLocaleString()}`;
-    }
-
-    // ── Pet lifecycle ─────────────────────────────────────────────────────────
-    let petHappinessBonus = 0;
-    let petMaintenanceCost = 0;
-    const petDeathMessages = [];
-
-    const petUpdates = pets.map(pet => {
-      if (!pet.isAlive) return pet;
-      const petDef = PET_CATALOG[pet.speciesId];
-      if (!petDef) return pet;
-
-      const newAge = pet.age + 1;
-      petMaintenanceCost += petDef.annualMaintenanceCost;
-      petHappinessBonus += petDef.happinessBonus;
-
-      const deathChance = newAge >= petDef.lifespanMax ? 1.0
-        : newAge >= petDef.lifespanMin
-          ? (newAge - petDef.lifespanMin) / (petDef.lifespanMax - petDef.lifespanMin) * 0.3
-          : 0;
-
-      if (Math.random() < deathChance) {
-        petDeathMessages.push(`Your ${petDef.species} ${pet.name} passed away at age ${newAge}. You'll miss them dearly.`);
-        return { ...pet, age: newAge, isAlive: false };
-      }
-      return { ...pet, age: newAge };
-    });
-
-    nextBank -= petMaintenanceCost;
-    if (petHappinessBonus > 0) {
-      nextStats.happiness = Math.min(100, nextStats.happiness + petHappinessBonus);
-    }
-    nextStats.happiness = Math.max(0, nextStats.happiness - petDeathMessages.length * 5);
-
-    setPets(petUpdates);
-
-    setAge(nextAge);
-    setStats(nextStats);
-    setBank(nextBank);
-    setCareer(nextCareer);
-    setCareerMeta(nextCareerMeta);
-    setNetworking(nextNetworking);
-    setEconomyCycle(nextEconomy);
-    setEducation(nextEducation);
-    setActivitiesThisYear({});
-    setProperties(nextProperties);
-    setBelongings(nextBelongings);
-    
-    // ── Relationship passive decay, auto-breakup, parent death, jealousy ────────
-    const getRelDecay = (rel) => {
-      if (rel.status === 'family')   return 1;
-      if (rel.status === 'dating')   return 3;
-      if (rel.status === 'married')  return 2;
-      if (rel.status === 'friend')   return 2;
-      return 0;
-    };
-
-    // Age every living relationship and apply passive decay if not interacted with
-    const wealthTier = getWealthTier(nextBank);
-    let nextRelationships = relationships.map(rel => {
-      if (!rel.isAlive) return rel;
-      const nextRel = { ...rel, age: rel.age + 1 };
-      const interacted = !!activitiesThisYear[`rel_interact__${rel.id}`];
-      const baseDecay = getRelDecay(rel);
-      if (!interacted && baseDecay > 0) {
-        // Romantic partners decay faster as wealth increases (they expect more attention/spending)
-        const mult = (rel.status === 'dating' || rel.status === 'married') ? wealthTier.relationDecayMult : 1.0;
-        const totalDecay = Math.ceil(baseDecay * mult);
-        return { ...nextRel, relation: Math.max(0, nextRel.relation - totalDecay) };
-      }
-      return nextRel;
-    });
-
-    // Auto-breakup: romantic relationships that hit rock bottom dissolve
-    const relationshipEvents = [];
-    nextRelationships = nextRelationships.map(rel => {
-      if (!rel.isAlive) return rel;
-      if ((rel.status === 'dating' || rel.status === 'married') && rel.relation < 20) {
-        const wasMarried = rel.status === 'married';
-        relationshipEvents.push(wasMarried
-          ? `Relationships: Your marriage with ${rel.name} fell apart and ended in divorce.`
-          : `Relationships: Things fell apart with ${rel.name}. You broke up.`
-        );
-        return markAsEx(rel);
-      }
-      return rel;
-    });
-
-    // Parent/elder death chance
-    nextRelationships = nextRelationships.map(rel => {
-      if (!rel.isAlive) return rel;
-      if (rel.status === 'family' && rel.age >= 70) {
-        const deathChance = Math.min(1, (rel.age - 70) / 60);
-        if (Math.random() < deathChance) {
-          relationshipEvents.push(`Life Event: Your ${rel.type}, ${rel.name}, passed away at age ${rel.age}.`);
-          nextStats.happiness = Math.max(0, nextStats.happiness - 10);
-          return { ...rel, isAlive: false };
-        }
-      }
-      return rel;
-    });
-
-    // Jealousy: multiple simultaneous lovers drain happiness
-    const activeLovers = nextRelationships.filter(r => r.isAlive && (r.status === 'dating' || r.status === 'married'));
-    if (activeLovers.length > 1) {
-      nextStats.happiness = Math.max(0, nextStats.happiness - 5);
-      relationshipEvents.push(`Relationships: The jealousy of maintaining ${activeLovers.length} simultaneous partners is taking a toll.`);
-    }
-
-    // === NPC Autonomy Pass ===
-    nextRelationships = nextRelationships.map(rel => {
-      if (rel.isAlive === false) return rel;
-      if (rel.status === 'ex') return rel;
-
-      let updated = { ...rel };
-      const npcAge = rel.age ?? 0;
-
-      // Job events (aged 22-45, no job yet)
-      if (!updated.npcJob && npcAge >= 22 && npcAge <= 45) {
-        if (Math.random() < 0.05) {
-          const job = NPC_JOB_LABELS[Math.floor(Math.random() * NPC_JOB_LABELS.length)];
-          updated.npcJob = job;
-          relationshipEvents.push(`📱 ${rel.name} landed a job as a ${job}.`);
-        }
+      let updatedHistory = [...history];
+      if (died) {
+        setIsDead(true);
+        updatedHistory.push({ age: nextAge, text: `You passed away peacefully at age ${nextAge}.` });
+        setHistory(updatedHistory);
+        persistLife({
+          age: nextAge,
+          stats: nextStats,
+          bank: nextBank,
+          isDead: true,
+          history: updatedHistory,
+          belongings: nextBelongings,
+          properties: nextProperties,
+          career: nextCareer,
+          careerMeta: nextCareerMeta,
+          networking: nextNetworking,
+          economyCycle: nextEconomy,
+          education: nextEducation,
+          relationships: nextRelationships,
+          pets: petUpdates,
+        });
+        emitDiagnostic('age_transition', {
+          operationId: transitionOperationId,
+          status: 'death',
+          durationMs: diagnosticNow() - transitionStartedAt,
+          fromAge: age,
+          toAge: nextAge,
+        });
+        return;
       }
 
-      // Marriage events (aged 25-50, not yet married)
-      if (!updated.npcSpouse && npcAge >= 25 && npcAge <= 50) {
-        if (Math.random() < 0.04) {
-          updated.npcSpouse = true;
-          relationshipEvents.push(`💍 ${rel.name} got married. You heard about it on social media.`);
-        }
-      }
-
-      // Illness events (aged 40+, probability scales with age)
-      if (!updated.npcSick && npcAge >= 40) {
-        const sickChance = 0.03 + Math.max(0, npcAge - 40) * 0.002;
-        if (Math.random() < sickChance) {
-          updated.npcSick = true;
-          updated.relation = Math.max(0, (updated.relation ?? 50) - 5);
-          relationshipEvents.push(`🏥 ${rel.name} was diagnosed with a health condition and has become more withdrawn.`);
-        }
-      }
-
-      // Children growing up
-      const isNpcChild = rel.relation === 'child' || rel.relation === 'son' || rel.relation === 'daughter'
-        || rel.type === 'Child' || rel.type === 'Son' || rel.type === 'Daughter';
-      if (isNpcChild && rel.custodyWith !== 'ex') {
-        if (npcAge === 18) {
-          updated.status = 'family_adult';
-          relationshipEvents.push(`🎓 Your child ${rel.name} has turned 18 and left for college.`);
-        } else if (npcAge === 22 && !updated.npcJob) {
-          const job = NPC_STARTER_JOBS[Math.floor(Math.random() * NPC_STARTER_JOBS.length)];
-          updated.npcJob = job;
-          relationshipEvents.push(`🎉 Your child ${rel.name} got their first job as a ${job}.`);
-        }
-      }
-
-      return updated;
-    });
-
-    setRelationships(nextRelationships);
-
-    const died = checkDeath(nextStats, nextAge);
-    
-    let updatedHistory = [...history];
-    if (died) {
-      setIsDead(true);
-      updatedHistory.push({ age: nextAge, text: `You passed away peacefully at age ${nextAge}.` });
-      setHistory(updatedHistory);
-      persistLife({
-        age: nextAge,
-        stats: nextStats,
-        bank: nextBank,
-        isDead: true,
-        history: updatedHistory,
-        belongings: nextBelongings,
-        properties: nextProperties,
-        career: nextCareer,
-        careerMeta: nextCareerMeta,
-        networking: nextNetworking,
-        economyCycle: nextEconomy,
-        education: nextEducation,
-        relationships: nextRelationships,
-        pets: petUpdates,
+      let eventTriggered = false;
+      const dynamicEvent = await generateDynamicEvent({
+        character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory,
+        narrativeMode, relationships, pets, city: getCityById(character?.city)?.name ?? null, education: nextEducation,
+        economyPhase: nextEconomy?.phase,
       });
+
+      if (dynamicEvent && dynamicEvent.description && dynamicEvent.choices) {
+        // Re-map format if necessary to ensure stability with UI
+        const safeEvent = {
+          description: dynamicEvent.description,
+          choices: dynamicEvent.choices.map(c => ({
+            text: c.text || "Continue",
+            effects: c.effects || {}
+          }))
+        };
+        setCurrentEvent(safeEvent);
+        eventTriggered = true;
+      } else {
+        setCurrentEvent({
+          description: 'LLM ERROR: Dynamic event generation returned no event.',
+          choices: [{ text: 'Understood', effects: {} }],
+        });
+        eventTriggered = true;
+      }
+
+      if (!eventTriggered) {
+        updatedHistory.push({ age: nextAge, text: `Age ${nextAge}: An uneventful year passed.` });
+      }
+
+      updatedHistory.push(...annual.history);
+
+      setHistory(updatedHistory);
+
+      persistLife({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
       emitDiagnostic('age_transition', {
         operationId: transitionOperationId,
-        status: 'death',
+        status: 'completed',
         durationMs: diagnosticNow() - transitionStartedAt,
         fromAge: age,
         toAge: nextAge,
       });
-      return;
-    }
-
-    let eventTriggered = false;
-    const dynamicEvent = await generateDynamicEvent({
-      character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory,
-      narrativeMode, relationships, pets, city: getCityById(character?.city)?.name ?? null, education: nextEducation,
-      economyPhase: nextEconomy?.phase,
-    });
-
-    if (dynamicEvent && dynamicEvent.description && dynamicEvent.choices) {
-      // Re-map format if necessary to ensure stability with UI
-      const safeEvent = {
-        description: dynamicEvent.description,
-        choices: dynamicEvent.choices.map(c => ({
-          text: c.text || "Continue",
-          effects: c.effects || {}
-        }))
-      };
-      setCurrentEvent(safeEvent);
-      eventTriggered = true;
-    } else {
-      setCurrentEvent({
-        description: 'LLM ERROR: Dynamic event generation returned no event.',
-        choices: [{ text: 'Understood', effects: {} }],
-      });
-      eventTriggered = true;
-    }
-
-    if (!eventTriggered) {
-      updatedHistory.push({ age: nextAge, text: `Age ${nextAge}: An uneventful year passed.` });
-    }
-    
-    if (businessHistory) updatedHistory.push({ age: nextAge, text: `Business: ${businessHistory}` });
-    if (investmentHistoryStr) updatedHistory.push({ age: nextAge, text: investmentHistoryStr });
-    if (lifestyleHistoryStr) updatedHistory.push({ age: nextAge, text: lifestyleHistoryStr });
-    if (educationHistory) updatedHistory.push({ age: nextAge, text: educationHistory });
-    if (reviewHistory)   updatedHistory.push({ age: nextAge, text: reviewHistory });
-    if (upkeepHistoryStr) updatedHistory.push({ age: nextAge, text: upkeepHistoryStr });
-    if (marketHistoryStr) updatedHistory.push({ age: nextAge, text: marketHistoryStr });
-    if (childSupportHistoryStr) updatedHistory.push({ age: nextAge, text: childSupportHistoryStr });
-    for (const relEvent of relationshipEvents) {
-      updatedHistory.push({ age: nextAge, text: relEvent });
-    }
-    for (const petMsg of petDeathMessages) {
-      updatedHistory.push({ age: nextAge, text: petMsg });
-    }
-    if (petMaintenanceCost > 0) {
-      updatedHistory.push({ age: nextAge, text: `Pets: Spent $${petMaintenanceCost.toLocaleString()} on pet care this year.` });
-    }
-
-    setHistory(updatedHistory);
-
-    persistLife({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
-    emitDiagnostic('age_transition', {
-      operationId: transitionOperationId,
-      status: 'completed',
-      durationMs: diagnosticNow() - transitionStartedAt,
-      fromAge: age,
-      toAge: nextAge,
-    });
     } catch (error) {
       emitDiagnostic('age_transition', {
         operationId: transitionOperationId,
@@ -1847,21 +388,12 @@ export function useGameState() {
     } finally {
       setIsAging(false);
     }
-  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, runPerformanceReview, careersData, pets, activitiesThisYear, narrativeMode]);
+  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, careersData, pets, activitiesThisYear, narrativeMode]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
 
   const checkCareerEligibility = useCallback((careerEntry) => {
-    if (age < careerEntry.minAge) return { eligible: false, reason: `Requires age ${careerEntry.minAge}+` };
-    if (!hasRequiredDegree(education, careerEntry.requiresDegree)) {
-      return { eligible: false, reason: `Requires ${DEGREE_LABELS[careerEntry.requiresDegree]}` };
-    }
-    const netReq = careerEntry.requiresNetworking ?? 0;
-    if (networking < netReq) return { eligible: false, reason: `Requires Networking ${netReq}+` };
-    for (const [stat, min] of Object.entries(careerEntry.statRequirements ?? {})) {
-      if ((stats[stat] ?? 0) < min) return { eligible: false, reason: `Requires ${stat} ${min}+` };
-    }
-    return { eligible: true, reason: '' };
+    return evaluateCareerEligibility(careerEntry, education, stats, networking, age);
   }, [age, education, networking, stats]);
 
   const enrollInDegree = (degreeType) => {

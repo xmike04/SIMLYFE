@@ -9,15 +9,17 @@ Deep-walk every player-facing path under the **Job** sheet (careers, school, rec
    - Root: Full-Time, Part-Time, Freelance, Military, Special Careers, Education, Recruiter
    - Full/Part-Time sectors → career list → `chooseCareer` / eligibility UI
    - Freelance gigs → `performGig`
-   - Military enlist contexts → `triggerActivityEvent`
+   - Military branch → `enlistMilitary` → soldier career; generated enlistment context is flavor
    - Special careers from `src/config/specialCareers.js` (actions, costs, `specialAction`)
    - Education enroll / progress / trade school
    - Recruiter headhunter (`HEADHUNTER_COST`)
 2. Under-18 school buttons in JobSheet (interact / admin / drop out) if present
-3. `MainGame.jsx` wiring of JobSheet props
+3. `src/components/game/GameSheets.jsx` wiring of JobSheet props; MainGame owns visibility and locking
 
 ### Engine
-- `chooseCareer`, `checkCareerEligibility`, `enrollDegree` / `enrollInDegree`, `advanceDegreeYear` (via `ageUp`), `studyHard`, `attendNetworkingEvent`, `performGig`, `startStartup`, `runPerformanceReview`
+- Commands in `src/engine/gameState.js`: `chooseCareer`, `enrollInDegree`, `studyHard`, `attendNetworkingEvent`, `performGig`, `startStartup`, `enlistMilitary`, `hireViaHeadhunter`
+- Real helpers in `src/engine/mechanics/careers.js` and `src/engine/mechanics/education.js`: eligibility, enrollment, degree progression, career income, review
+- Annual composition in `src/engine/annual/advanceLifeYear.js`: tuition, income, networking, and performance-review order
 - `src/engine/careers.json` shape vs sheet assumptions
 - Cloud: career/education/bank included in `persistLife` overrides
 
@@ -36,7 +38,7 @@ For each button / action, record:
 | Lock | Blocked while `isAging` / `currentEvent` / dead when appropriate |
 | Persist | Money/career/education changes reach `persistLife` with overrides |
 | Event | LLM `context` string is specific if event-driven |
-| Tests | Covered by real helper tests or catalog shape tests |
+| Tests | Direct-export coverage in `src/tests/mechanics/` plus catalog checks; actual command/component tests establish charges and wiring |
 
 ## Output format
 
