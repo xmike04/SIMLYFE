@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { createDiagnosticId, diagnosticNow, emitDiagnostic, getDiagnosticStateFields, getErrorClass } from '../diagnostics';
 import { validateHydratedSave } from '../stateValidation';
 import { setFirebaseIdTokenProvider } from '../firebaseToken';
@@ -14,6 +14,7 @@ import { getNativeGoogleCredential, isNativeGoogleCancellation } from '../../pla
 export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData }) {
   const [cloudSync, setCloudSync] = useState(null);
   const [authAccount, setAuthAccount] = useState(null);
+  const pendingBootSave = useRef(null);
 
   // 1. Adopt the persisted auth session (or start an anonymous one) and load
   // the cloud save if configured
@@ -139,9 +140,15 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     const saveStartedAt = diagnosticNow();
     const fields = getDiagnosticStateFields(stateData);
     if (!cloudSync) {
+      // Starting a life can beat the asynchronous Firebase bootstrap. Keep the
+      // latest complete snapshot and retain replacement semantics until ready.
+      pendingBootSave.current = {
+        stateData,
+        options: { replace: Boolean(options.replace || pendingBootSave.current?.options.replace) },
+      };
       emitDiagnostic('save_sync', {
         operationId: saveOperationId,
-        status: 'skipped',
+        status: 'queued',
         durationMs: diagnosticNow() - saveStartedAt,
         fields,
       });
@@ -177,6 +184,13 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     }
   }, [cloudSync]);
 
+  useEffect(() => {
+    if (!cloudSync || !pendingBootSave.current) return;
+    const pending = pendingBootSave.current;
+    pendingBootSave.current = null;
+    syncToCloud(pending.stateData, pending.options);
+  }, [cloudSync, syncToCloud]);
+
   /**
    * Shared backend loader for account actions (Google, email, sign-out).
    * Returns null when Firebase is unconfigured; otherwise auth handles plus
@@ -197,6 +211,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       setAuthAccount(summarizeAuthUser(user));
     };
     const loadAccountSave = async (uid) => {
+      pendingBootSave.current = null;
       clearLocalLife();
       const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
       if (snap.exists()) hydrateFromSave(snap.data());
@@ -342,6 +357,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       const { auth, authApi, adopt } = backend;
       if (auth.currentUser?.isAnonymous) return { ok: true, mode: 'already_guest' };
       await authApi.signOut(auth);
+      pendingBootSave.current = null;
       const cred = await authApi.signInAnonymously(auth);
       adopt(cred.user);
       clearLocalLife();

@@ -64,6 +64,40 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe('cloud lifecycle contract through the game hook', () => {
+  it('queues a life started before anonymous auth and writes its latest snapshot as a replacement', async () => {
+    const authReady = deferred();
+    backend.auth.currentUser = null;
+    backend.signInAnonymously.mockReturnValueOnce(authReady.promise);
+    const { result } = renderHook(() => useGameState());
+    await waitFor(() => expect(backend.signInAnonymously).toHaveBeenCalled());
+    act(() => result.current.startLife('Early Player', 'Female', 'US'));
+    act(() => result.current.performGig('Early gig', 500));
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    await act(async () => authReady.resolve({ user: user('boot-guest') }));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    const [path, save, ...options] = backend.setDoc.mock.calls[0];
+    expect(path).toBe('users/boot-guest/saves/currentLife');
+    expect(options).toEqual([]);
+    expect(save.character.name).toBe('Early Player');
+    expect(save.bank).toBe(500);
+    expect(save.history.at(-1).text).toContain('Early gig');
+    expect(Object.keys(save).sort()).toEqual([...LIFE_SAVE_KEYS].sort());
+  });
+
+  it('a reset before auth replaces the queued life with a complete blank save', async () => {
+    const authReady = deferred();
+    backend.auth.currentUser = null;
+    backend.signInAnonymously.mockReturnValueOnce(authReady.promise);
+    const { result } = renderHook(() => useGameState());
+    await waitFor(() => expect(backend.signInAnonymously).toHaveBeenCalled());
+    act(() => result.current.startLife('Early Player', 'Female', 'US'));
+    act(() => result.current.resetLife());
+    await act(async () => authReady.resolve({ user: user('boot-guest') }));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0]).toHaveLength(2);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ character: null, age: 0, career: null, pets: [], isDead: false });
+  });
+
   it('adopts the persisted account and hydrates its save without minting a guest', async () => {
     backend.auth.currentUser = user('returning-player', false);
     backend.getDoc.mockResolvedValue(snapshot(savedLife()));

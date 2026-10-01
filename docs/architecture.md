@@ -106,6 +106,14 @@ One preserved hydration gap is explicit: `flags` is written in the save payload,
 
 A page reload is not a reset: it can load the dead save again. `ignoreCloudLoadRef` protects a life started or reset while the initial cloud load is still pending from being overwritten by that late load.
 
+While Firebase bootstrap is pending, the account hook queues the latest complete
+save snapshot. A queued start/reset keeps replacement semantics even if later
+actions update the snapshot. Once auth is ready, that snapshot is written to
+the adopted UID. Explicit account switching/sign-out discards any queued boot
+save so it cannot overwrite another account's life. The queue is in memory;
+terminating the app before authentication finishes still cannot establish a
+cloud save.
+
 ## Identity and account transitions
 
 Firebase is loaded asynchronously after mount. Boot adopts an existing persisted session through `onAuthStateChanged`; it creates an anonymous session only when no account is present. The token-provider bridge in [firebaseToken.js](../src/engine/firebaseToken.js) supplies a short-lived Firebase ID token to the event client.
