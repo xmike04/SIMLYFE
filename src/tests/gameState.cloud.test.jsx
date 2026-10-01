@@ -64,6 +64,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe('cloud lifecycle contract through the game hook', () => {
+  it('preserves generated event request metadata through annual normalization for reporting', async () => {
+    const { result } = await ready();
+    act(() => result.current.startLife('Report Fixture', 'Female', 'US'));
+    const meta = { requestId: 'annual-report-fixture', model: 'fixture-model' };
+    generateDynamicEvent.mockResolvedValueOnce({ description: 'Fixture event', choices: [{ text: 'Continue', effects: {} }], meta });
+    await act(async () => { await result.current.ageUp(); });
+    expect(result.current.currentEvent).toMatchObject({ description: 'Fixture event', meta });
+    expect(typeof result.current.reportGeneratedEvent).toBe('function');
+  });
   it('queues a life started before anonymous auth and writes its latest snapshot as a replacement', async () => {
     const authReady = deferred();
     backend.auth.currentUser = null;

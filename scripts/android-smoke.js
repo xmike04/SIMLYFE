@@ -94,7 +94,7 @@ try {
       await capture('content-report');
       check('live AI report acknowledged without resolving the pending event');
     }
-    await page.locator('.event-overlay button').first().click();
+    await page.locator('.event-overlay').getByRole('button', { name: payload.event.choices[0].text, exact: true }).click();
     await expect(page.locator('.event-overlay')).toHaveCount(0);
     await expect.poll(() => diagnostics.filter(item => item.event === 'save_sync' && item.status === 'saved').length).toBeGreaterThanOrEqual(acknowledged + 2);
   }

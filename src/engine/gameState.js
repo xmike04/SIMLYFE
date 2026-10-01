@@ -344,6 +344,7 @@ export function useGameState() {
         // Re-map format if necessary to ensure stability with UI
         const safeEvent = {
           description: dynamicEvent.description,
+          meta: dynamicEvent.meta,
           choices: dynamicEvent.choices.map(c => ({
             text: c.text || "Continue",
             effects: c.effects || {}
