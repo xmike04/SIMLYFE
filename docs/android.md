@@ -62,9 +62,10 @@ npm run android:build
 
 Registered locally September 30, 2026:
 `1:559895580884:android:cbce52e696d60d3d7ceb41`, including both fingerprints of this
-Mac's debug key. Other machines, CI, release/upload and Play signing keys need
-their own fingerprints. A differently signed APK cannot update an existing
-installation in place.
+Mac's debug key. The CI debug and release upload fingerprints were subsequently
+registered and recorded in `android/signing-certificates.json`. Other machines
+and Play app-signing keys need their own fingerprints. A differently signed APK
+cannot update an existing installation in place.
 
 The native plugin obtains Google credentials with `skipNativeAuth: true`.
 `useCloudAccount` links the credential to the existing JS guest user. A collision
@@ -125,12 +126,15 @@ Guest/emulator evidence does not prove interactive Google login on a device.
 ## CI and release
 
 [Android workflow](../.github/workflows/android-build.yml) installs Node 24, Java
-21 and SDK 36, runs frontend/documentation checks, builds/lints, then uploads the
-debug APK/receipt. Set public `VITE_FIREBASE_*`, `VITE_SUPABASE_URL` and
+21 and SDK 36 on Ubuntu 24.04, runs frontend/documentation and browser checks,
+builds/lints, then uploads the debug APK/receipt. Set public `VITE_FIREBASE_*`, `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_PUBLISHABLE` as GitHub repository variables; provide native config
 as `ANDROID_GOOGLE_SERVICES_JSON`. `ANDROID_CI_DEBUG_KEYSTORE_B64` supplies a
 stable CI debug key, separate from this Mac's debug key and the release upload
-key. Register both fingerprints of each installed build's signer in Firebase.
+key. Gradle reads the explicit temporary CI key path; the build verifies the
+resulting APK signer against the registered public certificate and fails on a
+mismatch. Actions are pinned to verified release commit hashes. Register both
+fingerprints of each installed build's signer in Firebase.
 Fork PRs do not receive these secrets; they build with native Google disabled.
 
 Signed builds use `npm run android:release` (AAB) and
@@ -148,8 +152,11 @@ the debug checks pass. It reads `ANDROID_UPLOAD_KEYSTORE_B64`,
 `ANDROID_UPLOAD_STORE_PASSWORD`, and `ANDROID_UPLOAD_KEY_PASSWORD`; alias is
 `simlyfe-upload`. It verifies signatures, uploads only APK/AAB and public
 receipts, then removes the temporary key. Release secrets are never used by the
-PR job. Manual dispatch becomes available once this new workflow is on the
-default branch. This workflow builds artifacts; it does not publish to a store.
+PR job. Once GitHub registers the workflow, dispatch a review-branch build with
+`gh workflow run android-build.yml --ref codex/android-mobile -f signed_release=true`.
+This command was accepted before default-branch integration. Select the intended
+reviewed ref for later releases. This workflow builds artifacts; it does not publish
+to a store.
 
 The unsigned `android:bundle` command strips signing variables so its receipt
 cannot mislabel a signed bundle. Signed outputs are `SIMLYFE-release.aab` and
@@ -166,8 +173,10 @@ The lockfile uses targeted gRPC/UUID overrides for
 and [UUID bounds-check advisory](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
 Remove the overrides when upstream dependencies adopt patched compatible versions.
 
-Before Play distribution: confirm the permanent application ID, provision a
-release/upload key, register release and Play app-signing fingerprints, increment
+Before Play distribution: confirm the permanent application ID, securely back up
+the provisioned upload key, register Play app-signing fingerprints, increment
 version code/name, complete device QA, prepare store assets/privacy/data-safety/
 content disclosures, and verify current Play requirements. Publication is a
-separate release action. This deliverable is a development APK.
+separate release action. Current deliverables include a CI development APK and
+signed release APK/AAB; signing and emulator verification do not establish store
+publication or physical-device Google login.

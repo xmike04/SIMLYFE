@@ -71,11 +71,23 @@ Native Google picker/cancellation was exercised; successful physical-device
 linking and Play publication remain unverified. Detailed receipts and limits
 are in the [Android ledger](./android-plan.md).
 
-Supported portfolio wording: “Built an Android client for an AI-driven life
-simulator using Capacitor, Firebase identity/cloud persistence and authenticated
-structured-event generation; validated with 799 regression tests, browser E2E
-and native emulator checks.” This describes implemented/tested work, not a
-published Play Store release.
+The subsequent release preparation passed **805 tests across 40 files**, browser
+E2E, Android lint, and a [hosted Android build](https://github.com/xmike04/SIMLYFE/actions/runs/36807299745).
+The [manual signed-release workflow](https://github.com/xmike04/SIMLYFE/actions/runs/36808511007)
+also passed, and its downloaded artifacts were independently verified. Separate
+CI and upload signing identities are registered with Firebase. Build
+verification rejects an unexpected CI signer, and signed release APK/AAB checks
+verify the upload certificate and release manifest security flags. The production
+APK also restored a resolved real AI event after force-stop with WebView debugging
+disabled. A discovered Firebase-bootstrap save race is covered by two real-hook
+regression tests and a queue that retains complete new-life replacement.
+
+Supported portfolio wording: “Built and validated an Android client for an
+AI-driven life simulator using Capacitor, Firebase cloud persistence and an
+authenticated structured-event proxy; added CI, signed release artifacts and
+805 regression tests, with live emulator verification of generation and save
+recovery.” This describes implemented/tested work, not a published Play Store
+release. Physical-device Google linking and store distribution remain pending.
 
 - A browser-owned simulator gives immediate interactions and straightforward local testing, but Firestore ownership rules do not make client-computed money or stats tamper-proof.
 - Anonymous identity makes the first session simple; an account upgrade is needed for a more durable, portable player identity.

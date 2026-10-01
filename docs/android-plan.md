@@ -89,11 +89,11 @@ templates, and unrelated hosted-update products are not copied into the app.
   system bars, readable buttons, accessible closes and navigation label sizing.
   The frontend remains JavaScript/JSX and pure CSS with one shared engine.
 - Added repeatable native build/sync/install/lint/smoke commands and GitHub
-  workflow. External CI configuration/run has not been performed.
+  workflow. Hosted CI verification was completed in the next phase below.
 - Safe dependency patch updates and targeted `@grpc/grpc-js` 1.14.5 and xcode
   `uuid` 11.1.1 overrides eliminated reported audit findings. Verified xcode
   CommonJS UUID-call compatibility. Final `npm audit`: zero vulnerabilities.
-- Final frontend: lint passed; **799 tests across 39 files** passed; production
+- Initial development frontend: lint passed; **799 tests across 39 files** passed; production
   build and docs checks passed; desktop/mobile browser E2E both passed.
 - Native: APK and unsigned release AAB compiled; Android lint passed. Two
   instrumented identity/backup/cleartext tests passed. An instrumentation-only
@@ -104,7 +104,7 @@ templates, and unrelated hosted-update products are not copied into the app.
   recovery. Final run received four real HTTP 200 events from `gpt-4.1-nano`
   and restored the age-4 life. Evidence excludes tokens and raw save documents.
 
-## Delivered artifacts
+## Initial development artifacts
 
 Ignored output: `artifacts/android/`.
 
@@ -130,7 +130,6 @@ and release preparation are recorded in the next-phase ledger below.
 
 - Physical Android Google linking/email flows and vendor keyboard/rotation/back.
   Native-link/collision/cancellation tests do not replace interactive device login.
-- Verify the hosted CI run and manual signed job after default-branch integration.
 - Securely back up the upload key; register Play signing fingerprints, confirm permanent ID/version,
   store assets/disclosures and publication, following [the runbook](./android.md).
 - Native attestation if introducing App Check enforcement; this build has no
@@ -160,12 +159,50 @@ Preparation completed September 30, 2026:
 - Signed APK and AAB built as version 1.0.0/code 1; both signature verifications
   passed and match the upload certificate. APK manifest confirms debugging,
   backup and cleartext disabled. No Play upload occurred.
-- Release APK SHA-256: `3981781c1d0ef82fee157b3c5ab0718fd75ab95cfee6774f9056b31a4a1b2008`.
-- Release AAB SHA-256: `cdda1bf53ca5b7d1a90595269269846fdf9d953e2f1a651e8235c1d77b198575`.
+- Release APK SHA-256: `a04d7502c8cd6cd14704338113929c9b8843020ccab69804460bb78a341dd1a9`.
+- Release AAB SHA-256: `2de092652e1b10eb04542609b0571d71a3fb55d425aa1bb6e95154b65702c750`.
 - Public `artifacts/android/release-verification.json` records signature/manifest
   checks. Key passwords and private key files are excluded from artifacts/source.
-- Frontend checks passed: lint, 803 tests across 40 files, build, docs, two browser
-  tests. Hosted CI is the remaining verification for this preparation phase.
+- Fixed a startup persistence race: life snapshots submitted before Firebase
+  bootstrap are queued and flushed when ready, retaining full replacement at
+  start/reset boundaries. Explicit account switching discards the boot queue.
+  Two real-hook tests cover a new life followed by an action and a reset during
+  deferred bootstrap; no save schema or game-state owner changed.
+- Final frontend checks passed: lint, **805 tests across 40 files**, build, docs
+  and two browser tests. The [hosted PR run](https://github.com/xmike04/SIMLYFE/actions/runs/36807299745)
+  passed on attempt 2 at source `fc2efa9962abc420ee2350b641b59bd5f049595b`,
+  including native compile/lint. Attempt 1 stalled installing browser OS packages;
+  a fresh runner completed that same source.
+- Downloaded hosted APK hash and signature verified against its receipt and the
+  registered CI certificate. SHA-256:
+  `4ad14301773d09ed9afa41dbd6dae3b989a46543dd4c3d9a5f7f3ee8aaff2e83`.
+  Evidence lives in `artifacts/android/ci-runs/36807299745/ci-verification.json`.
+- That exact downloaded CI APK passed all nine live smoke checks in an isolated
+  API 36 emulator, including four real HTTP 200 `gpt-4.1-nano` events, acknowledged
+  Firestore writes and restored age-4 life after force-stop. Its separate
+  `ci-runs/36807299745/live/smoke-receipt.json` and screenshots preserve the hash
+  relationship without overwriting the first-phase development evidence.
+- The exact signed production APK passed six emulator runtime checks with
+  WebView debugging disabled: binary identity, restored guest, real generated
+  event, pending-choice Back protection, resolution and restored age/history
+  after force-stop. `release-runtime.json` records the checks; HTTP trace evidence
+  comes from the separate debug smoke, not this production run.
+- The [manual signed workflow](https://github.com/xmike04/SIMLYFE/actions/runs/36808511007)
+  passed both jobs on that same source before default-branch integration.
+  Independently verified all downloaded artifact hashes and certificates against
+  the registered identities, plus the release manifest security flags. Its debug
+  APK is byte-identical to the nine-check live-tested CI APK above.
+- Hosted release APK SHA-256:
+  `78e6d3aafce8733377e1f1ce1efd7e6402aa0de0e90649fcc6add42d9423a0e5`.
+  Hosted release AAB SHA-256:
+  `498ee567de87cd5c846c82d34c7148a1c6eeed2508cb0c22400ed951b6a95d1e`.
+  Downloaded files and independent verification are preserved under
+  `artifacts/android/ci-runs/36808511007/`. Local production runtime proof refers
+  to the local release APK hash above; the hosted release outputs received
+  cryptographic/manifest verification, not a separate interactive runtime test.
+- Review source is preserved in [draft PR #10](https://github.com/xmike04/SIMLYFE/pull/10).
+  The public frontend preview was canceled from the Vercel Dashboard; it was
+  not redeployed for this phase. Main remains unchanged; no store upload occurred.
 
 ## Primary references
 
