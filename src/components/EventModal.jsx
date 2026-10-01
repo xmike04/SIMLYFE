@@ -4,7 +4,7 @@ export default function EventModal({ event, onChoice }) {
   if (!event) return null;
 
   return (
-    <div className="animate-fade-in" style={{
+    <div className="event-overlay animate-fade-in" style={{
       position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
       background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
       display: 'flex', justifyContent: 'center', alignItems: 'center',

@@ -3,6 +3,8 @@ import { createDiagnosticId, diagnosticNow, emitDiagnostic, getDiagnosticStateFi
 import { validateHydratedSave } from '../stateValidation';
 import { setFirebaseIdTokenProvider } from '../firebaseToken';
 import { summarizeAuthUser, prepareEmailCredential } from './authHelpers';
+import { isAndroidNative } from '../../platform/nativeRuntime';
+import { getNativeGoogleCredential, isNativeGoogleCancellation } from '../../platform/nativeGoogle';
 
 /**
  * Owns the Firebase session and transport, never the player's life state.
@@ -218,27 +220,35 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
 
       const provider = new GoogleAuthProvider();
       const current = auth.currentUser;
+      let nativeCredential;
       try {
         if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
+        if (isAndroidNative()) nativeCredential = await getNativeGoogleCredential(authApi);
         if (current) {
-          const result = await linkWithPopup(current, provider);
+          const result = nativeCredential
+            ? await authApi.linkWithCredential(current, nativeCredential)
+            : await linkWithPopup(current, provider);
           adopt(result.user); // same uid — the in-progress life is untouched
           return { ok: true, mode: 'linked' };
         }
-        const result = await signInWithPopup(auth, provider);
+        const result = nativeCredential
+          ? await signInWithCredential(auth, nativeCredential)
+          : await signInWithPopup(auth, provider);
         adopt(result.user);
         await loadAccountSave(result.user.uid);
         return { ok: true, mode: 'signed_in' };
       } catch (e) {
         if (e?.code === 'auth/credential-already-in-use') {
           // This Google account already owns a save under another uid — switch to it.
-          const credential = GoogleAuthProvider.credentialFromError(e);
+          const credential = nativeCredential ?? GoogleAuthProvider.credentialFromError(e);
           if (!credential) return { ok: false, reason: 'error' };
           const result = await signInWithCredential(auth, credential);
           adopt(result.user);
           await loadAccountSave(result.user.uid);
           return { ok: true, mode: 'switched' };
         }
+        if (e?.code === 'auth/native-google-unavailable') return { ok: false, reason: 'native_google_unavailable' };
+        if (isAndroidNative() && isNativeGoogleCancellation(e)) return { ok: false, reason: 'cancelled' };
         if (e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-blocked') {
           return { ok: false, reason: 'cancelled' };
         }

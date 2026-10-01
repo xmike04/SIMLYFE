@@ -56,6 +56,10 @@ async function mockFirebase(page, firebaseIdToken) {
           return { kind: 'playwright-firestore' };
         }
 
+        export const initializeFirestore = getFirestore;
+        export const persistentLocalCache = options => options;
+        export const persistentSingleTabManager = () => ({});
+
         export function doc(...segments) {
           return { kind: 'document', segments };
         }
@@ -179,7 +183,7 @@ async function mockSupabaseEvent(page) {
 }
 
 async function closeSheet(page) {
-  await page.getByRole('button', { name: '×' }).click();
+  await page.getByRole('button', { name: /^Close / }).click();
 }
 
 async function ageUpAndResolveEvent(page) {

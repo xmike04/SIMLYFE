@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { startNativeRuntime } from './platform/nativeRuntime';
 import { useGameState } from './engine/gameState';
 import CharacterCreation from './components/CharacterCreation';
 import EventModal from './components/EventModal';
@@ -7,6 +8,7 @@ import DeathScreen from './components/DeathScreen';
 import SplashScreen from './components/SplashScreen';
 
 function App() {
+  useEffect(() => startNativeRuntime(), []);
   const engine = useGameState();
   const [splashDismissed, setSplashDismissed] = useState(
     () => !!sessionStorage.getItem('simlyfe_splash')

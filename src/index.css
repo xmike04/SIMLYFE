@@ -31,6 +31,11 @@
   padding: 0;
 }
 
+button {
+  color: inherit;
+  font-family: inherit;
+}
+
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   background-color: var(--bg-primary);
@@ -57,6 +62,26 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+}
+
+html.native-android #root {
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html.native-android .event-overlay {
+  padding-top: calc(20px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) !important;
+  padding-right: calc(20px + var(--safe-area-inset-right, env(safe-area-inset-right, 0px))) !important;
+  padding-bottom: calc(20px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))) !important;
+  padding-left: calc(20px + var(--safe-area-inset-left, env(safe-area-inset-left, 0px))) !important;
 }
 
 @media (min-width: 481px) {
@@ -163,6 +188,13 @@ p { color: var(--text-secondary); line-height: 1.5; }
 }
 .action-tab:hover { background: rgba(255, 255, 255, 0.15); }
 .action-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.action-tab-relationships {
+  width: 84px;
+  padding-left: 2px;
+  padding-right: 2px;
+  font-size: 0.65rem;
+}
 
 /* Animations */
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }

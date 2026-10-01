@@ -1,0 +1,123 @@
+name: Android build
+on:
+  pull_request:
+    paths: ['src/**', 'android/**', 'scripts/android*.js', 'capacitor.config.json', 'package*.json', 'vite.config.js', 'index.html', '.github/workflows/android-build.yml']
+  workflow_dispatch:
+    inputs:
+      signed_release:
+        description: Build signed release APK/AAB (no store upload)
+        type: boolean
+        default: false
+env:
+  VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+  VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+  VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+  VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+  VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+  VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+  VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+  VITE_SUPABASE_PUBLISHABLE: ${{ vars.VITE_SUPABASE_PUBLISHABLE }}
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  debug-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      - run: npm run check:docs
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Configure native Firebase app when supplied
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+          CI_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_CI_DEBUG_KEYSTORE_B64 }}
+        run: |
+          umask 077
+          if [ -n "$CI_DEBUG_KEYSTORE_B64" ]; then
+            mkdir -p "$HOME/.android"
+            printf '%s' "$CI_DEBUG_KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+          fi
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          else
+            echo '::notice::Native Google sign-in disabled: no ANDROID_GOOGLE_SERVICES_JSON. See docs/android.md for public cloud variables and signing fingerprints.'
+          fi
+      - run: npm run android:build
+      - run: npm run android:lint
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SIMLYFE-Android-debug
+          path: |
+            artifacts/android/SIMLYFE-debug.apk
+            artifacts/android/SIMLYFE-debug.apk.receipt.json
+          if-no-files-found: error
+          retention-days: 14
+  signed-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.signed_release
+    needs: debug-apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci
+      - name: Configure release inputs
+        env:
+          UPLOAD_KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          umask 077
+          test -n "$UPLOAD_KEYSTORE_B64"
+          test -n "$GOOGLE_SERVICES_JSON"
+          printf '%s' "$UPLOAD_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/simlyfe-upload.p12"
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+      - name: Build signed release artifacts
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/simlyfe-upload.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: simlyfe-upload
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          npm run android:release
+          npm run android:release:apk
+          npm run android:verify:release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SIMLYFE-Android-release
+          path: |
+            artifacts/android/SIMLYFE-release.apk
+            artifacts/android/SIMLYFE-release.apk.receipt.json
+            artifacts/android/SIMLYFE-release.aab
+            artifacts/android/SIMLYFE-release.aab.receipt.json
+            artifacts/android/release-verification.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove release key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/simlyfe-upload.p12"

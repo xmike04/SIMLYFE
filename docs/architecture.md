@@ -41,6 +41,26 @@ flowchart LR
 
 ## View routing
 
+### Android shell
+
+Capacitor 8 packages this same React application in `android/` with local assets
+at `https://localhost`. `src/platform/nativeRuntime.js` installs Android Back;
+`src/platform/useAndroidBack.js` lets MainGame consume it for nested menus/sheets
+and frozen event/annual transitions. Unhandled root Back backgrounds the app.
+The native shell never owns life state or replaces reset behavior.
+
+`src/config/firebase.js` explicitly uses IndexedDB Auth persistence and a
+persistent single-tab Firestore cache on Android. `src/platform/nativeGoogle.js`
+obtains native Google credentials without a native Firebase session; the shared
+account hook links or switches the existing JavaScript Auth user. Web popup
+behavior remains in that same hook. Native configuration and rollout evidence
+live in the [Android runbook](./android.md).
+
+Release signing is a build-time boundary. Signing credentials are supplied by
+the environment or an external private local configuration; they never enter
+web assets, game state, or receipts. CI debug and release upload keys are separate.
+Manual release builds produce signed artifacts without publishing them.
+
 [App.jsx](../src/App.jsx) selects one of three routes:
 
 1. No character and not dead: session splash, then `CharacterCreation`.

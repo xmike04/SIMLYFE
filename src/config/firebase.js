@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getAuth, initializeAuth, indexedDBLocalPersistence } from "firebase/auth";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
+import { isAndroidNative } from '../platform/nativeRuntime';
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAppCheckSetup } from "./appCheck";
 
@@ -22,8 +23,17 @@ const isConfigured = !!(
 );
 
 export const app  = isConfigured ? initializeApp(firebaseConfig) : null;
-export const auth = isConfigured ? getAuth(app) : null;
-export const db   = isConfigured ? getFirestore(app) : null;
+const nativeAndroid = isAndroidNative();
+export const auth = app
+  ? (nativeAndroid ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app))
+  : null;
+// Android keeps pending writes/cache across process restarts. The cloud document
+// and existing replace/merge semantics remain the authoritative save contract.
+export const db = app
+  ? (nativeAndroid ? initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }),
+  }) : getFirestore(app))
+  : null;
 
 // App Check (reCAPTCHA v3): active only when the site key env is set, so dev
 // setups without one are unaffected. A failed init must not brick cloud saves

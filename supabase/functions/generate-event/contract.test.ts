@@ -8,6 +8,7 @@ import {
   normalizeProviderUsage,
   OPENAI_EVENT_RESPONSE_FORMAT,
   parseAllowedOrigins,
+  parseClientOrigins,
   parseGenerateEventRequest,
   parseGlobalDailyLimit,
   parseProviderEvent,
@@ -47,6 +48,14 @@ function validBody() {
 }
 
 describe("generate-event edge contract", () => {
+  it("adds configured Android origins while preserving the web allowlist", () => {
+    expect([...parseClientOrigins("https://simlyfe.vercel.app,http://localhost:5173", "https://localhost")])
+      .toEqual(["https://simlyfe.vercel.app", "http://localhost:5173", "https://localhost"]);
+    expect([...parseClientOrigins("https://simlyfe.vercel.app")]).toEqual(["https://simlyfe.vercel.app"]);
+    expect(() => parseClientOrigins("https://simlyfe.vercel.app", "*")).toThrow(/Wildcard/);
+    expect(() => parseClientOrigins("https://simlyfe.vercel.app", "https://localhost/path")).toThrow(/exact HTTP origins/);
+    expect(() => parseClientOrigins("", "https://localhost")).toThrow(/must not be empty/);
+  });
   it("accepts the compact projection and supplies optional defaults", () => {
     const parsed = parseGenerateEventRequest(validBody());
     expect(parsed.actionContext).toBeNull();

@@ -11,6 +11,12 @@ const backend = vi.hoisted(() => ({
   signInWithPopup: vi.fn(), linkWithCredential: vi.fn(), signInWithEmailAndPassword: vi.fn(),
   createUserWithEmailAndPassword: vi.fn(), signOut: vi.fn(), sendPasswordResetEmail: vi.fn(),
 }));
+const native = vi.hoisted(() => ({ enabled: false, credential: vi.fn() }));
+vi.mock('../platform/nativeRuntime', () => ({ isAndroidNative: () => native.enabled }));
+vi.mock('../platform/nativeGoogle', () => ({
+  getNativeGoogleCredential: native.credential,
+  isNativeGoogleCancellation: error => error?.code === 'CANCELED',
+}));
 vi.mock('../config/firebase', () => ({ auth: backend.auth, db: backend.db }));
 vi.mock('firebase/firestore', () => ({
   doc: (_db, ...parts) => parts.join('/'), collection: (_db, path) => path,
@@ -44,6 +50,8 @@ async function ready() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  native.enabled = false;
+  native.credential.mockReset().mockResolvedValue('native-google-credential');
   vi.spyOn(console, 'debug').mockImplementation(() => {});
   vi.spyOn(console, 'info').mockImplementation(() => {});
   backend.auth.currentUser = user('guest');
@@ -128,6 +136,52 @@ describe('cloud lifecycle contract through the game hook', () => {
     expect(result.current.bank).toBe(900);
     act(() => result.current.performGig('New account gig', 20));
     expect(backend.setDoc.mock.calls.at(-1)[0]).toBe('users/owner/saves/currentLife');
+  });
+
+  it('Android Google links the native credential to the guest and keeps its life', async () => {
+    native.enabled = true;
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Android life')));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character).not.toBeNull());
+    backend.linkWithCredential.mockResolvedValue({ user: user('guest', false) });
+    await act(async () => { expect(await result.current.signInWithGoogle()).toEqual({ ok: true, mode: 'linked' }); });
+    expect(backend.linkWithCredential).toHaveBeenCalledWith(backend.auth.currentUser, 'native-google-credential');
+    expect(backend.linkWithPopup).not.toHaveBeenCalled();
+    expect(backend.signInWithPopup).not.toHaveBeenCalled();
+    expect(result.current.character.name).toBe('Android life');
+    expect(result.current.authAccount.uid).toBe('guest');
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('Android credential collision loads the account save and rebinds later writes', async () => {
+    native.enabled = true;
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Guest life')))
+      .mockResolvedValueOnce(snapshot(savedLife('Google life')));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character).not.toBeNull());
+    backend.linkWithCredential.mockRejectedValueOnce({ code: 'auth/credential-already-in-use' });
+    backend.signInWithCredential.mockResolvedValue({ user: user('native-owner', false) });
+    await act(async () => { expect(await result.current.signInWithGoogle()).toEqual({ ok: true, mode: 'switched' }); });
+    expect(backend.signInWithCredential).toHaveBeenCalledWith(backend.auth, 'native-google-credential');
+    expect(result.current.character.name).toBe('Google life');
+    act(() => result.current.performGig('Android gig', 30));
+    expect(backend.setDoc.mock.calls.at(-1)[0]).toBe('users/native-owner/saves/currentLife');
+  });
+
+  it.each([
+    ['CANCELED', 'cancelled'],
+    ['auth/native-google-unavailable', 'native_google_unavailable'],
+  ])('Android %s leaves the guest and its save intact', async (code, reason) => {
+    native.enabled = true;
+    native.credential.mockRejectedValueOnce({ code });
+    backend.getDoc.mockResolvedValue(snapshot(savedLife()));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character).not.toBeNull());
+    await act(async () => { expect(await result.current.signInWithGoogle()).toEqual({ ok: false, reason }); });
+    expect(result.current.authAccount.uid).toBe('guest');
+    expect(result.current.character.name).toBe('Saved Player');
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    expect(backend.linkWithPopup).not.toHaveBeenCalled();
   });
 
   it('email signup links the guest without replacing its life', async () => {

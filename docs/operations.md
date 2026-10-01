@@ -4,6 +4,12 @@ This runbook owns Firebase, Supabase, and Vercel setup plus deployment evidence.
 
 ## Recorded production baseline
 
+For the September 30 Android rollout, see [Android execution evidence](./android-plan.md).
+That rollout restored the paused Supabase project, deployed `generate-event`
+version 14 with a separate native-origin allowlist, registered the Android
+Firebase app/debug fingerprints, and verified real guest saves/events on Android.
+The public web frontend deployment was not changed.
+
 The following describes the completed connection rollout on **September 15, 2026**, before the large refactor. It is a dated verification record, not a claim that a later checkout or deployment has passed the same checks.
 
 | Component | Verified baseline |
@@ -74,6 +80,7 @@ The deployed unit comprises all three of these inputs:
 | `OPENAI_API_KEY` | Private OpenAI provider credential |
 | `FIREBASE_PROJECT_ID` | Accepted Firebase audience and issuer |
 | `ALLOWED_ORIGINS` | Comma-separated exact HTTP(S) origins; no paths or wildcard matching |
+| `ANDROID_ALLOWED_ORIGINS` | Optional exact native origins, combined with the web allowlist; Android uses `https://localhost` |
 | `RATE_LIMIT_HMAC_SECRET` | Secret used to pseudonymize per-identity quota keys |
 | `GENERATE_EVENT_GLOBAL_DAILY_LIMIT` | Daily project admission limit; defaults to 1,000, configurable from 100 to 100,000 |
 | `OPENAI_MODEL` | Optional server-owned override; default `gpt-4.1-nano` |

@@ -31,3 +31,12 @@ serviceAccountKey.json
 .claude.history
 .claude/worktrees/
 .vercel/
+
+# Android local configuration, credentials, and generated deliverables
+android/local.properties
+android/app/google-services.json
+*.keystore
+*.jks
+*.p12
+artifacts/android/
+supabase/.temp/

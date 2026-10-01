@@ -56,6 +56,27 @@ These are dated baseline results. They do not claim that the refactor has been d
 
 ## Tradeoffs and remaining boundaries
 
+### Android milestone: September 30, 2026
+
+The same game now compiles into a Capacitor Android APK with native credential
+handling, persistent Firebase sessions/cache, hardware Back and native system
+insets. Account linking preserves the shared Firebase JS identity; server-owned
+structured AI events use the authenticated proxy with an exact native origin.
+
+Verification includes 799 tests, desktop/mobile browser E2E, two Android
+instrumentation checks, and nine live emulator checks tied to the delivered
+APK's hash. The emulator received real AI events, acknowledged Firestore writes,
+and restored its life after force-stop. An unsigned release AAB also compiled.
+Native Google picker/cancellation was exercised; successful physical-device
+linking and Play publication remain unverified. Detailed receipts and limits
+are in the [Android ledger](./android-plan.md).
+
+Supported portfolio wording: “Built an Android client for an AI-driven life
+simulator using Capacitor, Firebase identity/cloud persistence and authenticated
+structured-event generation; validated with 799 regression tests, browser E2E
+and native emulator checks.” This describes implemented/tested work, not a
+published Play Store release.
+
 - A browser-owned simulator gives immediate interactions and straightforward local testing, but Firestore ownership rules do not make client-computed money or stats tamper-proof.
 - Anonymous identity makes the first session simple; an account upgrade is needed for a more durable, portable player identity.
 - Structured output validates shape and bounded effects. Narrative quality, age plausibility, and repetition still require actual playtesting.

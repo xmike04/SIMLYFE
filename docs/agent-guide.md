@@ -49,6 +49,9 @@ Existing `gameState.js` named exports remain compatible with existing callers. N
 - Account commands use the shared cloud account hook. Preserve link-first anonymous upgrades and explicit account-switch hydration.
 - Validate email credentials before provider calls. Bootstrap and explicit sign-out own anonymous-session creation; sheets must not replace persisted sessions themselves.
 - Sign-out and account switching must not write or delete the previous account's save.
+- Android Google must keep `skipNativeAuth: true` and link through the shared JS
+  Auth user. Back may close panels or background the app; it must never reload or
+  reset a life. Follow the [Android runbook](./android.md) for native verification.
 
 See [architecture](./architecture.md#life-state-and-save-contract) for the complete data flow.
 

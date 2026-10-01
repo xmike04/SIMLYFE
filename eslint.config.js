@@ -12,6 +12,7 @@ export default defineConfig([
     'playwright-report/**',
     '.claude/worktrees/**',
     '.vercel/**',
+    'android/**',
   ]),
   {
     files: ['**/*.{js,jsx}'],

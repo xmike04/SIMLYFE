@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import MainGame from '../components/MainGame';
+import { ANDROID_BACK_EVENT } from '../platform/nativeRuntime';
 
 function createEngine(overrides = {}) {
   return {
@@ -51,6 +52,32 @@ afterAll(() => {
 });
 
 describe('MainGame sheet navigation', () => {
+  it('Android Back closes the nested activity menu, then its sheet, then leaves root unhandled', () => {
+    render(<MainGame engine={createEngine()} />);
+    openMindAndBody();
+    const back = () => {
+      const event = new CustomEvent(ANDROID_BACK_EVENT, { cancelable: true });
+      fireEvent(document, event);
+      return event.defaultPrevented;
+    };
+    expect(back()).toBe(true);
+    expect(screen.getByRole('heading', { name: 'Activities' })).toBeInTheDocument();
+    expect(back()).toBe(true);
+    expect(screen.queryByRole('heading', { name: 'Activities' })).not.toBeInTheDocument();
+    expect(back()).toBe(false);
+  });
+
+  it.each([{ isAging: true }, { currentEvent: { description: 'Pending choice' } }])('consumes Android Back during %j', frozen => {
+    const engine = createEngine();
+    const { rerender } = render(<MainGame engine={engine} />);
+    openMindAndBody();
+    rerender(<MainGame engine={{ ...engine, ...frozen }} />);
+    const event = new CustomEvent(ANDROID_BACK_EVENT, { cancelable: true });
+    fireEvent(document, event);
+    expect(event.defaultPrevented).toBe(true);
+    rerender(<MainGame engine={engine} />);
+    expect(screen.getByRole('heading', { name: 'Mind & Body' })).toBeInTheDocument();
+  });
   it('routes a special category to its sheet, invokes its engine action, and resets the menu on close', () => {
     const engine = createEngine();
     render(<MainGame engine={engine} />);
