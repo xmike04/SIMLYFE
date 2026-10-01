@@ -21,6 +21,15 @@ android {
         }
     }
     signingConfigs {
+        def ciKeyPath = System.getenv('ANDROID_CI_DEBUG_KEYSTORE_PATH')
+        if (ciKeyPath && file(ciKeyPath).exists()) {
+            debug {
+                storeFile file(ciKeyPath)
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
         if (hasUploadSigning) {
             upload {
                 storeFile file(System.getenv('ANDROID_KEYSTORE_PATH'))

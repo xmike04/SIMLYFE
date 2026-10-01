@@ -81,6 +81,17 @@ if (task === 'doctor') {
         signedFor: signedRelease ? 'release upload key' : isBundle ? 'unsigned; not for publication' : 'debug key',
         origin: 'https://localhost', developerTools: false,
       };
+      if (!isBundle) {
+        const verification = spawnSync(join(sdk, 'build-tools/36.0.0/apksigner'), ['verify', '--print-certs', output], { env, encoding: 'utf8' });
+        if (verification.status !== 0) throw new Error('Built APK signature verification failed.');
+        receipt.signerCertificateSha256 = verification.stdout.match(/Signer #1 certificate SHA-256 digest: ([a-f0-9]+)/i)?.[1].toLowerCase();
+        receipt.signerCertificateSha1 = verification.stdout.match(/Signer #1 certificate SHA-1 digest: ([a-f0-9]+)/i)?.[1].toLowerCase();
+        if (!receipt.signerCertificateSha256) throw new Error('APK signer certificate is missing.');
+        if (!signedRelease && env.ANDROID_CI_DEBUG_KEYSTORE_PATH && existsSync(env.ANDROID_CI_DEBUG_KEYSTORE_PATH)) {
+          const registered = JSON.parse(readFileSync(join(android, 'signing-certificates.json'), 'utf8')).find(cert => cert.name === 'ci-debug');
+          if (receipt.signerCertificateSha256 !== registered.sha256) throw new Error('CI APK signer does not match its registered Firebase certificate.');
+        }
+      }
       writeFileSync(`${output}.receipt.json`, `${JSON.stringify(receipt, null, 2)}\n`);
       console.log(`Created ${output}`);
       if (task === 'install') run(join(sdk, 'platform-tools/adb'), ['install', '-r', output]);
