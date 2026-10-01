@@ -107,7 +107,7 @@ export function useGameState() {
     setWill(null);
   }, []);
 
-  const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
+  const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount, requestAccountDeletion, reportGeneratedEvent } = useCloudAccount({
     hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData,
   });
 
@@ -1224,6 +1224,8 @@ export function useGameState() {
     signInWithEmail,
     resetPassword,
     signOutAccount,
+    requestAccountDeletion,
+    reportGeneratedEvent,
     adoptPet,
     visitVet,
     buyAsset,

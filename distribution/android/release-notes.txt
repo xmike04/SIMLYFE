@@ -1,0 +1,6 @@
+<en-US>
+First Android testing build of SIMLYFE.
+Explore a fictional life through careers, relationships and AI-driven events.
+Guest play, optional account linking and cloud saves.
+Android Back support and in-app event reporting.
+</en-US>

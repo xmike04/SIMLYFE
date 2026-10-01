@@ -42,6 +42,35 @@ service cloud.firestore {
       // No client writes: seeding uses the Admin SDK.
     }
 
+    // Immutable, owner-scoped support inbox. Only the Admin SDK/operator can
+    // list, process or delete requests; clients cannot change their status.
+    match /users/{userId}/supportRequests/{requestId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasAll(['kind', 'reason', 'requestId', 'description', 'choiceTexts', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['kind', 'reason', 'requestId', 'description', 'choiceTexts', 'createdAt'])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 4096
+        && request.resource.data.choiceTexts is list
+        && request.resource.data.choiceTexts.size() <= 3
+        && (request.resource.data.choiceTexts.size() < 1 || (request.resource.data.choiceTexts[0] is string && request.resource.data.choiceTexts[0].size() <= 300))
+        && (request.resource.data.choiceTexts.size() < 2 || (request.resource.data.choiceTexts[1] is string && request.resource.data.choiceTexts[1].size() <= 300))
+        && (request.resource.data.choiceTexts.size() < 3 || (request.resource.data.choiceTexts[2] is string && request.resource.data.choiceTexts[2].size() <= 300))
+        && request.resource.data.requestId is string
+        && ((request.resource.data.kind == 'account_deletion'
+          && requestId == 'account-deletion'
+          && request.resource.data.reason == 'account_deletion'
+          && request.resource.data.requestId == ''
+          && request.resource.data.description == ''
+          && request.resource.data.choiceTexts.size() == 0)
+        || (request.resource.data.kind == 'content_report'
+          && request.resource.data.reason in ['offensive', 'unsafe', 'other']
+          && request.resource.data.requestId.matches('^[A-Za-z0-9_-]{1,128}$')
+          && requestId == 'event-' + request.resource.data.requestId
+          && request.resource.data.description.size() > 0));
+    }
+
     // Anything not matched above is denied.
     match /{document=**} {
       allow read, write: if false;

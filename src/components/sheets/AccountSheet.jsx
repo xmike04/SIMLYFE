@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import DeletionRequest from './DeletionRequest';
 import ActionSheet from '../ActionSheet';
 
 const SIGN_IN_MESSAGES = {
@@ -34,7 +35,7 @@ const inputStyle = {
   fontSize: '0.9rem',
 };
 
-export default function AccountSheet({ authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount, onClose }) {
+export default function AccountSheet({ authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount, requestAccountDeletion, onClose, embedded = false, allowSignUp = true }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [error, setError] = useState(null);
@@ -83,8 +84,9 @@ export default function AccountSheet({ authAccount, signInWithGoogle, signInWith
     }
   };
 
+  const Container = embedded ? 'section' : ActionSheet;
   return (
-    <ActionSheet title="Account" onClose={onClose}>
+    <Container {...(embedded ? { className: 'account-inline' } : { title: 'Account', onClose })}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div className="glass-panel" style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.05)' }}>
           {isSignedIn && authAccount?.photo ? (
@@ -150,14 +152,14 @@ export default function AccountSheet({ authAccount, signInWithGoogle, signInWith
               style={inputStyle}
             />
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button
+              {allowSignUp && <button
                 className="glass-panel"
                 disabled={busy}
                 onClick={handleEmailSignUp}
                 style={{ flex: 1, padding: '0.9rem', textAlign: 'center', background: 'rgba(16,185,129,0.2)', opacity: busy ? 0.6 : 1 }}
               >
                 <strong>Create account</strong>
-              </button>
+              </button>}
               <button
                 className="glass-panel"
                 disabled={busy}
@@ -185,7 +187,9 @@ export default function AccountSheet({ authAccount, signInWithGoogle, signInWith
             <strong>{busy ? 'Signing out…' : 'Sign out'}</strong>
           </button>
         )}
+        <a href="https://simlyfe.vercel.app/privacy.html" target="_blank" rel="noreferrer">Privacy policy</a>
+        {requestAccountDeletion && <DeletionRequest requestAccountDeletion={requestAccountDeletion} />}
       </div>
-    </ActionSheet>
+    </Container>
   );
 }

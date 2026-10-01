@@ -1,7 +1,7 @@
 name: Android build
 on:
   pull_request:
-    paths: ['src/**', 'android/**', 'scripts/android*.js', 'capacitor.config.json', 'package*.json', 'vite.config.js', 'index.html', '.github/workflows/android-build.yml']
+    paths: ['src/**', 'android/**', 'firestore.rules', 'firebase.emulator.json', 'scripts/test-support-rules.js', 'scripts/android*.js', 'capacitor.config.json', 'package*.json', 'vite.config.js', 'index.html', '.github/workflows/android-build.yml']
   workflow_dispatch:
     inputs:
       signed_release:
@@ -44,6 +44,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run test
+      - run: npm run test:rules
       - run: npm run build
       - run: npm run check:docs
       - run: npx playwright install --with-deps chromium

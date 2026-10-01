@@ -274,3 +274,15 @@ test('first-run flow reaches core gameplay sheets with mocked AI events', async 
     }
   }
 });
+
+test('web deletion page is reachable without the app and identifies the account before a request', async ({ page }) => {
+  await mockFirebase(page, createFirebaseIdToken());
+  await page.goto('/delete-account');
+  await expect(page.getByRole('heading', { name: 'SIMLYFE account deletion' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create account', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send deletion request', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Privacy and retention details' }).click();
+  await expect(page.getByRole('heading', { name: 'SIMLYFE privacy policy', exact: true })).toBeVisible();
+  await expect(page.getByText('This draft has not been approved for public distribution.', { exact: false })).toBeVisible();
+});

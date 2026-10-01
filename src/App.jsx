@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { startNativeRuntime } from './platform/nativeRuntime';
 import { useGameState } from './engine/gameState';
+import AccountDeletionPage from './components/AccountDeletionPage';
 import CharacterCreation from './components/CharacterCreation';
 import EventModal from './components/EventModal';
 import MainGame from './components/MainGame';
@@ -19,6 +20,8 @@ function App() {
     setSplashDismissed(true);
   };
 
+  if (window.location.pathname === '/delete-account') return <AccountDeletionPage engine={engine} />;
+
   if (!engine.character && !engine.isDead) {
     if (!splashDismissed) {
       return <SplashScreen onEnter={handleSplashDismiss} />;
@@ -34,7 +37,7 @@ function App() {
     <>
       <MainGame engine={engine} />
       {engine.currentEvent && (
-        <EventModal event={engine.currentEvent} onChoice={engine.handleChoice} />
+        <EventModal event={engine.currentEvent} onChoice={engine.handleChoice} onReport={engine.reportGeneratedEvent} />
       )}
     </>
   );

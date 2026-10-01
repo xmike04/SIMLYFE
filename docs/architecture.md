@@ -128,6 +128,19 @@ Firebase is loaded asynchronously after mount. Boot adopts an existing persisted
 
 Account actions share the cloud transport rather than issuing Firebase calls from sheets. `authAccount` contains the UI's sanitized account summary, including provider, name, email, and photo; it is excluded from diagnostics.
 
+### Distribution support boundary
+
+Account and web deletion controls submit explicit review requests through the
+same Firebase identity; they do not delete data or mutate a life. The separate
+`users/{uid}/supportRequests/{requestId}` inbox stores only bounded event report
+text, reason/request ID and server time, or an empty deletion-request payload.
+Clients can get their own immutable requests but cannot list, update or delete
+requests. Only the authorized Firebase operator can fulfill them. Account deletion
+requires removing both Firestore data and the Auth identity; neither a new life
+nor sign-out is deletion. The web route `/delete-account` identifies a returning
+account without requiring the Android app. The [distribution handoff](./android-distribution.md)
+tracks operator, privacy and publication requirements.
+
 ### Security rules
 
 [firestore.rules](../firestore.rules) allows an authenticated player to read and write only their own current-life document. Writes must use known top-level save fields. Authenticated players can read `careers`; only the Admin SDK seeds that catalog. Other client access is denied.

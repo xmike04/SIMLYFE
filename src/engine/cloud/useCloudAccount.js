@@ -4,6 +4,7 @@ import { validateHydratedSave } from '../stateValidation';
 import { setFirebaseIdTokenProvider } from '../firebaseToken';
 import { summarizeAuthUser, prepareEmailCredential } from './authHelpers';
 import { isAndroidNative } from '../../platform/nativeRuntime';
+import { contentReportPayload, submitSupportRequest } from './supportRequests';
 import { getNativeGoogleCredential, isNativeGoogleCancellation } from '../../platform/nativeGoogle';
 
 /**
@@ -216,7 +217,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
       if (snap.exists()) hydrateFromSave(snap.data());
     };
-    return { auth, authApi, adopt, loadAccountSave };
+    return { auth, db, authApi, firestoreApi, adopt, loadAccountSave };
   };
 
   /**
@@ -367,5 +368,17 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     }
   };
 
-  return { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount };
+  const requestAccountDeletion = async () => {
+    const backend = await getAuthBackend();
+    if (!backend) return { ok: false, reason: 'unavailable' };
+    return submitSupportRequest({ kind: 'account_deletion', reason: 'account_deletion', requestId: '', description: '', choiceTexts: [] }, backend);
+  };
+  const reportGeneratedEvent = async (event, reason) => {
+    const payload = contentReportPayload(event, reason);
+    if (!payload) return { ok: false, reason: 'invalid_request' };
+    const backend = await getAuthBackend();
+    if (!backend) return { ok: false, reason: 'unavailable' };
+    return submitSupportRequest(payload, backend);
+  };
+  return { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount, requestAccountDeletion, reportGeneratedEvent };
 }
