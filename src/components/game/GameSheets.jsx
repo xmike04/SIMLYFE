@@ -27,7 +27,7 @@ export default function GameSheets({
     studyHard, careerMeta, networking, economyCycle, education,
     checkCareerEligibility, enrollInDegree, attendNetworkingEvent, pets, visitVet,
     will, draftWill, authAccount, signInWithGoogle, signInWithEmail,
-    resetPassword, signOutAccount,
+    resetPassword, signOutAccount, requestAccountDeletion,
   } = engine;
   return (
     <>
@@ -142,6 +142,7 @@ export default function GameSheets({
           signInWithEmail={signInWithEmail}
           resetPassword={resetPassword}
           signOutAccount={signOutAccount}
+          requestAccountDeletion={requestAccountDeletion}
           onClose={closeSheet}
         />
       )}

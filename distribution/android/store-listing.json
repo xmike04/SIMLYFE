@@ -1,0 +1,22 @@
+{
+  "status": "draft_owner_review_required",
+  "packageName": "com.simlyfe.app",
+  "language": "en-US",
+  "title": "SIMLYFE",
+  "shortDescription": "Shape a life through careers, relationships and AI-driven choices.",
+  "fullDescription": "Every life has a story. Shape yours in SIMLYFE, a life simulation where choices, consequences and AI-driven events move your character forward.\n\nStart a fictional life and explore education, careers, relationships, health, pets and finances. Advance through the years, respond to unexpected situations and see your choices become part of your life history.\n\nBuild a career. Balance relationships. Grow a portfolio. Discover new activities and opportunities as your character ages. Simulated money, assets and gambling stay inside the game.\n\nPlay as a guest, or link an account for cloud saves across devices. AI-generated events require an internet connection. Events can be reported inside the app, and account-deletion requests are available through Account and the web deletion page.\n\nSIMLYFE contains mature fictional themes. The proposed target audience is adults; the final store rating will be assigned through the content-rating questionnaire. Account support and privacy details must be finalized before distribution.",
+  "proposedCategory": "GAME_SIMULATION",
+  "proposedPricing": "free",
+  "proposedTargetAudience": "18+",
+  "firstTrack": "internal",
+  "publisherName": null,
+  "supportEmail": null,
+  "website": "https://simlyfe.vercel.app",
+  "privacyPolicyUrl": "https://simlyfe.vercel.app/privacy.html",
+  "accountDeletionUrl": "https://simlyfe.vercel.app/delete-account",
+  "urlsPublishedAndVerified": false,
+  "imageAltText": {
+    "icon": "SIMLYFE white S on a purple circle.",
+    "featureGraphic": "SIMLYFE: one life, your choices; careers, relationships and wealth."
+  }
+}

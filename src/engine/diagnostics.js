@@ -89,6 +89,7 @@ const SAVE_STATUSES = new Set([
   'not_found',
   'saved',
   'skipped',
+  'queued',
   'failed',
 ]);
 

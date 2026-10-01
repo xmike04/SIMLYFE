@@ -6,7 +6,7 @@ import {
   MAX_BODY_BYTES,
   normalizeProviderUsage,
   OPENAI_EVENT_RESPONSE_FORMAT,
-  parseAllowedOrigins,
+  parseClientOrigins,
   parseGlobalDailyLimit,
   parseGenerateEventRequest,
   parseProviderEvent,
@@ -241,7 +241,10 @@ serve(async (request: Request) => {
   const startedAt = performance.now();
   let origin: string | undefined;
   try {
-    const configuredOrigins = parseAllowedOrigins(requiredEnv("ALLOWED_ORIGINS"));
+    const configuredOrigins = parseClientOrigins(
+      requiredEnv("ALLOWED_ORIGINS"),
+      Deno.env.get("ANDROID_ALLOWED_ORIGINS"),
+    );
     const requestOrigin = request.headers.get("origin");
     if (!requestOrigin || !configuredOrigins.has(requestOrigin)) {
       throw new HttpError(403, "ORIGIN_NOT_ALLOWED", "This origin is not allowed.");

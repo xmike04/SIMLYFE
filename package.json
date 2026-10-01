@@ -3,7 +3,23 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "overrides": {
+    "@grpc/grpc-js": "1.14.5",
+    "xcode": {
+      "uuid": "11.1.1"
+    }
+  },
   "scripts": {
+    "android:doctor": "node scripts/android.js doctor",
+    "android:sync": "node scripts/android.js sync",
+    "android:build": "node scripts/android.js apk",
+    "android:bundle": "node scripts/android.js bundle",
+    "android:release": "node scripts/android.js release-bundle",
+    "android:release:apk": "node scripts/android.js release-apk",
+    "android:verify:release": "node scripts/android-verify-release.js",
+    "android:lint": "node scripts/android.js lint",
+    "android:install": "node scripts/android.js install",
+    "android:smoke": "node scripts/android-smoke.js",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
@@ -12,15 +28,23 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:rules": "npx --yes firebase-tools@15.32.1 emulators:exec --only firestore --project demo-simlyfe-support --config firebase.emulator.json \"node --test scripts/test-support-rules.js\"",
+    "android:backup": "node scripts/android-backup.js"
   },
   "dependencies": {
-    "firebase": "^12.11.0",
+    "@capacitor-firebase/authentication": "8.5.2",
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/core": "8.5.2",
+    "firebase": "^12.19.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.2",
     "@eslint/js": "^9.39.4",
+    "@firebase/rules-unit-testing": "5.0.2",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

@@ -1,0 +1,14 @@
+[
+  {
+    "name": "upload",
+    "sha1": "48ed3428d5ad9716040f4d4fd5dd9fa474fd6156",
+    "sha256": "bc13dc30279f4554969bec1d8d7d594c92926e31238aa685d6e5d1b632be92db",
+    "validTo": "Feb 16 02:18:08 2054 GMT"
+  },
+  {
+    "name": "ci-debug",
+    "sha1": "82c32b68cf0879e9338be980daf7e5a16cffabfe",
+    "sha256": "fcc4b29b7e260d840343a527941715e16cfb1a5d3aa956c046f3aa821e482f5a",
+    "validTo": "Feb 16 02:18:09 2054 GMT"
+  }
+]

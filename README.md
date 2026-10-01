@@ -18,6 +18,10 @@ npm run dev
 
 Fill in the public Firebase web-app configuration and Supabase URL/publishable key in `.env.local`. The default Vite address is `http://localhost:5173`. See [development setup](./docs/development.md) for the exact variables and backend requirements.
 
+Android development: `npm run android:build` packages the same game as an APK.
+See the [Android runbook](./docs/android.md) for SDK/Firebase setup, installation,
+native verification and release gates.
+
 ## Stack and structure
 
 | Area | Choice |

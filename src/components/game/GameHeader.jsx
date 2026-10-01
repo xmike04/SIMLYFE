@@ -30,7 +30,7 @@ export default function GameHeader({ engine, uiFrozen, openSheet, setActiveSheet
       >
         {authAccount && !authAccount.isAnonymous ? '🔗' : '👤'}
       </button>
-      <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
+      <h2 style={{ fontSize: '1.2rem', margin: '0 68px 0 38px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {character.name}
         {enableDevTools && (
           <span style={{ cursor: 'pointer', fontSize: '1rem', marginLeft: '6px' }} onClick={() => setActiveSheet('debug')}>🐛</span>

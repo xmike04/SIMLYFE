@@ -56,6 +56,49 @@ These are dated baseline results. They do not claim that the refactor has been d
 
 ## Tradeoffs and remaining boundaries
 
+### Android milestone: September 30, 2026
+
+The same game now compiles into a Capacitor Android APK with native credential
+handling, persistent Firebase sessions/cache, hardware Back and native system
+insets. Account linking preserves the shared Firebase JS identity; server-owned
+structured AI events use the authenticated proxy with an exact native origin.
+
+Verification includes 799 tests, desktop/mobile browser E2E, two Android
+instrumentation checks, and nine live emulator checks tied to the delivered
+APK's hash. The emulator received real AI events, acknowledged Firestore writes,
+and restored its life after force-stop. An unsigned release AAB also compiled.
+Native Google picker/cancellation was exercised; successful physical-device
+linking and Play publication remain unverified. Detailed receipts and limits
+are in the [Android ledger](./android-plan.md).
+
+The subsequent release preparation passed **805 tests across 40 files**, browser
+E2E, Android lint, and a [hosted Android build](https://github.com/xmike04/SIMLYFE/actions/runs/36807299745).
+The [manual signed-release workflow](https://github.com/xmike04/SIMLYFE/actions/runs/36808511007)
+also passed, and its downloaded artifacts were independently verified. Separate
+CI and upload signing identities are registered with Firebase. Build
+verification rejects an unexpected CI signer, and signed release APK/AAB checks
+verify the upload certificate and release manifest security flags. The production
+APK also restored a resolved real AI event after force-stop with WebView debugging
+disabled. A discovered Firebase-bootstrap save race is covered by two real-hook
+regression tests and a queue that retains complete new-life replacement.
+
+Distribution preparation adds owner-scoped content reports and account-deletion
+requests, a web request page, draft privacy/disclosure material and validated
+store assets. **814 tests across 43 files**, five real Firestore rule tests,
+four browser tests and 11 live emulator checks passed. Live reporting preserves
+the pending event, and deletion acknowledgments explicitly represent requests
+for review. Operator fulfillment, finalized policy publication, secure off-Mac
+key backup and Play enrollment remain pending. The
+[distribution handoff](./android-distribution.md) records the release packet.
+
+Supported portfolio wording: “Built and validated an Android client for an
+AI-driven life simulator using Capacitor, Firebase cloud persistence and an
+authenticated structured-event proxy; added CI, signed release artifacts,
+owner-scoped support requests and 814 regression tests, with live emulator
+verification of generation, reporting and save recovery.” This describes
+implemented/tested work, not a published Play Store
+release. Physical-device Google linking and store distribution remain pending.
+
 - A browser-owned simulator gives immediate interactions and straightforward local testing, but Firestore ownership rules do not make client-computed money or stats tamper-proof.
 - Anonymous identity makes the first session simple; an account upgrade is needed for a more durable, portable player identity.
 - Structured output validates shape and bounded effects. Narrative quality, age plausibility, and repetition still require actual playtesting.

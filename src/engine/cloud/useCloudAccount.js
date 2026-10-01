@@ -1,8 +1,11 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { createDiagnosticId, diagnosticNow, emitDiagnostic, getDiagnosticStateFields, getErrorClass } from '../diagnostics';
 import { validateHydratedSave } from '../stateValidation';
 import { setFirebaseIdTokenProvider } from '../firebaseToken';
 import { summarizeAuthUser, prepareEmailCredential } from './authHelpers';
+import { isAndroidNative } from '../../platform/nativeRuntime';
+import { contentReportPayload, submitSupportRequest } from './supportRequests';
+import { getNativeGoogleCredential, isNativeGoogleCancellation } from '../../platform/nativeGoogle';
 
 /**
  * Owns the Firebase session and transport, never the player's life state.
@@ -12,6 +15,7 @@ import { summarizeAuthUser, prepareEmailCredential } from './authHelpers';
 export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData }) {
   const [cloudSync, setCloudSync] = useState(null);
   const [authAccount, setAuthAccount] = useState(null);
+  const pendingBootSave = useRef(null);
 
   // 1. Adopt the persisted auth session (or start an anonymous one) and load
   // the cloud save if configured
@@ -137,9 +141,15 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     const saveStartedAt = diagnosticNow();
     const fields = getDiagnosticStateFields(stateData);
     if (!cloudSync) {
+      // Starting a life can beat the asynchronous Firebase bootstrap. Keep the
+      // latest complete snapshot and retain replacement semantics until ready.
+      pendingBootSave.current = {
+        stateData,
+        options: { replace: Boolean(options.replace || pendingBootSave.current?.options.replace) },
+      };
       emitDiagnostic('save_sync', {
         operationId: saveOperationId,
-        status: 'skipped',
+        status: 'queued',
         durationMs: diagnosticNow() - saveStartedAt,
         fields,
       });
@@ -175,6 +185,13 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     }
   }, [cloudSync]);
 
+  useEffect(() => {
+    if (!cloudSync || !pendingBootSave.current) return;
+    const pending = pendingBootSave.current;
+    pendingBootSave.current = null;
+    syncToCloud(pending.stateData, pending.options);
+  }, [cloudSync, syncToCloud]);
+
   /**
    * Shared backend loader for account actions (Google, email, sign-out).
    * Returns null when Firebase is unconfigured; otherwise auth handles plus
@@ -195,11 +212,12 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       setAuthAccount(summarizeAuthUser(user));
     };
     const loadAccountSave = async (uid) => {
+      pendingBootSave.current = null;
       clearLocalLife();
       const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
       if (snap.exists()) hydrateFromSave(snap.data());
     };
-    return { auth, authApi, adopt, loadAccountSave };
+    return { auth, db, authApi, firestoreApi, adopt, loadAccountSave };
   };
 
   /**
@@ -218,27 +236,35 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
 
       const provider = new GoogleAuthProvider();
       const current = auth.currentUser;
+      let nativeCredential;
       try {
         if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
+        if (isAndroidNative()) nativeCredential = await getNativeGoogleCredential(authApi);
         if (current) {
-          const result = await linkWithPopup(current, provider);
+          const result = nativeCredential
+            ? await authApi.linkWithCredential(current, nativeCredential)
+            : await linkWithPopup(current, provider);
           adopt(result.user); // same uid — the in-progress life is untouched
           return { ok: true, mode: 'linked' };
         }
-        const result = await signInWithPopup(auth, provider);
+        const result = nativeCredential
+          ? await signInWithCredential(auth, nativeCredential)
+          : await signInWithPopup(auth, provider);
         adopt(result.user);
         await loadAccountSave(result.user.uid);
         return { ok: true, mode: 'signed_in' };
       } catch (e) {
         if (e?.code === 'auth/credential-already-in-use') {
           // This Google account already owns a save under another uid — switch to it.
-          const credential = GoogleAuthProvider.credentialFromError(e);
+          const credential = nativeCredential ?? GoogleAuthProvider.credentialFromError(e);
           if (!credential) return { ok: false, reason: 'error' };
           const result = await signInWithCredential(auth, credential);
           adopt(result.user);
           await loadAccountSave(result.user.uid);
           return { ok: true, mode: 'switched' };
         }
+        if (e?.code === 'auth/native-google-unavailable') return { ok: false, reason: 'native_google_unavailable' };
+        if (isAndroidNative() && isNativeGoogleCancellation(e)) return { ok: false, reason: 'cancelled' };
         if (e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-blocked') {
           return { ok: false, reason: 'cancelled' };
         }
@@ -332,6 +358,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       const { auth, authApi, adopt } = backend;
       if (auth.currentUser?.isAnonymous) return { ok: true, mode: 'already_guest' };
       await authApi.signOut(auth);
+      pendingBootSave.current = null;
       const cred = await authApi.signInAnonymously(auth);
       adopt(cred.user);
       clearLocalLife();
@@ -341,5 +368,17 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     }
   };
 
-  return { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount };
+  const requestAccountDeletion = async () => {
+    const backend = await getAuthBackend();
+    if (!backend) return { ok: false, reason: 'unavailable' };
+    return submitSupportRequest({ kind: 'account_deletion', reason: 'account_deletion', requestId: '', description: '', choiceTexts: [] }, backend);
+  };
+  const reportGeneratedEvent = async (event, reason) => {
+    const payload = contentReportPayload(event, reason);
+    if (!payload) return { ok: false, reason: 'invalid_request' };
+    const backend = await getAuthBackend();
+    if (!backend) return { ok: false, reason: 'unavailable' };
+    return submitSupportRequest(payload, backend);
+  };
+  return { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount, requestAccountDeletion, reportGeneratedEvent };
 }

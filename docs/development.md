@@ -4,7 +4,7 @@ This runbook owns local setup, environment variables, commands, and verification
 
 ## Local setup
 
-Use Node.js 22.12 or newer on the Node 22 line to match the repository's CI major version and Vite's engine requirement. The checked-in lockfile also supports Node 20.19 or newer on the Node 20 line.
+Use Node.js 22.12 or newer on the Node 22 line, or Node 24. Android CI uses Node 24 and JDK 21; the Capacitor CLI requires Node 22 or newer. See the [Android runbook](./android.md) for SDK setup and native builds.
 
 ```bash
 npm ci

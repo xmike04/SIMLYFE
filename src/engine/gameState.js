@@ -107,7 +107,7 @@ export function useGameState() {
     setWill(null);
   }, []);
 
-  const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
+  const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount, requestAccountDeletion, reportGeneratedEvent } = useCloudAccount({
     hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData,
   });
 
@@ -344,6 +344,7 @@ export function useGameState() {
         // Re-map format if necessary to ensure stability with UI
         const safeEvent = {
           description: dynamicEvent.description,
+          meta: dynamicEvent.meta,
           choices: dynamicEvent.choices.map(c => ({
             text: c.text || "Continue",
             effects: c.effects || {}
@@ -1224,6 +1225,8 @@ export function useGameState() {
     signInWithEmail,
     resetPassword,
     signOutAccount,
+    requestAccountDeletion,
+    reportGeneratedEvent,
     adoptPet,
     visitVet,
     buyAsset,

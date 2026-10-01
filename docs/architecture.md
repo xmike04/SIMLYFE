@@ -41,6 +41,26 @@ flowchart LR
 
 ## View routing
 
+### Android shell
+
+Capacitor 8 packages this same React application in `android/` with local assets
+at `https://localhost`. `src/platform/nativeRuntime.js` installs Android Back;
+`src/platform/useAndroidBack.js` lets MainGame consume it for nested menus/sheets
+and frozen event/annual transitions. Unhandled root Back backgrounds the app.
+The native shell never owns life state or replaces reset behavior.
+
+`src/config/firebase.js` explicitly uses IndexedDB Auth persistence and a
+persistent single-tab Firestore cache on Android. `src/platform/nativeGoogle.js`
+obtains native Google credentials without a native Firebase session; the shared
+account hook links or switches the existing JavaScript Auth user. Web popup
+behavior remains in that same hook. Native configuration and rollout evidence
+live in the [Android runbook](./android.md).
+
+Release signing is a build-time boundary. Signing credentials are supplied by
+the environment or an external private local configuration; they never enter
+web assets, game state, or receipts. CI debug and release upload keys are separate.
+Manual release builds produce signed artifacts without publishing them.
+
 [App.jsx](../src/App.jsx) selects one of three routes:
 
 1. No character and not dead: session splash, then `CharacterCreation`.
@@ -86,6 +106,14 @@ One preserved hydration gap is explicit: `flags` is written in the save payload,
 
 A page reload is not a reset: it can load the dead save again. `ignoreCloudLoadRef` protects a life started or reset while the initial cloud load is still pending from being overwritten by that late load.
 
+While Firebase bootstrap is pending, the account hook queues the latest complete
+save snapshot. A queued start/reset keeps replacement semantics even if later
+actions update the snapshot. Once auth is ready, that snapshot is written to
+the adopted UID. Explicit account switching/sign-out discards any queued boot
+save so it cannot overwrite another account's life. The queue is in memory;
+terminating the app before authentication finishes still cannot establish a
+cloud save.
+
 ## Identity and account transitions
 
 Firebase is loaded asynchronously after mount. Boot adopts an existing persisted session through `onAuthStateChanged`; it creates an anonymous session only when no account is present. The token-provider bridge in [firebaseToken.js](../src/engine/firebaseToken.js) supplies a short-lived Firebase ID token to the event client.
@@ -99,6 +127,19 @@ Firebase is loaded asynchronously after mount. Boot adopts an existing persisted
 | Sign-out | End the current session, start a fresh anonymous session, and clear local state without writing to the previous account. |
 
 Account actions share the cloud transport rather than issuing Firebase calls from sheets. `authAccount` contains the UI's sanitized account summary, including provider, name, email, and photo; it is excluded from diagnostics.
+
+### Distribution support boundary
+
+Account and web deletion controls submit explicit review requests through the
+same Firebase identity; they do not delete data or mutate a life. The separate
+`users/{uid}/supportRequests/{requestId}` inbox stores only bounded event report
+text, reason/request ID and server time, or an empty deletion-request payload.
+Clients can get their own immutable requests but cannot list, update or delete
+requests. Only the authorized Firebase operator can fulfill them. Account deletion
+requires removing both Firestore data and the Auth identity; neither a new life
+nor sign-out is deletion. The web route `/delete-account` identifies a returning
+account without requiring the Android app. The [distribution handoff](./android-distribution.md)
+tracks operator, privacy and publication requirements.
 
 ### Security rules
 

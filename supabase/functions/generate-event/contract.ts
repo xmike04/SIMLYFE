@@ -507,6 +507,14 @@ export function parseGlobalDailyLimit(value: string | undefined | null) {
   );
 }
 
+export function parseClientOrigins(browserOrigins: string, androidOrigins?: string) {
+  const allowed = parseAllowedOrigins(browserOrigins);
+  if (androidOrigins) {
+    for (const origin of parseAllowedOrigins(androidOrigins)) allowed.add(origin);
+  }
+  return allowed;
+}
+
 export function parseAllowedOrigins(raw: string) {
   const origins = raw.split(",").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
     if (entry === "*") throw new ContractValidationError("Wildcard origins are not allowed");

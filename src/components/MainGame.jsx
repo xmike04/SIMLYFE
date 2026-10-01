@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import GameHeader from './game/GameHeader';
 import GameSheets from './game/GameSheets';
+import { useAndroidBack } from '../platform/useAndroidBack';
 
 const ENABLE_DEV_TOOLS = import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true';
 
@@ -69,6 +70,19 @@ export default function MainGame({ engine }) {
 
   const closeSheet = () => { setActiveSheet(null); setActivityMenu(null); };
 
+  useAndroidBack(() => {
+    if (uiFrozen) return true;
+    if (activityMenu) {
+      setActivityMenu(null);
+      return true;
+    }
+    if (activeSheet) {
+      closeSheet();
+      return true;
+    }
+    return false;
+  });
+
   useEffect(() => {
     historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history]);
@@ -124,7 +138,7 @@ export default function MainGame({ engine }) {
         </button>
 
         <div style={{ display: 'flex', gap: '0.5rem', flex: 1, justifyContent: 'flex-start' }}>
-          <button className="action-tab" onClick={() => openSheet('relationships')} disabled={uiFrozen}>
+          <button className="action-tab action-tab-relationships" onClick={() => openSheet('relationships')} disabled={uiFrozen}>
             <span style={{ fontSize: '1.2rem' }}>❤️</span>
             <span>Relationships</span>
           </button>

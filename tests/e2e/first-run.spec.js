@@ -56,6 +56,10 @@ async function mockFirebase(page, firebaseIdToken) {
           return { kind: 'playwright-firestore' };
         }
 
+        export const initializeFirestore = getFirestore;
+        export const persistentLocalCache = options => options;
+        export const persistentSingleTabManager = () => ({});
+
         export function doc(...segments) {
           return { kind: 'document', segments };
         }
@@ -179,7 +183,7 @@ async function mockSupabaseEvent(page) {
 }
 
 async function closeSheet(page) {
-  await page.getByRole('button', { name: '×' }).click();
+  await page.getByRole('button', { name: /^Close / }).click();
 }
 
 async function ageUpAndResolveEvent(page) {
@@ -269,4 +273,16 @@ test('first-run flow reaches core gameplay sheets with mocked AI events', async 
       expect(request.body).not.toHaveProperty(serverOwnedField);
     }
   }
+});
+
+test('web deletion page is reachable without the app and identifies the account before a request', async ({ page }) => {
+  await mockFirebase(page, createFirebaseIdToken());
+  await page.goto('/delete-account');
+  await expect(page.getByRole('heading', { name: 'SIMLYFE account deletion' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create account', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Send deletion request', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Privacy and retention details' }).click();
+  await expect(page.getByRole('heading', { name: 'SIMLYFE privacy policy', exact: true })).toBeVisible();
+  await expect(page.getByText('This draft has not been approved for public distribution.', { exact: false })).toBeVisible();
 });
