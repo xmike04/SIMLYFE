@@ -24,7 +24,7 @@ export default function EventModal({ event, onChoice, onReport }) {
       padding: '20px', zIndex: 100
     }}>
       <div className="glass-panel animate-slide-up" style={{ width: '100%', border: '1px solid var(--accent-primary)', position: 'relative' }}>
-        <div style={{ position: 'absolute', top: '-15px', right: '20px', background: 'var(--accent-primary)', padding: '5px 15px', borderRadius: '15px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+        <div style={{ position: 'absolute', top: '12px', right: '20px', background: 'var(--accent-primary)', padding: '5px 15px', borderRadius: '15px', fontSize: '0.8rem', fontWeight: 'bold' }}>
           EVENT
         </div>
         {event.meta?.requestId && onReport && <div className="support-request">
