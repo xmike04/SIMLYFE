@@ -106,7 +106,8 @@ templates, and unrelated hosted-update products are not copied into the app.
 
 ## Initial development artifacts
 
-Ignored output: `artifacts/android/`.
+Initial development evidence preserved in `artifacts/android/phase1-development/`.
+Current outputs use `artifacts/android/`; each later phase has its own evidence folder.
 
 | Artifact | Evidence |
 |---|---|
@@ -161,7 +162,7 @@ Preparation completed September 30, 2026:
   backup and cleartext disabled. No Play upload occurred.
 - Release APK SHA-256: `a04d7502c8cd6cd14704338113929c9b8843020ccab69804460bb78a341dd1a9`.
 - Release AAB SHA-256: `2de092652e1b10eb04542609b0571d71a3fb55d425aa1bb6e95154b65702c750`.
-- Public `artifacts/android/release-verification.json` records signature/manifest
+- Public `artifacts/android/phase2-release-preparation/release-verification.json` records signature/manifest
   checks. Key passwords and private key files are excluded from artifacts/source.
 - Fixed a startup persistence race: life snapshots submitted before Firebase
   bootstrap are queued and flushed when ready, retaining full replacement at
@@ -185,7 +186,7 @@ Preparation completed September 30, 2026:
 - The exact signed production APK passed six emulator runtime checks with
   WebView debugging disabled: binary identity, restored guest, real generated
   event, pending-choice Back protection, resolution and restored age/history
-  after force-stop. `release-runtime.json` records the checks; HTTP trace evidence
+  after force-stop. `phase2-release-preparation/release-runtime.json` records the checks; HTTP trace evidence
   comes from the separate debug smoke, not this production run.
 - The [manual signed workflow](https://github.com/xmike04/SIMLYFE/actions/runs/36808511007)
   passed both jobs on that same source before default-branch integration.
@@ -203,6 +204,16 @@ Preparation completed September 30, 2026:
 - Review source is preserved in [draft PR #10](https://github.com/xmike04/SIMLYFE/pull/10).
   The public frontend preview was canceled from the Vercel Dashboard; it was
   not redeployed for this phase. Main remains unchanged; no store upload occurred.
+
+## Distribution preparation
+
+See [the six-step distribution handoff](./android-distribution.md). This phase
+adds in-app reporting, owner-scoped deletion requests, an external web request
+page and a draft privacy policy. It prepares store graphics, real screenshots,
+listing/disclosure drafts and tested encryption tooling for key recovery.
+Current verification and the exact release packet are recorded in that handoff.
+Store registration, policy publication, operational fulfillment, off-Mac backup
+and physical/closed-test evidence remain external release gates.
 
 ## Primary references
 

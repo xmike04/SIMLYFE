@@ -82,11 +82,21 @@ APK also restored a resolved real AI event after force-stop with WebView debuggi
 disabled. A discovered Firebase-bootstrap save race is covered by two real-hook
 regression tests and a queue that retains complete new-life replacement.
 
+Distribution preparation adds owner-scoped content reports and account-deletion
+requests, a web request page, draft privacy/disclosure material and validated
+store assets. **814 tests across 43 files**, five real Firestore rule tests,
+four browser tests and 11 live emulator checks passed. Live reporting preserves
+the pending event, and deletion acknowledgments explicitly represent requests
+for review. Operator fulfillment, finalized policy publication, secure off-Mac
+key backup and Play enrollment remain pending. The
+[distribution handoff](./android-distribution.md) records the release packet.
+
 Supported portfolio wording: “Built and validated an Android client for an
 AI-driven life simulator using Capacitor, Firebase cloud persistence and an
-authenticated structured-event proxy; added CI, signed release artifacts and
-805 regression tests, with live emulator verification of generation and save
-recovery.” This describes implemented/tested work, not a published Play Store
+authenticated structured-event proxy; added CI, signed release artifacts,
+owner-scoped support requests and 814 regression tests, with live emulator
+verification of generation, reporting and save recovery.” This describes
+implemented/tested work, not a published Play Store
 release. Physical-device Google linking and store distribution remain pending.
 
 - A browser-owned simulator gives immediate interactions and straightforward local testing, but Firestore ownership rules do not make client-computed money or stats tamper-proof.

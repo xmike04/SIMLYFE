@@ -180,3 +180,13 @@ content disclosures, and verify current Play requirements. Publication is a
 separate release action. Current deliverables include a CI development APK and
 signed release APK/AAB; signing and emulator verification do not establish store
 publication or physical-device Google login.
+
+## Distribution preparation
+
+Follow [the distribution steps](./android-distribution.md) for owner decisions,
+key recovery, support operations, listing disclosures and Play enrollment.
+`npm run test:rules` exercises the real Firestore rules against a demo emulator.
+CI now includes those tests as well as the web deletion page on desktop/mobile.
+`ANDROID_SMOKE_SUPPORT_CHECKS=true npm run android:smoke` adds live reporting and
+deletion-request checks to the disposable emulator fixture. These requests
+require developer review; an acknowledgment does not establish data deletion.

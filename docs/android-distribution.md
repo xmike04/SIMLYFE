@@ -108,6 +108,50 @@ release with exact version/hash, audience, countries, listing and rollout scope,
 then obtain final publication approval. Keep the [Android ledger](./android-plan.md)
 and [runbook](./android.md) aligned with actual Console receipts.
 
+## Preparation verification ledger
+
+Final runtime source: `8f189820d9f94e260d164645bdd8b295f47942f6`.
+Review: [draft PR #10](https://github.com/xmike04/SIMLYFE/pull/10).
+
+- Lint, **814 tests across 43 files**, production build and documentation checks passed.
+- **Five real Firestore emulator rule tests** passed; the owner-scoped support
+  rules were deployed to `symlife-cd0b6`. Existing save permissions were preserved.
+- **Four desktop/mobile browser tests** passed, including direct external access
+  to the deletion page and privacy draft. Full npm audit reports zero findings.
+- The exact delivered local debug APK passed **11 live API 36 emulator checks**:
+  real authenticated AI generation, acknowledged report/deletion requests,
+  pending-choice preservation, saved life writes, native Back and force-stop recovery.
+  This does not establish operator fulfillment or physical Google linking.
+- Preserved annual AI request metadata after the live test exposed its loss
+  during normalization; a real-hook regression test now covers that boundary.
+- Signed release APK/AAB signatures match the registered upload certificate.
+  Release manifest checks confirm package/SDK and disabled debugging, backup
+  and cleartext. The final signed binaries received cryptographic checks;
+  live HTTP evidence comes from the corresponding debug build.
+- Final local APK SHA-256: `63cccebccb417c9f3c204916c2372e7e4e510373b18576636e7cc55bde147cbe`.
+- Final local AAB SHA-256: `3bd262d6e66331ce17b4ee9a3314c03681e321a25f2981841426e310ffc491fa`.
+- Verified opaque 512×512 icon, 1024×500 feature graphic and three real
+  1080×1920 screenshots. Screenshots use unchanged native RGB pixels exported
+  as 24-bit PNG. Listing length limits passed. These are prepared drafts.
+- The release packet and public receipts are in ignored
+  `artifacts/android/distribution/`, including `readiness.json`,
+  `asset-verification.json`, `release-verification.json`,
+  `screenshots/` and `live/smoke-receipt.json`. Historical development and
+  production runtime proof are preserved in phase-specific artifact folders.
+
+The [hosted signed CI run](https://github.com/xmike04/SIMLYFE/actions/runs/36812962326)
+passed both jobs on the final runtime source. Downloaded debug/release binaries
+were independently checked against their hash receipts, registered certificate
+identities and release manifest flags. Hosted AAB SHA-256:
+`29970dba9b009ad288981d7b2552e782fee05607157dd4b6775c08e59328d8a9`.
+Hosted verification is preserved in
+`artifacts/android/ci-runs/36812962326/ci-verification.json`.
+The 11 live checks refer to the local debug APK, not the hosted binary.
+
+No Play account, store upload, secure off-Mac backup, support fulfillment,
+physical-device check or publication is marked complete. The production website
+was not redeployed; the Vercel preview remains canceled from its Dashboard.
+
 ## Primary references checked for this phase
 
 - [Account deletion](https://support.google.com/googleplay/android-developer/answer/13327111)
