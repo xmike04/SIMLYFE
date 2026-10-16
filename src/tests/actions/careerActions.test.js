@@ -67,3 +67,17 @@ describe('career decisions', () => {
     expect(resolveCareerChange(input, command(), [teacher]).record.beforeSalary).toBe(55000);
   });
 });
+
+describe('committed career annual continuity', () => {
+  it('charges taxed income on the next year, retaining decision history and ordered simulation', () => {
+    const input = life();
+    const selected = resolveCareerChange(input, command(), [teacher]);
+    const committed = { ...input, ...selected.patch };
+    expect(computeCareerYearIncome(committed.career, committed.stats, committed.bank, 1)).toMatchObject({ grossSalary: 50000, tax: 7500, netSalary: 42500, bank: 54500 });
+    const next = advanceLifeYear({ ...committed, activitiesThisYear: {} }, { careersData: [teacher], randomFn: () => .9 });
+    expect(next.state.bank).toBe(51500); // 54500 after salary minus 3000 middle-class lifestyle
+    expect(committed.history.at(-1).action.afterSalary).toBe(50000);
+    const quit = resolveCareerChange(committed, command({ actionId: 'quit-2', targetId: null }), [teacher]);
+    expect(computeCareerYearIncome(quit.patch.career, committed.stats, committed.bank, 1)).toMatchObject({ grossSalary: 0, netSalary: 0, bank: 12000 });
+  });
+});
