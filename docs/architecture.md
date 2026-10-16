@@ -65,6 +65,8 @@ education, networking, economyCycle, pets, will
 
 Transient state includes `currentEvent`, `isAging`, `activitiesThisYear`, `narrativeMode`, cloud connection status, account summary, and the loaded career catalog. These fields are not part of current life writes. The validation and Firestore allowlists also tolerate specific legacy fields; tolerating a field does not make it part of the current save contract.
 
+`lastCareerAction` is also transient: it reports an action outcome and its save status without duplicating the life state. Standard career decisions append optional version-1 `action` metadata to existing `{ age, text }` history entries. Records capture action ID/type, target and before/after career IDs/salaries, and an outcome code. Existing text-only entries remain valid; malformed optional metadata produces value-free warnings and is ignored by action-record readers. No top-level save field was added.
+
 One preserved hydration gap is explicit: `flags` is written in the save payload, but `hydrateFromSave` currently does not restore it. Treat correcting that behavior as a separate tested change rather than assuming the refactor fixed it.
 
 ### Cloud sync modes
@@ -76,6 +78,16 @@ One preserved hydration gap is explicit: `flags` is written in the save payload,
 | Account switch or sign-out | Clear local state, then load the selected account | Preserve the previous account's saved life |
 
 `lifeSnapshotRef` tracks the current life on render and is updated eagerly by `persistLife`. React state updates have not necessarily flushed when a handler writes. Every field changed by that handler must therefore appear in its persistence overrides.
+
+`syncToCloud` returns a nonthrowing `{ status, operationId, errorClass }` receipt. Status is `saved` only after `setDoc` acknowledges, `failed` after rejection, or `skipped` when cloud transport is unavailable. Each mounted account hook queues cloned snapshots in FIFO order per captured account destination, including replacements. A failed write does not block later writes; an unresolved offline write leaves that destination pending. There is no automatic retry, cross-tab serialization, or multi-device conflict guarantee. Reloading before acknowledgement can restore an older save.
+
+## Career action foundation
+
+[careerActions.js](../src/engine/actions/careerActions.js) quotes and resolves standard selection/switching/quitting against the latest life snapshot. A quote exposes requirements, catalog salary, city-adjusted gross estimate, annual role effects and replacement of a current role. Its basis detects changed local circumstances/catalog terms; it is not a security signature.
+
+[actionResult.js](../src/engine/actions/actionResult.js) defines `committed`, `rejected`, and `noop` results. A committed career result includes one complete `career`/`careerMeta`/`history` patch and a versioned consequence record. The hook applies it outside React updater callbacks and requests one full save. Rejected/no-op actions do not persist. Repeated committed action IDs are deduplicated through valid history metadata; same-role selection preserves tenure and earned salary. This is one domain adapter, not a migration of all game actions.
+
+Save completion updates feedback only for the matching action and life epoch; reset, hydration, account clear and unmount invalidate older feedback. The authenticated AI service and annual event flow remain unchanged. `projectActionFacts` emits only bounded career outcome facts for a future narration adapter; career selection makes no AI request.
 
 ### Death restart flow
 

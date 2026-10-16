@@ -25,6 +25,8 @@ Root [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) are short entry poi
 
 For a large refactor, keep a written plan with bounded phases and evidence. The current extraction plan and validation ledger are in [refactor-plan.md](./refactor-plan.md).
 
+Read [product direction](./product-direction.md) before designing mechanics: life strategy leads; AI makes a particular life personal. The standard career foundation uses pure action quotes/results and one committed patch through `useGameState`. `chooseCareer(id, { actionId, expectedBasis })` returns `{ result, persistence }`; callers may ignore the return for compatibility, but decision UI must inspect it and distinguish pending/saved/failed/skipped persistence. Optional versioned history metadata is additive; never require it on legacy memories. Other domain commands have not been converted to this contract.
+
 ## Extension map
 
 | Change | Start here | Keep aligned |

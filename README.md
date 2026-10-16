@@ -2,6 +2,8 @@
 
 SIMLYFE is a mobile-first browser life simulator. Create a character, age one year at a time, and navigate education, careers, relationships, assets, cities, pets, health, gambling, and AI-generated life events.
 
+The [product direction](./docs/product-direction.md) is life strategy first: planning, trade-offs, and lasting consequences, with AI making each life personal.
+
 **[Play SIMLYFE](https://simlyfe.vercel.app)** · [Documentation](./docs/README.md) · [Technical case study](./docs/case-study.md)
 
 The project combines a React interface with explicit gameplay calculations and generated narrative. Firebase supplies guest/account identity and cloud saves. An authenticated Supabase Edge Function owns the OpenAI call, prompt, and quotas; the browser receives no OpenAI credential.

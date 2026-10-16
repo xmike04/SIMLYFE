@@ -274,3 +274,37 @@ describe('career action foundation through the actual hook', () => {
     expect(backend.setDoc).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('career lifecycle feedback boundaries', () => {
+  it('rejects a pre-render command during a newly started annual transition', async () => {
+    const { result } = await careerReady();
+    const pending = deferred();
+    generateDynamicEvent.mockReturnValueOnce(pending.promise);
+    const staleChoose = result.current.chooseCareer;
+    let aging, rejected;
+    act(() => {
+      aging = result.current.ageUp();
+      rejected = staleChoose(teacher.id);
+    });
+    expect(rejected.result.code).toBe('action_locked');
+    expect(result.current.career).toBeNull();
+    await act(async () => { pending.resolve({ description: 'Year fixture', choices: [{ text: 'Continue', effects: {} }] }); await aging; });
+    act(() => { expect(result.current.chooseCareer(teacher.id).result.code).toBe('action_locked'); });
+  });
+  it('keeps a pending write on its original account and ignores its feedback after switching', async () => {
+    const { result } = await careerReady();
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    let selected;
+    act(() => { selected = result.current.chooseCareer(teacher.id); });
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Other account')));
+    backend.signInWithEmailAndPassword.mockResolvedValue({ user: user('other-account', false) });
+    await act(async () => { await result.current.signInWithEmail('fixture@example.com', 'fixture-password', 'signin'); });
+    expect(result.current.character.name).toBe('Other account');
+    await act(async () => { pending.resolve(); await selected.persistence; });
+    expect(result.current.lastCareerAction).toBeNull();
+    expect(result.current.career).toBeNull();
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][0]).toBe('users/guest/saves/currentLife');
+  });
+});

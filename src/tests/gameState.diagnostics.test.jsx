@@ -70,3 +70,19 @@ describe('game state diagnostics safeguards', () => {
     expect(JSON.stringify(diagnosticError.mock.calls)).not.toContain('private activity context');
   });
 });
+
+it('distinguishes a committed local career from unavailable cloud persistence', async () => {
+  const { result } = renderHook(() => useGameState());
+  act(() => {
+    result.current.startLife('Local Player', 'Female', 'US');
+    result.current.debugAddAge(30);
+    result.current.debugMaxStats();
+  });
+  const career = result.current.careersData.find(job => job.type === 'full_time' && result.current.checkCareerEligibility(job).eligible);
+  expect(career).toBeDefined();
+  let selection;
+  act(() => { selection = result.current.chooseCareer(career.id); });
+  await act(async () => { expect((await selection.persistence).status).toBe('skipped'); });
+  expect(result.current.career.id).toBe(career.id);
+  expect(result.current.lastCareerAction.saveStatus).toBe('skipped');
+});

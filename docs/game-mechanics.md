@@ -82,6 +82,12 @@ Tier selection uses liquid bank balance, not salary or total asset value. It als
 
 Standard careers live in [careers.json](../src/engine/careers.json); special-career menu definitions live in [specialCareers.js](../src/config/specialCareers.js). Eligibility combines age, minimum completed degree, networking, and stat requirements.
 
+Standard role selection and quitting use a decision preview before confirmation. It shows known prerequisites, zero immediate cost, salary before taxes/living costs, normalized annual role effects and replacement of the current occupation. Selection changes employment immediately; wages still arrive during annual progression. Full-time and part-time roles share the existing single career slot.
+
+Selecting the active role is a no-op and preserves earned raises, tenure and PIP. Quitting while unemployed is a no-op. A valid new role resets career metadata as before; quitting preserves the financial-stress flag without granting new unemployment benefits. Rejected, stale or locked attempts show feedback without adding persistent failure history. A recorded action ID cannot repeat the decision or be reused for a different target. Committed decisions add factual history metadata while preserving old text-only memories.
+
+Gameplay outcome and cloud acknowledgement are separate: a failed save retains the session's employment change and shows that it was not saved. Reload can restore the last acknowledged state. No interviews, rejection cooldowns, new hiring randomness, or AI career calls were introduced.
+
 - Networking is bounded to 0–100 and increases through jobs, conferences, mixers, and events.
 - Catalog health/happiness effects are stress-intensity scores. Each nonzero effect is converted to `sign × max(1, ceil(abs(effect) / 8))` annual stat points.
 - Military enlistment starts the `soldier` career and requires health 60 and athleticism 50. Branch names are history flavor.
