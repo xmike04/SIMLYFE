@@ -1,7 +1,9 @@
+import { quoteCareerChange, resolveCareerChange } from './actions/careerActions';
+import { makeActionResult } from './actions/actionResult';
 import { useCloudAccount } from './cloud/useCloudAccount';
 import { advanceLifeYear } from './annual/advanceLifeYear';
 import { checkCareerEligibility as evaluateCareerEligibility } from './mechanics/careers';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { generateDynamicEvent } from './llmService';
 import { getWealthTier } from '../config/wealthTiers';
 import { calculateCapitalGainsTax } from '../config/assetCatalog';
@@ -41,12 +43,16 @@ export function useGameState() {
   const [career, setCareer] = useState(null);
   const [bank, setBank] = useState(0);
   const [history, setHistory] = useState([]);
-  const [currentEvent, setCurrentEvent] = useState(null);
+  const [currentEvent, setCurrentEventState] = useState(null);
+  const eventRef = useRef(null);
+  const setCurrentEvent = useCallback(value => { eventRef.current = value; setCurrentEventState(value); }, []);
   const [activitiesThisYear, setActivitiesThisYear] = useState({});
   const [relationships, setRelationships] = useState([]);
   const [belongings, setBelongings] = useState([]);
   const [properties, setProperties] = useState([]);
-  const [isAging, setIsAging] = useState(false);
+  const [isAging, setIsAgingState] = useState(false);
+  const agingRef = useRef(false);
+  const setIsAging = useCallback(value => { agingRef.current = value; setIsAgingState(value); }, []);
   const [education, setEducation] = useState(INITIAL_EDUCATION);
   const [careerMeta, setCareerMeta] = useState(INITIAL_CAREER_META);
   const [networking, setNetworking] = useState(0);
@@ -54,6 +60,19 @@ export function useGameState() {
   const [narrativeMode, setNarrativeMode] = useState(false);
   const [pets, setPets] = useState([]);
   const [will, setWill] = useState(null);
+  const [lastCareerAction, setLastCareerAction] = useState(null);
+  const careerFeedbackRef = useRef(null);
+  const lifeEpoch = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; lifeEpoch.current += 1; };
+  }, []);
+  const invalidateCareerFeedback = useCallback(() => {
+    lifeEpoch.current += 1;
+    careerFeedbackRef.current = null;
+    setLastCareerAction(null);
+  }, []);
   /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
@@ -65,6 +84,18 @@ export function useGameState() {
 
   /** Apply a cloud save document to local state — used at boot and on account switch. */
   const hydrateFromSave = useCallback((data) => {
+    invalidateCareerFeedback();
+    const installed = { ...lifeSnapshotRef.current };
+    for (const key of Object.keys(installed)) {
+      if (key === 'flags' || data[key] === undefined) continue;
+      if (['character', 'stats', 'history', 'relationships', 'belongings', 'properties', 'education', 'careerMeta', 'economyCycle', 'pets'].includes(key) && !data[key]) continue;
+      installed[key] = data[key];
+    }
+    if (data.stats) installed.stats = { grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats };
+    if (data.education) installed.education = { ...INITIAL_EDUCATION, ...data.education };
+    if (data.careerMeta) installed.careerMeta = { ...INITIAL_CAREER_META, ...data.careerMeta };
+    if (data.economyCycle) installed.economyCycle = { ...INITIAL_ECONOMY, ...data.economyCycle };
+    lifeSnapshotRef.current = installed;
     if (data.character) setCharacter(data.character);
     if (data.age !== undefined) setAge(data.age);
     if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
@@ -81,10 +112,12 @@ export function useGameState() {
     if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
     if (data.pets) setPets(data.pets);
     if (data.will !== undefined) setWill(data.will);
-  }, []);
+  }, [invalidateCareerFeedback]);
 
   /** Clear the in-memory life only — no cloud write. Shared by resetLife and account changes. */
   const clearLocalLife = useCallback(() => {
+    invalidateCareerFeedback();
+    lifeSnapshotRef.current = buildLifeSave();
     setCharacter(null);
     setAge(0);
     setStats({ ...INITIAL_STATS });
@@ -105,7 +138,7 @@ export function useGameState() {
     setEconomyCycle({ ...INITIAL_ECONOMY });
     setPets([]);
     setWill(null);
-  }, []);
+  }, [invalidateCareerFeedback, setCurrentEvent, setIsAging]);
 
   const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
     hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData,
@@ -120,10 +153,10 @@ export function useGameState() {
   const persistLife = useCallback((overrides = {}) => {
     const next = { ...lifeSnapshotRef.current, ...overrides };
     lifeSnapshotRef.current = next;
-    syncToCloud(buildLifeSave(next));
+    return syncToCloud(buildLifeSave(next));
   }, [syncToCloud]);
 
-  const isActionLocked = () => isDead || isAging || !!currentEvent;
+  const isActionLocked = () => lifeSnapshotRef.current.isDead || agingRef.current || !!eventRef.current;
 
   /**
    * Live Again: clear local + full-replace cloud so App shows CharacterCreation.
@@ -137,6 +170,7 @@ export function useGameState() {
   };
 
   const startLife = (name, gender, country, cityId) => {
+    invalidateCareerFeedback();
     ignoreCloudLoadRef.current = true;
     const city = getCityById(cityId);
     const newChar = { name, gender, country, city: cityId ?? null };
@@ -176,7 +210,7 @@ export function useGameState() {
     setHistory(initialHistory);
     setCurrentEvent(null);
 
-    syncToCloud(buildLifeSave({
+    const newbornSave = buildLifeSave({
       character: newChar,
       age: 0,
       stats: initialStats,
@@ -194,7 +228,9 @@ export function useGameState() {
       economyCycle: INITIAL_ECONOMY,
       pets: [],
       will: null,
-    }), { replace: true });
+    });
+    lifeSnapshotRef.current = newbornSave;
+    syncToCloud(newbornSave, { replace: true });
   };
 
   const checkDeath = useCallback((currentStats, currentAge) => (
@@ -388,7 +424,7 @@ export function useGameState() {
     } finally {
       setIsAging(false);
     }
-  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, careersData, pets, activitiesThisYear, narrativeMode]);
+  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, careersData, pets, activitiesThisYear, narrativeMode, setCurrentEvent, setIsAging]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
 
@@ -412,34 +448,30 @@ export function useGameState() {
     });
   };
 
-  const chooseCareer = (jobId) => {
-    if (isActionLocked()) return;
-    if (jobId === null) {
-      setCareer(null);
-      const newMeta = { ...INITIAL_CAREER_META, financialStressFlag: careerMeta.financialStressFlag };
-      setCareerMeta(newMeta);
-      setHistory(prev => {
-        const updated = [...prev, { age, text: `You quit your current occupation.` }];
-        persistLife({ history: updated, career: null, careerMeta: newMeta });
-        return updated;
-      });
-      return;
-    }
-    const selected = careersData.find(c => c.id === jobId);
-    if (!selected) return;
-    const { eligible, reason } = checkCareerEligibility(selected);
-    if (!eligible) {
-      setHistory(prev => [...prev, { age, text: `Career: Can't apply — ${reason}.` }]);
-      return;
-    }
-    const newMeta = { ...INITIAL_CAREER_META, financialStressFlag: false };
-    setCareer(selected);
-    setCareerMeta(newMeta);
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Career: You got a job as a ${selected.title} ($${selected.salary.toLocaleString()}/yr).` }];
-      persistLife({ history: updated, career: selected, careerMeta: newMeta });
-      return updated;
+  const quoteCareer = jobId => quoteCareerChange(lifeSnapshotRef.current, jobId, careersData);
+
+  const chooseCareer = (jobId, options = {}) => {
+    const actionId = options.actionId ?? createDiagnosticId('operation');
+    const epoch = lifeEpoch.current;
+    const outcome = isActionLocked()
+      ? makeActionResult({ actionId, targetId: typeof jobId === 'string' ? jobId : null, status: 'rejected', code: lifeSnapshotRef.current.isDead ? 'dead' : 'action_locked' })
+      : resolveCareerChange(lifeSnapshotRef.current, { actionId, targetId: jobId, expectedBasis: options.expectedBasis ?? null }, careersData);
+    if (outcome.code === 'duplicate_action') return { result: outcome, persistence: null };
+    const feedback = { actionId, result: outcome, saveStatus: outcome.status === 'committed' ? 'pending' : 'not_requested' };
+    careerFeedbackRef.current = feedback;
+    setLastCareerAction(feedback);
+    if (outcome.status !== 'committed') return { result: outcome, persistence: null };
+    setCareer(outcome.patch.career);
+    setCareerMeta(outcome.patch.careerMeta);
+    setHistory(outcome.patch.history);
+    const persistence = persistLife(outcome.patch);
+    void persistence.then(receipt => {
+      if (!mountedRef.current || epoch !== lifeEpoch.current || careerFeedbackRef.current !== feedback) return;
+      const completed = { ...feedback, saveStatus: receipt.status };
+      careerFeedbackRef.current = completed;
+      setLastCareerAction(completed);
     });
+    return { result: outcome, persistence };
   };
 
   /**
@@ -1239,6 +1271,8 @@ export function useGameState() {
     ageUp,
     handleChoice,
     chooseCareer,
+    quoteCareer,
+    lastCareerAction,
     checkCareerEligibility,
     enrollInDegree,
     attendNetworkingEvent,

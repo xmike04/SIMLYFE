@@ -184,3 +184,93 @@ describe('cloud lifecycle contract through the game hook', () => {
     expect(backend.setDoc.mock.calls.at(-1)[1]).toMatchObject({ age: 34, bank });
   });
 });
+
+const teacher = { id: 'fixture_teacher', title: 'Fixture Teacher', type: 'full_time', sector: 'education', salary: 50000, minAge: 22, requiresDegree: 'bachelor', requiresNetworking: 20, statRequirements: { smarts: 60 }, healthEffect: -16, happinessEffect: -8 };
+async function careerReady(fields = {}) {
+  backend.getDocs.mockResolvedValue({ empty: false, docs: [{ data: () => teacher }] });
+  backend.getDoc.mockResolvedValue(snapshot(savedLife('Career Player', { age: 30, education: { highSchool: true, bachelor: true }, networking: 30, stats: { health: 80, happiness: 80, smarts: 70, looks: 50 }, ...fields })));
+  const hook = await ready();
+  await waitFor(() => expect(hook.result.current.careersData[0]?.id).toBe('fixture_teacher'));
+  await waitFor(() => expect(hook.result.current.character?.name).toBe('Career Player'));
+  return hook;
+}
+
+describe('career action foundation through the actual hook', () => {
+  it('commits once with full history and returns an acknowledged receipt', async () => {
+    const { result } = await careerReady();
+    let selected, duplicate;
+    act(() => {
+      const expectedBasis = result.current.quoteCareer(teacher.id).basis;
+      selected = result.current.chooseCareer(teacher.id, { actionId: 'select-1', expectedBasis });
+      duplicate = result.current.chooseCareer(teacher.id, { actionId: 'select-1', expectedBasis });
+    });
+    expect(selected.result.status).toBe('committed');
+    expect(duplicate.result.code).toBe('duplicate_action');
+    expect(result.current.career.id).toBe(teacher.id);
+    expect(result.current.bank).toBe(12000);
+    expect(result.current.history).toHaveLength(1);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ career: { id: teacher.id }, careerMeta: { yearsInRole: 0 }, history: [{ action: { id: 'select-1' } }] });
+    await act(async () => { expect((await selected.persistence).status).toBe('saved'); });
+    expect(result.current.lastCareerAction.saveStatus).toBe('saved');
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+  });
+  it('uses the latest snapshot for same-turn selection then quitting and preserves FIFO replacement', async () => {
+    const { result } = await careerReady();
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    let selected, quit;
+    act(() => {
+      selected = result.current.chooseCareer(teacher.id);
+      quit = result.current.chooseCareer(null);
+      result.current.resetLife();
+    });
+    expect(selected.result.status).toBe('committed');
+    expect(quit.result.record.beforeCareerId).toBe(teacher.id);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    await act(async () => { pending.resolve(); await quit.persistence; });
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(3));
+    expect(backend.setDoc.mock.calls[1][1].history).toHaveLength(2);
+    expect(backend.setDoc.mock.calls[2]).toHaveLength(2);
+    expect(backend.setDoc.mock.calls[2][1]).toMatchObject({ character: null, career: null, history: [] });
+    expect(result.current.lastCareerAction).toBeNull();
+  });
+  it('retains committed employment on save failure and never retries the action', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = await careerReady();
+    backend.setDoc.mockRejectedValueOnce(new Error('private provider failure'));
+    let selected;
+    act(() => { selected = result.current.chooseCareer(teacher.id); });
+    await act(async () => { expect((await selected.persistence).status).toBe('failed'); });
+    expect(result.current.career.id).toBe(teacher.id);
+    expect(result.current.lastCareerAction.saveStatus).toBe('failed');
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(result.current.currentEvent).toBeNull();
+  });
+  it('rejects a stale quote with no save and no persistent failure history', async () => {
+    const { result } = await careerReady();
+    const quote = result.current.quoteCareer(teacher.id);
+    act(() => result.current.debugMaxStats());
+    backend.setDoc.mockClear();
+    let attempted;
+    act(() => { attempted = result.current.chooseCareer(teacher.id, { expectedBasis: quote.basis }); });
+    expect(attempted.result.code).toBe('stale_quote');
+    expect(attempted.persistence).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    expect(result.current.history).toHaveLength(0);
+  });
+  it('restores acknowledged employment and deduplicates its history after remount', async () => {
+    const first = await careerReady();
+    let selected;
+    act(() => { selected = first.result.current.chooseCareer(teacher.id, { actionId: 'restored-id' }); });
+    await act(async () => { await selected.persistence; });
+    const saved = JSON.parse(JSON.stringify(backend.setDoc.mock.calls[0][1]));
+    first.unmount();
+    backend.getDoc.mockResolvedValue(snapshot(saved));
+    const second = await ready();
+    await waitFor(() => expect(second.result.current.career?.id).toBe(teacher.id));
+    act(() => { expect(second.result.current.chooseCareer(teacher.id, { actionId: 'restored-id' }).result.code).toBe('duplicate_action'); });
+    expect(second.result.current.history).toHaveLength(1);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+  });
+});
