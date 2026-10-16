@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ActionSheet from '../ActionSheet';
+import CareerActionPanel from './CareerActionPanel';
 import { SPECIAL_CAREERS } from '../../config/specialCareers';
 import { DEGREE_CONFIG, DEGREE_LABELS, HEADHUNTER_COST, canAffordHeadhunter } from '../../engine/gameState';
 
@@ -20,12 +21,13 @@ const SECTOR_META = {
 
 export default function JobSheet({
   age, bank, stats, career, careersData, careerMeta, networking, education,
-  chooseCareer, studyHard, triggerActivityEvent, performGig, attendNetworkingEvent,
+  chooseCareer, quoteCareer, lastCareerAction, studyHard, triggerActivityEvent, performGig, attendNetworkingEvent,
   enrollInDegree, checkCareerEligibility, debugModifyBank, startStartup,
   enlistMilitary, hireViaHeadhunter,
   onClose,
 }) {
   const [jobMenu, setJobMenu] = useState(null);
+  const [decision, setDecision] = useState(null);
   const [jobSector, setJobSector] = useState(null);
 
   const close = () => {
@@ -35,8 +37,7 @@ export default function JobSheet({
   };
 
   const handleChooseJob = (id) => {
-    chooseCareer(id);
-    close();
+    setDecision({ targetId: id, quote: quoteCareer(id) });
   };
 
   const getSectors = (type) => [...new Set(careersData.filter(c => c.type === type).map(c => c.sector).filter(Boolean))].sort();
@@ -59,7 +60,11 @@ export default function JobSheet({
 
   return (
     <ActionSheet title={getTitle()} onClose={() => { setJobMenu(null); setJobSector(null); onClose(); }}>
-      {age < 18 ? (
+      {decision ? (
+        <CareerActionPanel quote={decision.quote} chooseCareer={chooseCareer} lastCareerAction={lastCareerAction}
+          refreshQuote={() => setDecision({ ...decision, quote: quoteCareer(decision.targetId) })}
+          onCancel={() => setDecision(null)} onContinue={close} />
+      ) : age < 18 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div className="glass-panel" style={{ padding: '1rem', marginBottom: '4px', background: 'rgba(59, 130, 246, 0.1)' }}>
             <strong>{age < 11 ? "Elementary School" : (age < 14 ? "Middle School" : "High School")}</strong>
@@ -176,7 +181,7 @@ export default function JobSheet({
               {getSectors('part_time').length === 0 && careersData.filter(c => c.type === 'part_time').map(c => {
                 const elig = checkCareerEligibility ? checkCareerEligibility(c) : { eligible: true, reason: '' };
                 return (
-                  <button key={c.id} className="glass-panel" disabled={!elig.eligible} onClick={() => { handleChooseJob(c.id); }}
+                  <button key={c.id} className="glass-panel" disabled={!elig.eligible || career?.id === c.id} onClick={() => { handleChooseJob(c.id); }}
                     style={{ padding: '0.8rem', textAlign: 'left', gridColumn: 'span 2', background: 'rgba(255,255,255,0.05)', opacity: elig.eligible ? 1 : 0.55 }}>
                     <strong>{c.title}</strong>
                     <div style={{ fontSize: '0.8rem', color: '#10b981' }}>${c.salary?.toLocaleString()}/yr</div>

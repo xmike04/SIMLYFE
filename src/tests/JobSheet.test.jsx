@@ -48,3 +48,53 @@ describe('JobSheet startup action', () => {
     expect(props.debugModifyBank).not.toHaveBeenCalled();
   });
 });
+
+const careerFixture = { id: 'teacher', title: 'Teacher', sector: 'education', type: 'full_time', salary: 50000 };
+const decisionQuote = { targetId: 'teacher', eligible: true, code: 'eligible', reason: '', basis: 'quote-basis', preview: { title: 'Teacher', salary: 50000, grossSalary: 55000, immediateCost: 0, healthDelta: -2, happinessDelta: -1, previousTitle: 'Tutor', requirements: { minAge: 22, degree: 'bachelor', networking: 20, stats: { smarts: 60 } } } };
+function decisionProps(extra = {}) {
+  return { age: 30, bank: 12000, stats: {}, career: null, careersData: [careerFixture], careerMeta: {}, education: {}, networking: 30,
+    chooseCareer: vi.fn(() => ({ result: { status: 'committed', code: 'career_selected' } })), quoteCareer: vi.fn(() => decisionQuote), lastCareerAction: null,
+    checkCareerEligibility: () => ({ eligible: true, reason: '' }), onClose: vi.fn(), ...extra };
+}
+function selectTeacher() {
+  fireEvent.click(screen.getByRole('button', { name: /Full-Time/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Education/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Teacher/i }));
+}
+
+describe('career decision preview', () => {
+  it('shows trade-offs before confirmation without committing on preview or cancel', () => {
+    const props = decisionProps();
+    render(<JobSheet {...props} />);
+    selectTeacher();
+    expect(screen.getByText(/55,000/)).toBeInTheDocument();
+    expect(screen.getByText(/Health.*−2|Health.*-2/)).toBeInTheDocument();
+    expect(screen.getByText(/Tutor/)).toBeInTheDocument();
+    expect(props.chooseCareer).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(props.chooseCareer).not.toHaveBeenCalled();
+  });
+  it('confirms once with the reviewed basis and keeps outcome feedback in the sheet', () => {
+    const props = decisionProps();
+    const view = render(<JobSheet {...props} />);
+    selectTeacher();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm career change' }));
+    expect(props.chooseCareer).toHaveBeenCalledTimes(1);
+    expect(props.chooseCareer).toHaveBeenCalledWith('teacher', expect.objectContaining({ expectedBasis: 'quote-basis', actionId: expect.any(String) }));
+    expect(props.onClose).not.toHaveBeenCalled();
+    view.rerender(<JobSheet {...props} lastCareerAction={{ actionId: props.chooseCareer.mock.calls[0][1].actionId, result: { status: 'committed', code: 'career_selected' }, saveStatus: 'pending' }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Saving');
+    view.rerender(<JobSheet {...props} lastCareerAction={{ actionId: props.chooseCareer.mock.calls[0][1].actionId, result: { status: 'committed', code: 'career_selected' }, saveStatus: 'failed' }} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Not saved to cloud');
+    expect(props.chooseCareer).toHaveBeenCalledTimes(1);
+  });
+  it('refreshes stale terms and requires another confirmation', () => {
+    const props = decisionProps({ chooseCareer: vi.fn(() => ({ result: { status: 'rejected', code: 'stale_quote' } })) });
+    render(<JobSheet {...props} />);
+    selectTeacher();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm career change' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/changed/i);
+    expect(screen.getByRole('button', { name: 'Confirm career change' })).toBeEnabled();
+    expect(props.chooseCareer).toHaveBeenCalledTimes(1);
+  });
+});
