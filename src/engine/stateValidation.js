@@ -1,3 +1,5 @@
+import { isActionRecord } from './actions/actionResult';
+
 export const KNOWN_SAVE_FIELDS = new Set([
   'character', 'age', 'stats', 'flags', 'isDead', 'career', 'bank', 'history',
   'currentEvent', 'activitiesThisYear', 'relationships', 'belongings',
@@ -148,6 +150,7 @@ export function validateHydratedSave(saveData) {
     validateRecordArray(saveData.history, 'history', addWarning, entry => {
       if (!isFiniteNumber(entry.age)) addWarning('invalid_type', 'history[].age');
       if (typeof entry.text !== 'string') addWarning('invalid_type', 'history[].text');
+      if (Object.hasOwn(entry, 'action') && !isActionRecord(entry.action)) addWarning('invalid_value', 'history[].action');
     });
   }
 
