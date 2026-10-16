@@ -98,3 +98,18 @@ describe('career decision preview', () => {
     expect(props.chooseCareer).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('changed career catalog', () => {
+  it('shows unavailable feedback if the target disappears while its preview is open', () => {
+    const unavailable = { targetId: 'teacher', eligible: false, code: 'unknown_career', reason: 'This career is no longer available.', basis: 'removed', preview: { title: null, salary: 0, grossSalary: 0, healthDelta: 0, happinessDelta: 0, previousTitle: null, immediateCost: 0, requirements: null } };
+    const quoteCareer = vi.fn().mockReturnValueOnce(decisionQuote).mockReturnValue(unavailable);
+    const props = decisionProps({ quoteCareer, chooseCareer: vi.fn(() => ({ result: { status: 'rejected', code: 'stale_quote' } })) });
+    render(<JobSheet {...props} />);
+    selectTeacher();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm career change' }));
+    expect(screen.getByText('This career is no longer available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm career change' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+});

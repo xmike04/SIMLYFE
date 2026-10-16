@@ -33,8 +33,8 @@ export default function CareerActionPanel({ quote, chooseCareer, lastCareerActio
   };
   return (
     <section className="career-action-panel" aria-label="Career decision">
-      <h3>{targetId === null ? 'Leave your current role' : preview.title}</h3>
-      {targetId === null ? <p>You will lose future income from {preview.previousTitle}. Quitting does not create unemployment benefits.</p> : <>
+      <h3>{targetId === null ? 'Leave your current role' : (preview.title ?? 'Career unavailable')}</h3>
+      {targetId === null ? <p>You will lose future income from {preview.previousTitle}. Quitting does not create unemployment benefits.</p> : preview.requirements && <>
         <p>Catalog salary: <strong>${preview.salary.toLocaleString()}/yr</strong></p>
         <p>City-adjusted gross estimate: <strong>${preview.grossSalary.toLocaleString()}/yr</strong>, before taxes and living costs.</p>
         <p>Annual role effects: Health {signed(preview.healthDelta)} · Happiness {signed(preview.happinessDelta)}. Other life events and aging also apply.</p>
@@ -45,7 +45,7 @@ export default function CareerActionPanel({ quote, chooseCareer, lastCareerActio
       <p>Immediate cost: $0.</p>
       {!quote.eligible && <p role="alert">{quote.reason}</p>}
       {feedback && <div role={feedback.result.status === 'rejected' || feedback.saveStatus === 'failed' ? 'alert' : 'status'}>
-        <p>{messages[feedback.result.code] ?? quote.reason ?? 'This decision could not be completed.'}</p>
+        <p>{messages[feedback.result.code] || quote.reason || 'This decision could not be completed.'}</p>
         {saveLabels[feedback.saveStatus] && <p>{saveLabels[feedback.saveStatus]}</p>}
         {feedback.saveStatus === 'failed' && <p>Your career changed in this session. Reloading may restore an older save.</p>}
       </div>}

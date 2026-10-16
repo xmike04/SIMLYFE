@@ -34,3 +34,21 @@ describe('action consequence boundary', () => {
     expect(makeActionResult({ actionId: 'choose-1', targetId: null, status: 'noop', code: 'already_unemployed' })).toMatchObject({ patch: {}, record: null, facts: null });
   });
 });
+
+describe('committed envelope coherence', () => {
+  const valid = () => ({ actionId: record.id, targetId: record.targetId, status: 'committed', code: record.code, record,
+    patch: { career: { id: 'teacher', title: 'Teacher', salary: 50000 }, careerMeta: { yearsInRole: 0, isOnPIP: false, financialStressFlag: false, unemploymentYearsLeft: 0 }, history: [{ age: 30, text: 'Selected Teacher', action: record }] },
+    facts: projectActionFacts(record, { age: 30, beforeTitle: null, afterTitle: 'Teacher' }) });
+  it('accepts the actual coherent committed state and its bounded facts', () => {
+    expect(makeActionResult(valid()).status).toBe('committed');
+  });
+  it.each(['salary', 'metadata', 'extraFact', 'wrongFact', 'historyAge'])('rejects inconsistent %s instead of allowing mismatched canonical and narrative facts', kind => {
+    const envelope = valid();
+    if (kind === 'salary') envelope.patch.career.salary = -999;
+    if (kind === 'metadata') envelope.patch.careerMeta = null;
+    if (kind === 'extraFact') envelope.facts.credential = 'must-not-pass';
+    if (kind === 'wrongFact') envelope.facts.afterSalary = 7;
+    if (kind === 'historyAge') envelope.patch.history[0].age = 31;
+    expect(() => makeActionResult(envelope)).toThrow();
+  });
+});

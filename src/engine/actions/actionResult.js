@@ -37,10 +37,23 @@ export function projectActionFacts(record, { age, beforeTitle = null, afterTitle
 export function makeActionResult({ actionId, targetId, status, code, patch = {}, record = null, facts = null }) {
   if (!id(actionId) || !nullableId(targetId) || !['committed', 'rejected', 'noop'].includes(status) || !id(code)) throw new Error('Invalid action result');
   if (status === 'committed') {
+    const entry = patch?.history?.at?.(-1);
+    const meta = patch?.careerMeta;
+    const metaKeys = ['yearsInRole', 'isOnPIP', 'financialStressFlag', 'unemploymentYearsLeft'];
+    const expectedFacts = projectActionFacts(record, { age: entry?.age, beforeTitle: facts?.beforeTitle, afterTitle: patch?.career?.title });
+    const coherentFacts = expectedFacts && facts && Object.keys(facts).length === Object.keys(expectedFacts).length
+      && Object.entries(expectedFacts).every(([key, value]) => facts[key] === value);
+    const coherentMeta = meta && Object.keys(meta).length === metaKeys.length && metaKeys.every(key => Object.hasOwn(meta, key))
+      && Number.isInteger(meta.yearsInRole) && meta.yearsInRole >= 0
+      && Number.isInteger(meta.unemploymentYearsLeft) && meta.unemploymentYearsLeft >= 0
+      && typeof meta.isOnPIP === 'boolean' && typeof meta.financialStressFlag === 'boolean';
+    const coherentCareer = record?.afterCareerId === null ? patch?.career === null
+      : patch?.career?.id === record?.afterCareerId && patch?.career?.salary === record?.afterSalary
+        && typeof patch?.career?.title === 'string' && patch.career.title.trim().length > 0;
     if (!isActionRecord(record) || record.id !== actionId || record.targetId !== targetId || record.code !== code
       || !patch || Object.keys(patch).sort().join(',') !== 'career,careerMeta,history'
       || !Array.isArray(patch.history) || patch.history.at(-1)?.action !== record
-      || patch.career?.id !== (record.afterCareerId ?? undefined) || !facts) throw new Error('Invalid committed result');
+      || typeof entry.text !== 'string' || !coherentMeta || !coherentCareer || !coherentFacts) throw new Error('Invalid committed result');
   } else if (Object.keys(patch).length || record !== null || facts !== null) throw new Error('Noncommitted action has effects');
   return Object.freeze({ actionId, actionType: 'career.choose', targetId, status, code, patch, record, facts });
 }
