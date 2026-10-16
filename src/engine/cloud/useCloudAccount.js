@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { createSaveQueue } from './saveQueue';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { createDiagnosticId, diagnosticNow, emitDiagnostic, getDiagnosticStateFields, getErrorClass } from '../diagnostics';
 import { validateHydratedSave } from '../stateValidation';
 import { setFirebaseIdTokenProvider } from '../firebaseToken';
@@ -11,6 +12,8 @@ import { summarizeAuthUser, prepareEmailCredential } from './authHelpers';
  */
 export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData }) {
   const [cloudSync, setCloudSync] = useState(null);
+  const saveQueue = useRef(null);
+  if (!saveQueue.current) saveQueue.current = createSaveQueue();
   const [authAccount, setAuthAccount] = useState(null);
 
   // 1. Adopt the persisted auth session (or start an anonymous one) and load
@@ -131,48 +134,40 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     };
   }, [hydrateFromSave, ignoreCloudLoadRef, setCareersData]);
 
-  // 2. Sync to Cloud — pass { replace: true } on life boundaries to wipe stale fields
+  // Capture the account and full snapshot before enqueueing; life boundaries remain replacements.
   const syncToCloud = useCallback(async (stateData, options = {}) => {
-    const saveOperationId = createDiagnosticId('save-sync');
-    const saveStartedAt = diagnosticNow();
+    const operationId = createDiagnosticId('save-sync');
+    const startedAt = diagnosticNow();
     const fields = getDiagnosticStateFields(stateData);
-    if (!cloudSync) {
-      emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'skipped',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
-      });
-      return;
-    }
-    emitDiagnostic('save_sync', {
-      operationId: saveOperationId,
-      status: 'started',
-      durationMs: 0,
-      fields,
+    const report = (status, errorClass = null) => emitDiagnostic('save_sync', {
+      operationId, status, durationMs: diagnosticNow() - startedAt, fields,
+      ...(errorClass ? { errorClass } : {}),
     });
-    try {
-      const saveRef = cloudSync.doc(cloudSync.db, 'users', cloudSync.userId, 'saves', 'currentLife');
-      if (options.replace) {
-        await cloudSync.setDoc(saveRef, stateData);
-      } else {
-        await cloudSync.setDoc(saveRef, stateData, { merge: true });
-      }
-      emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'saved',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
-      });
-    } catch (e) {
-      emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'failed',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
-        errorClass: getErrorClass(e),
-      });
+    if (!cloudSync) {
+      report('skipped');
+      return { status: 'skipped', operationId, errorClass: null };
     }
+    report('started');
+    const target = cloudSync;
+    const replace = options.replace === true;
+    let payload;
+    try {
+      payload = structuredClone(stateData);
+    } catch (error) {
+      const errorClass = getErrorClass(error);
+      report('failed', errorClass);
+      return { status: 'failed', operationId, errorClass };
+    }
+    const receipt = await saveQueue.current.enqueue(target.userId, {
+      operationId,
+      write: async () => {
+        const saveRef = target.doc(target.db, 'users', target.userId, 'saves', 'currentLife');
+        if (replace) await target.setDoc(saveRef, payload);
+        else await target.setDoc(saveRef, payload, { merge: true });
+      },
+    });
+    report(receipt.status, receipt.errorClass);
+    return receipt;
   }, [cloudSync]);
 
   /**
