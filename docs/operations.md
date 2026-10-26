@@ -143,3 +143,34 @@ Use an authorized test identity and a clearly named test life. Record evidence f
 | Rules workflow passes but rules are stale | Credential presence and actual deployment step, not validation alone |
 
 Diagnostics expose operational codes and field names. Keep credentials, complete saves, raw provider responses, and private account details out of shared logs and documentation.
+
+
+## October 26, 2026 metadata inspection
+
+This read-only inspection establishes deployment identity and configuration drift,
+not a new production acceptance test. No service was restored or redeployed.
+
+| Surface | Observed metadata |
+| --- | --- |
+| Canonical frontend | `simlyfe.vercel.app` resolves in Vercel deployment metadata to `dpl_DBDKqwsLnEymicPbRBrwyf9nC8xc`, state `READY`, source `e8617bbae81814da480ea28fc028bf8e4872a439` |
+| Supabase project | `zfzepijfnldpqsyqyuhj` is reported `INACTIVE` by the management API |
+| Event function | `generate-event` is listed `ACTIVE`, version `14`; bundle SHA-256 `899a7afc77fa3d617562d193a307133b374f3bbe9fe2e0f959767fab2f1e1ff8` |
+| Source correspondence | Deployed `index.ts` and `contract.ts` differ from the pinned repository revision above in client-origin parsing |
+
+The deployed version calls `parseClientOrigins`, combining the existing browser
+origin parser with optional `ANDROID_ALLOWED_ORIGINS`. The pinned repository uses
+`parseAllowedOrigins` for `ALLOWED_ORIGINS` alone. No origin values or credentials
+were retrieved. The intended Android-origin policy needs owner confirmation before
+backporting or redeploying either version.
+
+The project's inactive status and the function's active listing are separate
+management signals. Neither proves that a real authenticated event/quota/database
+request succeeds. The September acceptance record covers the earlier frontend and
+function version 12; it cannot establish acceptance of this refactor and version
+14. A fresh canary still needs an authorized test identity, current service
+availability, and a supported browser/runtime.
+
+Required remaining checks: confirm service availability, authenticate a named test
+life, generate and resolve one event, save/reload, verify persisted state, and record
+the canonical deployment/function/rules versions. Record actual provider usage
+before claiming per-event cost. Do not infer any of these outcomes from mocked CI.
