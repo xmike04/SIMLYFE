@@ -4,6 +4,8 @@ SIMLYFE is a mobile-first browser life simulator. Create a character, age one ye
 
 **[Play SIMLYFE](https://simlyfe.vercel.app)** · [Documentation](./docs/README.md) · [Technical case study](./docs/case-study.md)
 
+[Application quality evidence](https://github.com/xmike04/SIMLYFE/actions/runs/40374004252) · [Current deployment evidence](./docs/operations.md#october-26-2026-metadata-inspection)
+
 The project combines a React interface with explicit gameplay calculations and generated narrative. Firebase supplies guest/account identity and cloud saves. An authenticated Supabase Edge Function owns the OpenAI call, prompt, and quotas; the browser receives no OpenAI credential.
 
 ## Start locally
@@ -31,6 +33,8 @@ Fill in the public Firebase web-app configuration and Supabase URL/publishable k
 | Hosting | Vercel |
 
 ## Verify changes
+
+The [October 26 CI run](https://github.com/xmike04/SIMLYFE/actions/runs/40374004252) passed 783 Vitest test cases across 37 files plus desktop/mobile browser checks. CI uses controlled service responses. Current production acceptance and deployed source differences are tracked in the [operations evidence](./docs/operations.md#october-26-2026-metadata-inspection).
 
 ```bash
 npm run lint
