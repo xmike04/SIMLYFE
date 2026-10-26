@@ -41,6 +41,22 @@ Supabase server secrets, exact allowed origins, and provider setup are documente
 
 ## Required checks
 
+The [application quality workflow](../.github/workflows/ci.yml) runs on every
+pull request and push to `main`, and supports manual dispatch. It installs the
+lockfile with Node 22, then runs lint, Vitest, the production build, documentation
+checks, and both desktop/mobile Playwright projects. No live provider credentials
+are supplied. The Firestore-rules deployment workflow remains separate.
+
+The retained `vitest-results` artifact counts Vitest **test cases**, not individual
+`expect` assertions. Use its JSON report and exact tested workflow revision when
+publishing a current count. A passing browser run uses controlled service
+responses; it does not establish production cloud connectivity or model quality.
+
+Repository rules must separately require `Lint, unit tests, build, docs` and
+`Desktop and mobile browser smoke` before merging. Defining the workflow does
+not itself enforce that policy. CI artifacts expire after their stated retention
+period; retain a dated, commit-specific summary for long-lived public claims.
+
 Follow [_agents/workflows/test-app.md](../_agents/workflows/test-app.md) for substantive changes. With dependencies installed, run these gates in order:
 
 ```bash
