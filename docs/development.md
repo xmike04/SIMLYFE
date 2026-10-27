@@ -130,3 +130,13 @@ Use a fresh Firebase ID token from an authorized test session and an exact origi
 Check both the exported contract and the visible behavior. Useful regression cases include a full year with investments/pets/relationships, tuition and taxed salary in the same tick, a delayed event request, a late initial save load, new-life replacement, and an account switch.
 
 For UI extraction, verify sheet opening/back/close behavior, disabled actions, selected asset purchases, and mobile layout. Keep test results separate from deployment status, and record unresolved behavior as a follow-up rather than describing it as fixed.
+
+## Public build provenance
+
+Production builds emit `/build-info.json` with only a schema version and a
+validated commit SHA from `VERCEL_GIT_COMMIT_SHA`, falling back to `GITHUB_SHA`
+when the Vercel variable is absent. Missing or malformed provenance is `null`.
+The manifest records the build input; corroborate it against the hosting
+platform's deployment/commit status before treating a release as independently
+verified. It contains no environment dump or credentials. See the
+[deployment provenance checklist](./deployment-provenance.md).
