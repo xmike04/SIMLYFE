@@ -394,6 +394,20 @@ export function buildPromptMessages(request: GenerateEventRequest) {
   ];
 }
 
+export const DEFAULT_OPENAI_MODEL = "gpt-5-nano";
+
+/** Provider parameters stay server-owned; original nano models reject temperature. */
+export function buildProviderRequest(request: GenerateEventRequest, model = DEFAULT_OPENAI_MODEL) {
+  const isNano = model === "gpt-5-nano" || model === "gpt-5-nano-2025-08-07";
+  return {
+    model,
+    messages: buildPromptMessages(request),
+    response_format: OPENAI_EVENT_RESPONSE_FORMAT,
+    max_completion_tokens: request.narrativeMode ? 400 : 200,
+    ...(isNano ? { reasoning_effort: "minimal" } : { temperature: 0.8 }),
+  };
+}
+
 export function parseProviderEvent(value: unknown): GeneratedEvent {
   const event = record(value, "provider.event");
   exactKeys(event, ["description", "choices"], "provider.event");
@@ -505,6 +519,14 @@ export function parseGlobalDailyLimit(value: string | undefined | null) {
     100_000,
     true,
   );
+}
+
+export function parseClientOrigins(browserOrigins: string, androidOrigins?: string) {
+  const allowed = parseAllowedOrigins(browserOrigins);
+  if (androidOrigins) {
+    for (const origin of parseAllowedOrigins(androidOrigins)) allowed.add(origin);
+  }
+  return allowed;
 }
 
 export function parseAllowedOrigins(raw: string) {

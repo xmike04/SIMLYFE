@@ -1,19 +1,18 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
 import {
-  buildPromptMessages,
+  buildProviderRequest,
+  DEFAULT_OPENAI_MODEL,
   ContractValidationError,
   MAX_BODY_BYTES,
   normalizeProviderUsage,
-  OPENAI_EVENT_RESPONSE_FORMAT,
-  parseAllowedOrigins,
+  parseClientOrigins,
   parseGlobalDailyLimit,
   parseGenerateEventRequest,
   parseProviderEvent,
   parseRateLimitResult,
 } from "./contract.ts";
 
-const DEFAULT_MODEL = "gpt-4.1-nano";
 const REQUEST_TIMEOUT_MS = 15_000;
 const BODY_READ_TIMEOUT_MS = 2_000;
 const OPENAI_TIMEOUT_MS = 8_000;
@@ -192,13 +191,7 @@ async function generateEvent(
       "Authorization": `Bearer ${requiredEnv("OPENAI_API_KEY")}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages: buildPromptMessages(request),
-      response_format: OPENAI_EVENT_RESPONSE_FORMAT,
-      max_completion_tokens: request.narrativeMode ? 400 : 200,
-      temperature: 0.8,
-    }),
+    body: JSON.stringify(buildProviderRequest(request, model)),
     signal: AbortSignal.any([requestSignal, timeoutSignal]),
   });
   if (!response.ok) throw new HttpError(502, "UPSTREAM_ERROR", "The narrative provider could not complete the request.");
@@ -241,7 +234,10 @@ serve(async (request: Request) => {
   const startedAt = performance.now();
   let origin: string | undefined;
   try {
-    const configuredOrigins = parseAllowedOrigins(requiredEnv("ALLOWED_ORIGINS"));
+    const configuredOrigins = parseClientOrigins(
+      requiredEnv("ALLOWED_ORIGINS"),
+      Deno.env.get("ANDROID_ALLOWED_ORIGINS"),
+    );
     const requestOrigin = request.headers.get("origin");
     if (!requestOrigin || !configuredOrigins.has(requestOrigin)) {
       throw new HttpError(403, "ORIGIN_NOT_ALLOWED", "This origin is not allowed.");
@@ -293,7 +289,7 @@ serve(async (request: Request) => {
       );
     }
 
-    const model = Deno.env.get("OPENAI_MODEL")?.trim() || DEFAULT_MODEL;
+    const model = Deno.env.get("OPENAI_MODEL")?.trim() || DEFAULT_OPENAI_MODEL;
     const result = await generateEvent(parsedRequest, model, operationSignal);
     const normalizedUsage = normalizeProviderUsage(result.usage);
 

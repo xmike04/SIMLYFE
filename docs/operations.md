@@ -76,7 +76,7 @@ The deployed unit comprises all three of these inputs:
 | `ALLOWED_ORIGINS` | Comma-separated exact HTTP(S) origins; no paths or wildcard matching |
 | `RATE_LIMIT_HMAC_SECRET` | Secret used to pseudonymize per-identity quota keys |
 | `GENERATE_EVENT_GLOBAL_DAILY_LIMIT` | Daily project admission limit; defaults to 1,000, configurable from 100 to 100,000 |
-| `OPENAI_MODEL` | Optional server-owned override; default `gpt-4.1-nano` |
+| `OPENAI_MODEL` | Optional server-owned override; default `gpt-5-nano` |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase runtime-provided database access settings |
 
 Configure secrets in the Supabase dashboard or an ignored environment file passed to `supabase secrets set --env-file ...`. Do not put secret values in tracked files or command examples. Once authenticated and linked to the intended project, the source rollout sequence is:
@@ -304,3 +304,57 @@ module is `/assets/index-CWUz-w8k.js`. No current commit attribution is invented
 This record supersedes the previous pending-approval status: approval was received
 and the single attempt completed with failure. The source/function/origin policy
 was not changed in response, and no second provider request was made.
+
+## October 27, 2026 OpenAI replacement preparation
+
+The owner selected `gpt-5-nano` after comparing it with `gpt-6-luna`.
+OpenAI's [model reference](https://developers.openai.com/api/docs/models/gpt-5-nano)
+lists Standard rates of $0.05 per million input tokens, $0.005 per million
+cached input tokens, and $0.40 per million output tokens. These are unit prices,
+not measured SIMLYFE event costs. Reasoning tokens also consume the completion
+budget and are billed as output. The [deprecation schedule](https://developers.openai.com/api/docs/deprecations)
+sets December 11, 2026 as its shutdown date; migrate again before that date.
+
+The source default previously used `gpt-4.1-nano`, whose documented shutdown
+date is October 23, 2026. That could explain the failed canary if no runtime
+override was configured. The deployed model override and upstream HTTP error
+were not observed, so this is a hypothesis rather than a confirmed key failure.
+
+[buildProviderRequest](../supabase/functions/generate-event/contract.ts) now
+selects `reasoning_effort: "minimal"` and omits `temperature` for the nano
+alias and its dated snapshot. OpenAI's [compatibility guidance](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.2)
+says the original GPT-5 models reject explicit sampling parameters.
+An explicit legacy model override retains the prior request parameters.
+
+The existing total completion caps remain 200 tokens in Quick mode and 400 in
+Narrative mode. These caps include reasoning: they have **not** been calibrated
+against a real GPT-5 Nano event. A live response can still be incomplete at
+these limits. The service rejects incomplete output and does not retry
+automatically. Increase a cap only after recording a justified response and
+cost budget. Mocked or local compatibility tests do not establish live quality,
+latency, model access, key validity, or successful save/reload.
+
+The same source change carries forward the deployed Android-origin helper
+unchanged from the inspected native branch, so a future function deployment
+does not lose its optional native allowlist. Earlier source/deployment
+observations above remain historical records.
+
+To complete the replacement:
+
+1. Create a project-scoped OpenAI API key in the intended funded API project.
+   A ChatGPT subscription does not provide API credit.
+2. Deploy the tested compatible function before activating the new model
+   setting. Keep Firebase authentication, quota settings, web origins, and
+   Android origins unchanged.
+3. In Supabase project `zfzepijfnldpqsyqyuhj`, enter the new value directly in
+   Edge Function Secrets as `OPENAI_API_KEY`. Set `OPENAI_MODEL=gpt-5-nano`
+   to replace any stale override. Never paste the key into chat, GitHub, browser
+   application configuration, or a tracked environment file.
+4. Obtain a fresh, bounded real-canary authorization; the prior single-request
+   approval has already been used. Record the actual model, usage, valid event,
+   resolution, and reload result. Confirm other consumers before revoking the
+   previous key.
+
+At preparation time, no replacement key had been supplied or installed, no
+new provider request had been made, and the production model had not been
+changed. The source patch is a reviewable draft, not a completed live migration.

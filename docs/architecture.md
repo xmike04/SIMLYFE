@@ -39,6 +39,13 @@ flowchart LR
 
 `useGameState()` remains the single owner of the life shown to the player. Extracted helpers return values; they do not call React setters, write saves, or generate network requests. Existing named exports from `gameState.js` remain available for callers during the refactor. New domain code should import the owning module directly.
 
+The server contract also builds the provider request. Its default is
+`gpt-5-nano` with minimal reasoning and strict JSON output; the original nano
+model's request omits unsupported temperature settings. Existing Quick/Narrative
+completion caps include reasoning tokens. Model selection, credential rotation,
+retirement dates, and required live verification are tracked in
+[operations](./operations.md#october-27-2026-openai-replacement-preparation).
+
 ## View routing
 
 [App.jsx](../src/App.jsx) selects one of three routes:
