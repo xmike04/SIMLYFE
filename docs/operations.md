@@ -506,3 +506,25 @@ scope. It does not prove cross-device/cloud acknowledgment, actual token cost,
 a reliability SLO or broad narrative quality. Some valid choice text had
 awkward or mixed-language endings; those observations are retained rather than
 presented as polished output. Earlier failed canaries remain historical records.
+
+## October 27, 2026 choice-generation contract follow-up
+
+All five retained age-6-to-10 choice labels were exactly **80 characters**, the
+provider schema's hard field limit. Several ended in incomplete or mixed-language
+fragments. The postvalidator does not trim labels to that length: it rejects
+longer strings. The existing prompt requested tradeoffs without specifying an
+English label style or a character budget. Those observations locate the issue
+in provider-generated text at the field boundary; the provider's exact decoding
+mechanism was not observed.
+
+The server prompt and choice-field schema description now request complete
+English action labels, preserving supplied proper names, with 4–10 words and a
+target of at most 60 characters. The hard 80-character limit, effect validation,
+1,024-token Nano ceiling, quotas, authentication and no-retry behavior are
+unchanged. Effects carry consequences instead of long risk clauses in labels.
+
+An outbound-request regression covers both Quick and Narrative modes and was
+observed failing before the instruction change, then passing. This establishes
+the repaired generation contract, not improved live prose: no additional paid
+provider request was made for this follow-up. The earlier canary receipt remains
+unchanged, including its wording defects and five bounded successes.

@@ -153,4 +153,10 @@ Both server and browser validate the event. Auth, network, timeout, quota, servi
 
 The client budget is 20 seconds across token acquisition and proxy fetch. The edge operation has a 15-second deadline, including an 8-second provider deadline. Calls do not retry automatically. [diagnostics.js](../src/engine/diagnostics.js) emits only allowlisted operational metadata and never whole saves, credentials, or raw provider errors.
 
+Choice-generation instructions request complete English action labels of 4–10
+words, targeting at most 60 characters below the unchanged hard 80-character
+schema limit. Consequences belong in the effects fields rather than long risk
+clauses. These instructions mitigate the observed field-boundary wording issue;
+they do not make semantic quality a validated property of the response.
+
 Environment setup, quota configuration, and deployment verification are owned by [development](./development.md) and [operations](./operations.md), rather than duplicated here.

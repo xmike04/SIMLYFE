@@ -67,6 +67,26 @@ describe("provider request compatibility", () => {
     assert.equal(Object.hasOwn(body, "reasoning_effort"), false);
   });
 
+  it("sends a complete English action-label budget with headroom in both modes", () => {
+    for (const narrativeMode of [false, true]) {
+      const request = contract.parseGenerateEventRequest({ ...validBody(), narrativeMode });
+      const body = contract.buildProviderRequest(request);
+      const instructions = body.messages[0].content;
+      assert.match(instructions, /Write the description and choice labels in English/);
+      assert.match(instructions, /complete action label of 4-10 words/);
+      assert.match(instructions, /Aim for at most 60 characters/);
+      assert.match(instructions, /Never cut off a word or thought to fit the limit/);
+      assert.match(instructions, /put consequences in numericEffects and flags/);
+      const textSchema = body.response_format.json_schema.schema.properties.choices.items.properties.text;
+      assert.equal(textSchema.maxLength, 80);
+      assert.match(textSchema.description, /complete English action label/);
+      assert.match(textSchema.description, /at most 60 characters/);
+      // Names and history remain untrusted JSON data, not interpolated instructions.
+      assert.equal(JSON.parse(body.messages[1].content).GAME_STATE_JSON.character.name, "Alex");
+      assert.equal(body.max_completion_tokens, 1024);
+    }
+  });
+
   it("retains the deployed separate Android allowlist", () => {
     assert.deepEqual(
       [...(contract.parseClientOrigins("https://simlyfe.vercel.app", "https://localhost") ?? [])],
