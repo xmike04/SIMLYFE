@@ -133,7 +133,7 @@ The annual event request currently receives the pre-tick relationship and pet ar
 
 The browser sends only `{ state, actionContext, narrativeMode }` to the configured Supabase function. `state` is a bounded projection rather than the entire save. The Firebase token is the bearer credential; the Supabase public key is the separate `apikey` gateway header.
 
-The server checks the exact request origin and the Firebase token's signature, issuer, audience, timestamps, and subject. It validates the request, admits it through durable per-identity and project-wide quotas, and calls OpenAI with a server-owned prompt, model, temperature, schema, and token ceiling. The default model is `gpt-4.1-nano`.
+The server checks the exact request origin and the Firebase token's signature, issuer, audience, timestamps, and subject. It validates the request, admits it through durable per-identity and project-wide quotas, and calls OpenAI with a server-owned prompt, model, compatible model parameters, schema, and token ceiling. The default model is `gpt-5-nano`; its minimal-reasoning request omits temperature.
 
 The provider's result is normalized to this browser envelope:
 
