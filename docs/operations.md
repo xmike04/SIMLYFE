@@ -249,3 +249,58 @@ content or infer success from service health, historical Android smoke or CI.
 The service resume did not redeploy the frontend/function, change origin settings,
 alter quotas, or change authentication. Record exact request/deployment/function
 evidence after the approved one-event canary succeeds.
+
+## October 26, 2026 approved single-event canary
+
+**Result: AI generation failed; same-browser reload persistence was observed.**
+The owner explicitly approved one real event request for Guest life
+**P1 Canary Oct26**, followed by resolution and save/reload. Exactly one event
+POST was issued; the OPTIONS preflight and server quota RPC are separate
+non-generation operations. There was no retry.
+
+The request started at 02:32:24.915 UTC October 27, or 9:32:24.915 p.m. October 26
+in America/Chicago. The browser used Quick mode at
+`https://simlyfe.vercel.app/`.
+
+| Boundary | Observation |
+| --- | --- |
+| Web preflight | OPTIONS returned 204 |
+| Quota RPC | POST consume_generate_event_quota returned 200 |
+| Event function | Version 14 returned HTTP 502; reported execution duration 2,556 ms |
+| Application error log | UPSTREAM_ERROR; request ID 8709799a-cd3c-4421-b54f-e0c38a44ae08 |
+| Visible result | “LLM ERROR: Event generation failed. Please try again.” |
+| Acknowledgment | Clicked Understood; the game returned to its ordinary controls |
+| Reload | Same Guest life returned at age 1 with the error acknowledgment in history |
+
+The deployed handler maps `UPSTREAM_ERROR` specifically to an unsuccessful HTTP
+response from `https://api.openai.com/v1/chat/completions`. Its origin, Firebase
+token and request validation precede quota admission and that provider call.
+This supports acceptance of this Guest request through those gates; it does not
+test rejection of invalid identities or other origins.
+
+OpenAI's original HTTP status, error body, configured runtime model and billable
+usage are absent from the retained diagnostics. Do not attribute the failure to
+billing, credentials, a model setting, response validation or a provider outage
+without further evidence. The next diagnosis needs the provider's actual error
+details or a reviewed improvement to sanitized upstream-status logging before
+another separately authorized generation attempt.
+
+The life advanced from age 0 to 1, and acknowledging the error recorded it in
+history. Reload returned that exact age/history. This is a same-browser
+persistence observation; it does not independently verify a cloud write
+acknowledgment or cross-device recovery. No genuine generated event or narrative
+quality was available to assess, so full current AI production acceptance fails.
+
+[Machine-readable receipt](./evidence/production-canary-2026-10-26.json) retains
+the selected HTTP observations, error classification, source identity and limits.
+No credentials, tokens, real-person data, account UID or raw save is included.
+
+Function metadata remained version 14 with the previously recorded bundle hash,
+matching the Android source. During this canary, fresh Vercel deployment lookups
+returned not-found and the scoped project search found no accessible match.
+The earlier frontend commit mapping remains historical; the observed deployed
+module is `/assets/index-CWUz-w8k.js`. No current commit attribution is invented.
+
+This record supersedes the previous pending-approval status: approval was received
+and the single attempt completed with failure. The source/function/origin policy
+was not changed in response, and no second provider request was made.
