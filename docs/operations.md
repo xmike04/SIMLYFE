@@ -174,3 +174,78 @@ Required remaining checks: confirm service availability, authenticate a named te
 life, generate and resolve one event, save/reload, verify persisted state, and record
 the canonical deployment/function/rules versions. Record actual provider usage
 before claiming per-event cost. Do not infer any of these outcomes from mocked CI.
+
+## October 26, 2026 restoration and Android source follow-up
+
+The owner confirmed the backend should be active. The existing project was
+resumed and subsequently reported `ACTIVE_HEALTHY`; a read-only database query
+returned PostgreSQL 17.6 successfully. These observations occurred after midnight
+UTC on October 27 (October 26 in America/Chicago). No new project or paid plan was
+created. This is service-restoration evidence, not completed application acceptance.
+
+### Android origin explained and traced
+
+The native branch
+[`codex/android-mobile` at f04e56bf77443565c807adee851d793ebe5afb78](https://github.com/xmike04/SIMLYFE/tree/f04e56bf77443565c807adee851d793ebe5afb78)
+resolves the earlier origin question:
+
+- Its [Capacitor configuration](https://github.com/xmike04/SIMLYFE/blob/f04e56bf77443565c807adee851d793ebe5afb78/capacitor.config.json)
+  sets hostname `localhost` and Android scheme `https`. Packaged web content
+  therefore uses `https://localhost`.
+- Its [Android runbook](https://github.com/xmike04/SIMLYFE/blob/f04e56bf77443565c807adee851d793ebe5afb78/docs/android.md#proxy-origin)
+  documents optional `ANDROID_ALLOWED_ORIGINS=https://localhost`, preserving the
+  existing browser allowlist.
+- Both deployed version-14 files, `index.ts` and `contract.ts`, match that
+  branch's file contents exactly. The deployed bundle hash remains
+  `899a7afc77fa3d617562d193a307133b374f3bbe9fe2e0f959767fab2f1e1ff8`.
+- The parser combines the two lists while requiring exact HTTP/HTTPS origins
+  and rejecting wildcards. Firebase token verification and durable quota
+  admission still precede generation.
+
+An origin is the scheme, hostname and port identifying the caller's web context.
+This setting lets the packaged Android app call the same backend as the website.
+It does not grant an Android device a user identity or replace authentication.
+
+The inspected main web revision lacks this optional Android helper; this is now
+a traced branch/deployment difference, not unexplained source. Preserve or
+integrate the reviewed native-origin helper before redeploying the function from
+main. Do not replace the allowlist with a wildcard. Current secret values and
+live preflight acceptance were not inspected in this follow-up, so the intended
+native origin is source-backed but current allowlist behavior is not newly proved.
+The Android branch's historical emulator evidence is separate from current web
+acceptance.
+
+### Post-restore database boundary
+
+Read-only catalog checks confirmed both private quota tables have RLS enabled
+and forced. `consume_generate_event_quota` is executable by `service_role` and
+not by `anon` or `authenticated`; no quota row contents were read or modified.
+
+The advisor reports INFO notices for the private tables' lack of client policies,
+consistent with their server-only quota design. It also reports broad EXECUTE
+grants on `public.rls_auto_enable()`:
+[anonymous-role notice](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable)
+and [authenticated-role notice](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable).
+Inspection shows this function returns `event_trigger`, fixes its search path,
+and matches Supabase's documented
+[automatic-RLS event trigger](https://supabase.com/docs/guides/database/postgres/row-level-security#auto-enable-rls-for-new-tables).
+This is distinct from the application's quota RPC; direct API exploitability
+was not established. No trigger or permission change was made. Review the grants
+separately before claiming a clean security audit.
+
+### Current production canary status
+
+A fresh browser reached the canonical application and created the synthetic
+guest life **P1 Canary Oct26**, age 0. The Account interface displayed **Guest**.
+This proves initial UI interaction only; it does not yet prove a successful
+authenticated AI request or cloud save/reload.
+
+Automatic approval review rejected clicking **+ Age** because the exact guest
+identity and billable production event request require explicit user approval.
+The action was not executed. Generation, event resolution and the final
+save/reload acceptance remain pending that approval. Do not substitute static
+content or infer success from service health, historical Android smoke or CI.
+
+The service resume did not redeploy the frontend/function, change origin settings,
+alter quotas, or change authentication. Record exact request/deployment/function
+evidence after the approved one-event canary succeeds.
