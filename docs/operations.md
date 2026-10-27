@@ -509,8 +509,8 @@ presented as polished output. Earlier failed canaries remain historical records.
 
 ## October 27, 2026 choice-generation contract follow-up
 
-All five retained age-6-to-10 choice labels were exactly **80 characters**, the
-provider schema's hard field limit. Several ended in incomplete or mixed-language
+Four retained age-6-to-10 choice labels were exactly **80 characters**, the
+provider schema's hard field limit; the fifth was **79 characters**. Several ended in incomplete or mixed-language
 fragments. The postvalidator does not trim labels to that length: it rejects
 longer strings. The existing prompt requested tradeoffs without specifying an
 English label style or a character budget. Those observations locate the issue

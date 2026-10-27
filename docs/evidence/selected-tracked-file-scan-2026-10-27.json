@@ -1,0 +1,377 @@
+{
+  "checkedAt": "2026-10-27T16:25:00Z",
+  "scope": "Selected tracked .agents, .playtest-reports, evidence/report directories and .env example files under 256 KiB; four high-signal literal patterns only. Not full repository/history/credential audit.",
+  "snapshots": {
+    "xmike04/SIMLYFE": "d851546883a84bee28ac0c0dcd0f2a44eef7d20b",
+    "xmike04/RAG_OPS": "5549d6792a6f5f4c6126c41deb9f1e16ec5e9264",
+    "xmike04/xmike04.github.io": "40dbf49a533e49418dfd1636e073970b22a7538f"
+  },
+  "patternCategories": [
+    "PEM private-key header",
+    "OpenAI key-like string with >=24 characters after prefix",
+    "GitHub token prefixes with >=30 alphanumerics",
+    "AWS AKIA access-key ID"
+  ],
+  "files": [
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/simlyfe-activities/SKILL.md",
+      "bytes": 1292,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/simlyfe-job-school/SKILL.md",
+      "bytes": 1194,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/simlyfe-relationships/SKILL.md",
+      "bytes": 1240,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/AGENTS.md",
+      "bytes": 2200,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/CLAUDE.md",
+      "bytes": 2200,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/README.md",
+      "bytes": 3115,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/SKILL.md",
+      "bytes": 2577,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/_contributing.md",
+      "bytes": 4167,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/_sections.md",
+      "bytes": 1682,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/_template.md",
+      "bytes": 1040,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/advanced-full-text-search.md",
+      "bytes": 1468,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/advanced-jsonb-indexing.md",
+      "bytes": 1444,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/conn-idle-timeout.md",
+      "bytes": 1282,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/conn-limits.md",
+      "bytes": 1325,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/conn-pooling.md",
+      "bytes": 1382,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/conn-prepared-statements.md",
+      "bytes": 1529,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/data-batch-inserts.md",
+      "bytes": 1287,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/data-n-plus-one.md",
+      "bytes": 1361,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/data-pagination.md",
+      "bytes": 1358,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/data-upsert.md",
+      "bytes": 1390,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/lock-advisory.md",
+      "bytes": 1531,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/lock-deadlock-prevention.md",
+      "bytes": 1855,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/lock-short-transactions.md",
+      "bytes": 1350,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/lock-skip-locked.md",
+      "bytes": 1353,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/monitor-explain-analyze.md",
+      "bytes": 1441,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/monitor-pg-stat-statements.md",
+      "bytes": 1418,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/monitor-vacuum-analyze.md",
+      "bytes": 1506,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/query-composite-indexes.md",
+      "bytes": 1454,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/query-covering-indexes.md",
+      "bytes": 1287,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/query-index-types.md",
+      "bytes": 1521,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/query-missing-indexes.md",
+      "bytes": 1218,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/query-partial-indexes.md",
+      "bytes": 1347,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/schema-constraints.md",
+      "bytes": 1880,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/schema-data-types.md",
+      "bytes": 1453,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/schema-foreign-key-indexes.md",
+      "bytes": 1679,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/schema-lowercase-identifiers.md",
+      "bytes": 1728,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/schema-partitioning.md",
+      "bytes": 1548,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/schema-primary-keys.md",
+      "bytes": 1821,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/security-privileges.md",
+      "bytes": 1566,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/security-rls-basics.md",
+      "bytes": 1372,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".agents/skills/supabase-postgres-best-practices/references/security-rls-performance.md",
+      "bytes": 1493,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".env.example",
+      "bytes": 736,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".playtest-reports/FINDINGS.md",
+      "bytes": 380,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".playtest-reports/path-a-corporate.json",
+      "bytes": 5070,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".playtest-reports/path-b-military.json",
+      "bytes": 5118,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": ".playtest-reports/path-c-startup.json",
+      "bytes": 5202,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": "docs/evidence/openai-nano-deployment-2026-10-27.json",
+      "bytes": 2712,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": "docs/evidence/production-age10-repair-2026-10-27.json",
+      "bytes": 6572,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": "docs/evidence/production-canary-2026-10-26.json",
+      "bytes": 3899,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/SIMLYFE",
+      "path": "docs/evidence/production-nano-canary-2026-10-26.json",
+      "bytes": 3602,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/RAG_OPS",
+      "path": ".env.example",
+      "bytes": 1331,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": ".agents/skills/fbs-to-agy-export/SKILL.md",
+      "bytes": 10468,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": ".agents/skills/fbs-to-agy-export/references/flutter.md",
+      "bytes": 2060,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": ".agents/skills/fbs-to-agy-export/references/nextjs.md",
+      "bytes": 1752,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": ".agents/skills/fbs-to-agy-export/references/other.md",
+      "bytes": 3579,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": ".agents/workflows/fbs-to-agy-export.md",
+      "bytes": 157,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": ".env.example",
+      "bytes": 914,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": "docs/evidence/claims.md",
+      "bytes": 13135,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": "docs/evidence/nasa-contributions.md",
+      "bytes": 2766,
+      "hits": []
+    },
+    {
+      "repo": "xmike04/xmike04.github.io",
+      "path": "docs/evidence/p1-execution-2026-10-26.md",
+      "bytes": 12184,
+      "hits": []
+    }
+  ]
+}

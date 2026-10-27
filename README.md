@@ -59,3 +59,11 @@ Install Playwright Chromium once if needed with `npx playwright install chromium
 | Understand the portfolio story | [Case study](./docs/case-study.md) |
 
 The three canonical contributor entry points remain architecture, game mechanics, and agent guide. [AGENTS.md](./AGENTS.md) and [CLAUDE.md](./CLAUDE.md) point to them. Setup commands, operational procedures, and validation results have dedicated owners to limit documentation drift.
+
+
+## Source availability and repository policy
+
+SIMLYFE is [publicly viewable source](./docs/licensing.md). See the
+[bounded security and CI-policy checkpoint](./docs/evidence/repository-policy-2026-10-27.md)
+for verified database permissions, selected-file scan limits, and outstanding
+administration access.
