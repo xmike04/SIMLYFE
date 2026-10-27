@@ -358,3 +358,36 @@ To complete the replacement:
 At preparation time, no replacement key had been supplied or installed, no
 new provider request had been made, and the production model had not been
 changed. The source patch is a reviewable draft, not a completed live migration.
+
+## October 27, 2026 compatible function deployed
+
+After the owner reported saving the replacement `OPENAI_API_KEY`, the compatible
+function from commit `220b580b5f6c404b59186e366b4bc9aafd486547` was deployed
+as version **16**. The source commit had passed all 789 tests, lint, build,
+documentation checks and controlled desktop/mobile smoke tests. The preceding
+function version was 15 with the unchanged older source bundle.
+
+Readback confirmed an active function with both deployed files matching the
+tested source exactly. Bundle SHA-256:
+`948ed7c6b9ddb8fdb117330f1135731cc23d73e759e8ade420fd42d730283f98`.
+Firebase verification remains inside the handler, with the existing gateway
+`verify_jwt = false` configuration. Quotas, timeouts and origin parsing remain
+intact.
+
+Four live boundary probes passed without reaching the provider: browser and
+Android preflights returned 204 with their matching allowed origins; a web-origin
+POST without authentication returned 401 `UNAUTHENTICATED`; an unlisted origin
+returned 403 `ORIGIN_NOT_ALLOWED`. These establish the checked access boundaries,
+not a complete authentication/security audit or live AI acceptance.
+
+The owner-reported key save was not independently validated against OpenAI,
+and no secret value was read. The source default is now `gpt-5-nano`, but the
+effective model remains unknown until the optional `OPENAI_MODEL` override is
+confirmed or a successful real response reports it. Set or confirm
+`OPENAI_MODEL=gpt-5-nano` in the same server Secrets page after this deployment.
+
+No provider request was made in this follow-up. A newly authorized bounded
+canary is still needed for actual model access, complete structured output,
+usage, event resolution and reload. The [deployment receipt](./evidence/openai-nano-deployment-2026-10-27.json)
+records these observations and limits. The frontend was not redeployed and the
+draft source branch was not merged.
