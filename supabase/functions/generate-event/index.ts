@@ -313,7 +313,7 @@ serve(async (request: Request) => {
       ? new HttpError(503, "SERVICE_UNAVAILABLE", "The generation service is not configured.")
       : new HttpError(500, "INTERNAL_ERROR", "The generation service failed unexpectedly.");
 
-    console.error(JSON.stringify({ requestId, code: httpError.code, status: httpError.status }));
+    console.error(JSON.stringify({ requestId, code: httpError.code, status: httpError.status, message: httpError.message }));
     return jsonResponse(
       { error: { code: httpError.code, message: httpError.message } },
       httpError.status,

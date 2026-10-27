@@ -426,3 +426,21 @@ all native behavior, or Firestore rules. It does not prove which old key/model
 setting caused the earlier failure. Historical failed and deployment receipts
 remain intact. The [new canary receipt](./evidence/production-nano-canary-2026-10-26.json)
 records the successful observations and remaining limits.
+
+## October 26, 2026 age-10 check: diagnostic checkpoint
+
+The owner asked to advance the same Guest life from age 2 to age 10. The first
+new request, at 11:13:03 p.m. CDT October 26 (04:13:03 UTC October 27), advanced
+to age 3 but displayed an AI error. Function v17 logged
+`INVALID_PROVIDER_RESPONSE` /502 with request ID
+`d5ab0f00-48a4-45f6-b882-609f843301bb`. The error was acknowledged and reload
+preserved age 3 and its history. No retry was issued.
+
+The owner selected investigation before continuing. The shared error code can
+mean incomplete output or invalid response/contract data; the existing log did
+not distinguish those paths. A diagnostic-only change now includes the same
+fixed `HttpError.message` already returned in the API error envelope. These
+messages were reviewed as server-owned literals. Raw provider content, game
+state, credentials and caught exception text are not logged. Generation limits,
+validation, authentication, origins, quotas and retry behavior are unchanged.
+The precise failure cause remains unconfirmed until an instrumented observation.
