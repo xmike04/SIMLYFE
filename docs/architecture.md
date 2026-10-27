@@ -39,6 +39,13 @@ flowchart LR
 
 `useGameState()` remains the single owner of the life shown to the player. Extracted helpers return values; they do not call React setters, write saves, or generate network requests. Existing named exports from `gameState.js` remain available for callers during the refactor. New domain code should import the owning module directly.
 
+The server contract also builds the provider request. Its default is
+`gpt-5-nano` with minimal reasoning and strict JSON output; the original nano
+model's request omits unsupported temperature settings. Nano uses a 1,024-token completion ceiling in both modes, including reasoning;
+explicit legacy overrides retain their 200/400 ceilings. Model selection, credential rotation,
+retirement dates, and required live verification are tracked in
+[operations](./operations.md#october-27-2026-openai-replacement-preparation).
+
 ## View routing
 
 [App.jsx](../src/App.jsx) selects one of three routes:
@@ -126,7 +133,7 @@ The annual event request currently receives the pre-tick relationship and pet ar
 
 The browser sends only `{ state, actionContext, narrativeMode }` to the configured Supabase function. `state` is a bounded projection rather than the entire save. The Firebase token is the bearer credential; the Supabase public key is the separate `apikey` gateway header.
 
-The server checks the exact request origin and the Firebase token's signature, issuer, audience, timestamps, and subject. It validates the request, admits it through durable per-identity and project-wide quotas, and calls OpenAI with a server-owned prompt, model, temperature, schema, and token ceiling. The default model is `gpt-4.1-nano`.
+The server checks the exact request origin and the Firebase token's signature, issuer, audience, timestamps, and subject. It validates the request, admits it through durable per-identity and project-wide quotas, and calls OpenAI with a server-owned prompt, model, compatible model parameters, schema, and token ceiling. The default model is `gpt-5-nano`; its minimal-reasoning request omits temperature.
 
 The provider's result is normalized to this browser envelope:
 
@@ -145,5 +152,11 @@ The provider's result is normalized to this browser envelope:
 Both server and browser validate the event. Auth, network, timeout, quota, service, and validation failures produce sanitized error events. Static events remain a validated catalog; they are not a silent fallback for a failed AI request. The browser has no direct OpenAI path.
 
 The client budget is 20 seconds across token acquisition and proxy fetch. The edge operation has a 15-second deadline, including an 8-second provider deadline. Calls do not retry automatically. [diagnostics.js](../src/engine/diagnostics.js) emits only allowlisted operational metadata and never whole saves, credentials, or raw provider errors.
+
+Choice-generation instructions request complete English action labels of 4–10
+words, targeting at most 60 characters below the unchanged hard 80-character
+schema limit. Consequences belong in the effects fields rather than long risk
+clauses. These instructions mitigate the observed field-boundary wording issue;
+they do not make semantic quality a validated property of the response.
 
 Environment setup, quota configuration, and deployment verification are owned by [development](./development.md) and [operations](./operations.md), rather than duplicated here.

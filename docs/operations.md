@@ -76,7 +76,7 @@ The deployed unit comprises all three of these inputs:
 | `ALLOWED_ORIGINS` | Comma-separated exact HTTP(S) origins; no paths or wildcard matching |
 | `RATE_LIMIT_HMAC_SECRET` | Secret used to pseudonymize per-identity quota keys |
 | `GENERATE_EVENT_GLOBAL_DAILY_LIMIT` | Daily project admission limit; defaults to 1,000, configurable from 100 to 100,000 |
-| `OPENAI_MODEL` | Optional server-owned override; default `gpt-4.1-nano` |
+| `OPENAI_MODEL` | Optional server-owned override; default `gpt-5-nano` |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase runtime-provided database access settings |
 
 Configure secrets in the Supabase dashboard or an ignored environment file passed to `supabase secrets set --env-file ...`. Do not put secret values in tracked files or command examples. Once authenticated and linked to the intended project, the source rollout sequence is:
@@ -143,3 +143,398 @@ Use an authorized test identity and a clearly named test life. Record evidence f
 | Rules workflow passes but rules are stale | Credential presence and actual deployment step, not validation alone |
 
 Diagnostics expose operational codes and field names. Keep credentials, complete saves, raw provider responses, and private account details out of shared logs and documentation.
+
+
+## October 26, 2026 metadata inspection
+
+This read-only inspection establishes deployment identity and configuration drift,
+not a new production acceptance test. No service was restored or redeployed.
+
+| Surface | Observed metadata |
+| --- | --- |
+| Canonical frontend | `simlyfe.vercel.app` resolves in Vercel deployment metadata to `dpl_DBDKqwsLnEymicPbRBrwyf9nC8xc`, state `READY`, source `e8617bbae81814da480ea28fc028bf8e4872a439` |
+| Supabase project | `zfzepijfnldpqsyqyuhj` is reported `INACTIVE` by the management API |
+| Event function | `generate-event` is listed `ACTIVE`, version `14`; bundle SHA-256 `899a7afc77fa3d617562d193a307133b374f3bbe9fe2e0f959767fab2f1e1ff8` |
+| Source correspondence | Deployed `index.ts` and `contract.ts` differ from the pinned repository revision above in client-origin parsing |
+
+The deployed version calls `parseClientOrigins`, combining the existing browser
+origin parser with optional `ANDROID_ALLOWED_ORIGINS`. The pinned repository uses
+`parseAllowedOrigins` for `ALLOWED_ORIGINS` alone. No origin values or credentials
+were retrieved. The intended Android-origin policy needs owner confirmation before
+backporting or redeploying either version.
+
+The project's inactive status and the function's active listing are separate
+management signals. Neither proves that a real authenticated event/quota/database
+request succeeds. The September acceptance record covers the earlier frontend and
+function version 12; it cannot establish acceptance of this refactor and version
+14. A fresh canary still needs an authorized test identity, current service
+availability, and a supported browser/runtime.
+
+Required remaining checks: confirm service availability, authenticate a named test
+life, generate and resolve one event, save/reload, verify persisted state, and record
+the canonical deployment/function/rules versions. Record actual provider usage
+before claiming per-event cost. Do not infer any of these outcomes from mocked CI.
+
+## October 26, 2026 restoration and Android source follow-up
+
+The owner confirmed the backend should be active. The existing project was
+resumed and subsequently reported `ACTIVE_HEALTHY`; a read-only database query
+returned PostgreSQL 17.6 successfully. These observations occurred after midnight
+UTC on October 27 (October 26 in America/Chicago). No new project or paid plan was
+created. This is service-restoration evidence, not completed application acceptance.
+
+### Android origin explained and traced
+
+The native branch
+[`codex/android-mobile` at f04e56bf77443565c807adee851d793ebe5afb78](https://github.com/xmike04/SIMLYFE/tree/f04e56bf77443565c807adee851d793ebe5afb78)
+resolves the earlier origin question:
+
+- Its [Capacitor configuration](https://github.com/xmike04/SIMLYFE/blob/f04e56bf77443565c807adee851d793ebe5afb78/capacitor.config.json)
+  sets hostname `localhost` and Android scheme `https`. Packaged web content
+  therefore uses `https://localhost`.
+- Its [Android runbook](https://github.com/xmike04/SIMLYFE/blob/f04e56bf77443565c807adee851d793ebe5afb78/docs/android.md#proxy-origin)
+  documents optional `ANDROID_ALLOWED_ORIGINS=https://localhost`, preserving the
+  existing browser allowlist.
+- Both deployed version-14 files, `index.ts` and `contract.ts`, match that
+  branch's file contents exactly. The deployed bundle hash remains
+  `899a7afc77fa3d617562d193a307133b374f3bbe9fe2e0f959767fab2f1e1ff8`.
+- The parser combines the two lists while requiring exact HTTP/HTTPS origins
+  and rejecting wildcards. Firebase token verification and durable quota
+  admission still precede generation.
+
+An origin is the scheme, hostname and port identifying the caller's web context.
+This setting lets the packaged Android app call the same backend as the website.
+It does not grant an Android device a user identity or replace authentication.
+
+The inspected main web revision lacks this optional Android helper; this is now
+a traced branch/deployment difference, not unexplained source. Preserve or
+integrate the reviewed native-origin helper before redeploying the function from
+main. Do not replace the allowlist with a wildcard. Current secret values and
+live preflight acceptance were not inspected in this follow-up, so the intended
+native origin is source-backed but current allowlist behavior is not newly proved.
+The Android branch's historical emulator evidence is separate from current web
+acceptance.
+
+### Post-restore database boundary
+
+Read-only catalog checks confirmed both private quota tables have RLS enabled
+and forced. `consume_generate_event_quota` is executable by `service_role` and
+not by `anon` or `authenticated`; no quota row contents were read or modified.
+
+The advisor reports INFO notices for the private tables' lack of client policies,
+consistent with their server-only quota design. It also reports broad EXECUTE
+grants on `public.rls_auto_enable()`:
+[anonymous-role notice](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable)
+and [authenticated-role notice](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable).
+Inspection shows this function returns `event_trigger`, fixes its search path,
+and matches Supabase's documented
+[automatic-RLS event trigger](https://supabase.com/docs/guides/database/postgres/row-level-security#auto-enable-rls-for-new-tables).
+This is distinct from the application's quota RPC; direct API exploitability
+was not established. No trigger or permission change was made. Review the grants
+separately before claiming a clean security audit.
+
+### Current production canary status
+
+A fresh browser reached the canonical application and created the synthetic
+guest life **P1 Canary Oct26**, age 0. The Account interface displayed **Guest**.
+This proves initial UI interaction only; it does not yet prove a successful
+authenticated AI request or cloud save/reload.
+
+Automatic approval review rejected clicking **+ Age** because the exact guest
+identity and billable production event request require explicit user approval.
+The action was not executed. Generation, event resolution and the final
+save/reload acceptance remain pending that approval. Do not substitute static
+content or infer success from service health, historical Android smoke or CI.
+
+The service resume did not redeploy the frontend/function, change origin settings,
+alter quotas, or change authentication. Record exact request/deployment/function
+evidence after the approved one-event canary succeeds.
+
+## October 26, 2026 approved single-event canary
+
+**Result: AI generation failed; same-browser reload persistence was observed.**
+The owner explicitly approved one real event request for Guest life
+**P1 Canary Oct26**, followed by resolution and save/reload. Exactly one event
+POST was issued; the OPTIONS preflight and server quota RPC are separate
+non-generation operations. There was no retry.
+
+The request started at 02:32:24.915 UTC October 27, or 9:32:24.915 p.m. October 26
+in America/Chicago. The browser used Quick mode at
+`https://simlyfe.vercel.app/`.
+
+| Boundary | Observation |
+| --- | --- |
+| Web preflight | OPTIONS returned 204 |
+| Quota RPC | POST consume_generate_event_quota returned 200 |
+| Event function | Version 14 returned HTTP 502; reported execution duration 2,556 ms |
+| Application error log | UPSTREAM_ERROR; request ID 8709799a-cd3c-4421-b54f-e0c38a44ae08 |
+| Visible result | “LLM ERROR: Event generation failed. Please try again.” |
+| Acknowledgment | Clicked Understood; the game returned to its ordinary controls |
+| Reload | Same Guest life returned at age 1 with the error acknowledgment in history |
+
+The deployed handler maps `UPSTREAM_ERROR` specifically to an unsuccessful HTTP
+response from `https://api.openai.com/v1/chat/completions`. Its origin, Firebase
+token and request validation precede quota admission and that provider call.
+This supports acceptance of this Guest request through those gates; it does not
+test rejection of invalid identities or other origins.
+
+OpenAI's original HTTP status, error body, configured runtime model and billable
+usage are absent from the retained diagnostics. Do not attribute the failure to
+billing, credentials, a model setting, response validation or a provider outage
+without further evidence. The next diagnosis needs the provider's actual error
+details or a reviewed improvement to sanitized upstream-status logging before
+another separately authorized generation attempt.
+
+The life advanced from age 0 to 1, and acknowledging the error recorded it in
+history. Reload returned that exact age/history. This is a same-browser
+persistence observation; it does not independently verify a cloud write
+acknowledgment or cross-device recovery. No genuine generated event or narrative
+quality was available to assess, so full current AI production acceptance fails.
+
+[Machine-readable receipt](./evidence/production-canary-2026-10-26.json) retains
+the selected HTTP observations, error classification, source identity and limits.
+No credentials, tokens, real-person data, account UID or raw save is included.
+
+Function metadata remained version 14 with the previously recorded bundle hash,
+matching the Android source. During this canary, fresh Vercel deployment lookups
+returned not-found and the scoped project search found no accessible match.
+The earlier frontend commit mapping remains historical; the observed deployed
+module is `/assets/index-CWUz-w8k.js`. No current commit attribution is invented.
+
+This record supersedes the previous pending-approval status: approval was received
+and the single attempt completed with failure. The source/function/origin policy
+was not changed in response, and no second provider request was made.
+
+## October 27, 2026 OpenAI replacement preparation
+
+The owner selected `gpt-5-nano` after comparing it with `gpt-6-luna`.
+OpenAI's [model reference](https://developers.openai.com/api/docs/models/gpt-5-nano)
+lists Standard rates of $0.05 per million input tokens, $0.005 per million
+cached input tokens, and $0.40 per million output tokens. These are unit prices,
+not measured SIMLYFE event costs. Reasoning tokens also consume the completion
+budget and are billed as output. The [deprecation schedule](https://developers.openai.com/api/docs/deprecations)
+sets December 11, 2026 as its shutdown date; migrate again before that date.
+
+The source default previously used `gpt-4.1-nano`, whose documented shutdown
+date is October 23, 2026. That could explain the failed canary if no runtime
+override was configured. The deployed model override and upstream HTTP error
+were not observed, so this is a hypothesis rather than a confirmed key failure.
+
+[buildProviderRequest](../supabase/functions/generate-event/contract.ts) now
+selects `reasoning_effort: "minimal"` and omits `temperature` for the nano
+alias and its dated snapshot. OpenAI's [compatibility guidance](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.2)
+says the original GPT-5 models reject explicit sampling parameters.
+An explicit legacy model override retains the prior request parameters.
+
+The existing total completion caps remain 200 tokens in Quick mode and 400 in
+Narrative mode. These caps include reasoning: they have **not** been calibrated
+against a real GPT-5 Nano event. A live response can still be incomplete at
+these limits. The service rejects incomplete output and does not retry
+automatically. Increase a cap only after recording a justified response and
+cost budget. Mocked or local compatibility tests do not establish live quality,
+latency, model access, key validity, or successful save/reload.
+
+The same source change carries forward the deployed Android-origin helper
+unchanged from the inspected native branch, so a future function deployment
+does not lose its optional native allowlist. Earlier source/deployment
+observations above remain historical records.
+
+To complete the replacement:
+
+1. Create a project-scoped OpenAI API key in the intended funded API project.
+   A ChatGPT subscription does not provide API credit.
+2. Deploy the tested compatible function before activating the new model
+   setting. Keep Firebase authentication, quota settings, web origins, and
+   Android origins unchanged.
+3. In Supabase project `zfzepijfnldpqsyqyuhj`, enter the new value directly in
+   Edge Function Secrets as `OPENAI_API_KEY`. Set `OPENAI_MODEL=gpt-5-nano`
+   to replace any stale override. Never paste the key into chat, GitHub, browser
+   application configuration, or a tracked environment file.
+4. Obtain a fresh, bounded real-canary authorization; the prior single-request
+   approval has already been used. Record the actual model, usage, valid event,
+   resolution, and reload result. Confirm other consumers before revoking the
+   previous key.
+
+At preparation time, no replacement key had been supplied or installed, no
+new provider request had been made, and the production model had not been
+changed. The source patch is a reviewable draft, not a completed live migration.
+
+## October 27, 2026 compatible function deployed
+
+After the owner reported saving the replacement `OPENAI_API_KEY`, the compatible
+function from commit `220b580b5f6c404b59186e366b4bc9aafd486547` was deployed
+as version **16**. The source commit had passed all 789 tests, lint, build,
+documentation checks and controlled desktop/mobile smoke tests. The preceding
+function version was 15 with the unchanged older source bundle.
+
+Readback confirmed an active function with both deployed files matching the
+tested source exactly. Bundle SHA-256:
+`948ed7c6b9ddb8fdb117330f1135731cc23d73e759e8ade420fd42d730283f98`.
+Firebase verification remains inside the handler, with the existing gateway
+`verify_jwt = false` configuration. Quotas, timeouts and origin parsing remain
+intact.
+
+Four live boundary probes passed without reaching the provider: browser and
+Android preflights returned 204 with their matching allowed origins; a web-origin
+POST without authentication returned 401 `UNAUTHENTICATED`; an unlisted origin
+returned 403 `ORIGIN_NOT_ALLOWED`. These establish the checked access boundaries,
+not a complete authentication/security audit or live AI acceptance.
+
+The owner-reported key save was not independently validated against OpenAI,
+and no secret value was read. The source default is now `gpt-5-nano`, but the
+effective model remains unknown until the optional `OPENAI_MODEL` override is
+confirmed or a successful real response reports it. Set or confirm
+`OPENAI_MODEL=gpt-5-nano` in the same server Secrets page after this deployment.
+
+No provider request was made in this follow-up. A newly authorized bounded
+canary is still needed for actual model access, complete structured output,
+usage, event resolution and reload. The [deployment receipt](./evidence/openai-nano-deployment-2026-10-27.json)
+records these observations and limits. The frontend was not redeployed and the
+draft source branch was not merged.
+
+## October 26, 2026 replacement-key canary
+
+**Result: one generated event, resolution and same-browser reload passed.**
+After reporting the new key and `OPENAI_MODEL=gpt-5-nano` saved, the owner
+explicitly approved one new canary on Guest **P1 Canary Oct26**. One **+ Age**
+click was made in Quick mode at 10:52:34.482 p.m. CDT October 26
+(03:52:34.482 UTC October 27). There was no retry.
+
+The function was active as version **17**, with the same reviewed bundle hash
+as version 16. Readback again matched both tested source files at
+`220b580b5f6c404b59186e366b4bc9aafd486547` exactly. The canonical browser still
+loaded `/assets/index-CWUz-w8k.js`; fresh frontend commit attribution remains
+unavailable.
+
+The UI displayed a genuine short event with two choices. Selecting the
+comforting stuffed-bear/mother choice closed the event, added the selected
+outcome to history, and changed happiness from 90% to 95%. Reload briefly
+showed character creation while authentication/save hydration ran, then
+restored the same character at **age 2**, **95% happiness**, with the new event
+and selected outcome intact. The earlier failed-event history remains.
+
+The quota RPC returned 200 at 03:52:35.209 UTC. Function-edge rows were not
+available in the two bounded reads, and browser diagnostic objects did not
+expose their metadata values through the available console view. Actual
+API-reported model, request ID, tokens, billed cost and server latency therefore
+remain unobserved. The model setting is owner-reported and matches the source
+default; it is not presented as independently read from a provider response.
+
+This is one successful current application journey, not a reliability/quality
+benchmark or independent proof of cloud acknowledgment, cross-device recovery,
+all native behavior, or Firestore rules. It does not prove which old key/model
+setting caused the earlier failure. Historical failed and deployment receipts
+remain intact. The [new canary receipt](./evidence/production-nano-canary-2026-10-26.json)
+records the successful observations and remaining limits.
+
+## October 26, 2026 age-10 check: diagnostic checkpoint
+
+The owner asked to advance the same Guest life from age 2 to age 10. The first
+new request, at 11:13:03 p.m. CDT October 26 (04:13:03 UTC October 27), advanced
+to age 3 but displayed an AI error. Function v17 logged
+`INVALID_PROVIDER_RESPONSE` /502 with request ID
+`d5ab0f00-48a4-45f6-b882-609f843301bb`. The error was acknowledged and reload
+preserved age 3 and its history. No retry was issued.
+
+The owner selected investigation before continuing. The shared error code can
+mean incomplete output or invalid response/contract data; the existing log did
+not distinguish those paths. A diagnostic-only change now includes the same
+fixed `HttpError.message` already returned in the API error envelope. These
+messages were reviewed as server-owned literals. Raw provider content, game
+state, credentials and caught exception text are not logged. Generation limits,
+validation, authentication, origins, quotas and retry behavior are unchanged.
+The precise failure cause remains unconfirmed until an instrumented observation.
+
+## Nano completion-budget repair
+
+The recovered original Guest reached age 4 with a valid event, then failed at
+age 5 on the next separately authorized age-up. The instrumented request began
+at `2026-10-27T05:10:24.507Z`. Function v18 logged request
+`800715fa-092e-427c-9a7d-2a9a85899691` as
+`INVALID_PROVIDER_RESPONSE` /502 with the fixed message
+**The narrative provider response was incomplete.** This message is emitted only
+when OpenAI returns `finish_reason: "length"`. The failed Quick request's total
+completion ceiling was 200 tokens. The bounded input is far below model context
+capacity; reasoning and visible structured output share that small ceiling.
+This identifies truncation for the instrumented age-5 failure, rather than
+guessing at keys, billing or invalid credentials. The earlier age-3 rejection
+was not instrumented and is not independently classified further.
+
+The Nano alias and dated snapshot now receive a bounded **1,024-token**
+completion ceiling in both modes. Minimal reasoning, the strict schema,
+post-validation, authentication, quotas and deadlines remain intact. Explicit
+legacy overrides retain their previous 200/400 ceilings. The higher ceiling
+permits complete output; it does not require the model to consume it. At the
+documented Nano output rate of $0.40 per million tokens, the maximum completion
+component is $0.0004096 per request, excluding input. Actual cost still requires
+observed usage.
+
+The three Nano request cases failed against the old 200/400 ceilings and passed
+after the single budget change. Existing tests also verify both legacy budgets
+and origin behavior. Full repository CI and live verification are recorded on
+the PR. No automatic provider retries or static fallback were introduced.
+
+The separate new-QA-identity probe was rejected by automatic approval review
+because its account creation and allowance for 12 paid calls exceeded the clear
+existing-Guest scope. It was not retried through another route. Investigation
+and subsequent live checks use the restored original Guest within the owner’s
+age-10 instruction.
+
+## Original Guest reached age 10 after the repair
+
+The fix source `efff844e0c65a6f3ed4e2bf3fd61d96a61da3d79` passed complete
+Application quality CI [40454214650](https://github.com/xmike04/SIMLYFE/actions/runs/40454214650)
+and independent code review with no findings. It was deployed as active
+function **v19**; readback matched both files exactly. Bundle SHA-256:
+`6f707c0a219835825e892ca7ef5a2c55a4214ef35c973d57f85a901f230fff31`.
+
+The recovered original **P1 Canary Oct26** Guest then generated and resolved
+events at ages **6, 7, 8, 9 and 10**, all successfully. These were the five
+remaining age-ups in the owner’s original age-2-to-10 instruction: eight total
+age-up requests, no retries, no advancement beyond age 10. The same browser
+profile and Guest were retained.
+
+One reload restored **age 10**, the complete history (including prior errors),
+**$-30**, happiness **96%**, health **90%**, smarts **87%**, looks **71%**,
+athleticism **57%**, and karma **56%**. The Account interface still showed Guest.
+The [age-10 receipt](./evidence/production-age10-repair-2026-10-27.json) records
+each request timestamp, the diagnosed age-5 failure, the deployed repair, and
+the final observed state.
+
+This closes the failed age-10 advancement checkpoint within its requested
+scope. It does not prove cross-device/cloud acknowledgment, actual token cost,
+a reliability SLO or broad narrative quality. Some valid choice text had
+awkward or mixed-language endings; those observations are retained rather than
+presented as polished output. Earlier failed canaries remain historical records.
+
+## October 27, 2026 choice-generation contract follow-up
+
+Four retained age-6-to-10 choice labels were exactly **80 characters**, the
+provider schema's hard field limit; the fifth was **79 characters**. Several ended in incomplete or mixed-language
+fragments. The postvalidator does not trim labels to that length: it rejects
+longer strings. The existing prompt requested tradeoffs without specifying an
+English label style or a character budget. Those observations locate the issue
+in provider-generated text at the field boundary; the provider's exact decoding
+mechanism was not observed.
+
+The server prompt and choice-field schema description now request complete
+English action labels, preserving supplied proper names, with 4–10 words and a
+target of at most 60 characters. The hard 80-character limit, effect validation,
+1,024-token Nano ceiling, quotas, authentication and no-retry behavior are
+unchanged. Effects carry consequences instead of long risk clauses in labels.
+
+An outbound-request regression covers both Quick and Narrative modes and was
+observed failing before the instruction change, then passing. This establishes
+the repaired generation contract, not improved live prose: no additional paid
+provider request was made for this follow-up. The earlier canary receipt remains
+unchanged, including its wording defects and five bounded successes.
+
+The choice-contract follow-up is deployed as active function **v20**, with
+both source files read back exactly from source revision
+`ca3c1c371c1c482af6a231cf3a1baca3aeec577b`. Bundle SHA-256:
+`92236048ca835a19998d5a0281694d6dae737c4b65c390ed084208fdeae3b9f0`.
+[The deployment receipt](./evidence/production-choice-contract-2026-10-27.json)
+records successful nonbillable web/Android preflights (204), missing-identity
+rejection (401), and unlisted-origin rejection (403). These checks reach no
+provider request and do not test generated prose. The source quality CI job and
+local 795-case/39-file suite passed; the final PR workflow records browser checks.

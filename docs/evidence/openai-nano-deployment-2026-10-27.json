@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "edge-function-deployment",
+  "observedAt": "2026-10-27T03:31:46.289Z",
+  "projectId": "zfzepijfnldpqsyqyuhj",
+  "source": {
+    "repository": "xmike04/SIMLYFE",
+    "revision": "220b580b5f6c404b59186e366b4bc9aafd486547",
+    "ciRunId": 40443321650,
+    "ciConclusion": "success",
+    "unitTests": 789
+  },
+  "credential": {
+    "name": "OPENAI_API_KEY",
+    "ownerReportedSaved": true,
+    "valueReadByAgent": false,
+    "providerAcceptanceVerified": false
+  },
+  "deployment": {
+    "function": "generate-event",
+    "previousVersion": 15,
+    "version": 16,
+    "status": "ACTIVE",
+    "deployedAt": "2026-10-27T03:30:00.305Z",
+    "bundleSha256": "948ed7c6b9ddb8fdb117330f1135731cc23d73e759e8ade420fd42d730283f98",
+    "verifyJwt": false,
+    "authentication": "Existing Firebase RS256 token verification remains in the handler before quota admission and OpenAI.",
+    "readbackFiles": [
+      {
+        "name": "index.ts",
+        "exactMatch": true
+      },
+      {
+        "name": "contract.ts",
+        "exactMatch": true
+      }
+    ]
+  },
+  "model": {
+    "sourceDefault": "gpt-5-nano",
+    "runtimeOverrideObserved": false,
+    "effectiveModelObserved": null,
+    "completionCaps": {
+      "quick": 200,
+      "narrative": 400
+    },
+    "capsIncludeReasoning": true
+  },
+  "boundaryChecks": [
+    {
+      "method": "OPTIONS",
+      "origin": "https://simlyfe.vercel.app",
+      "status": 204,
+      "allowOrigin": "https://simlyfe.vercel.app",
+      "result": "pass"
+    },
+    {
+      "method": "OPTIONS",
+      "origin": "https://localhost",
+      "status": 204,
+      "allowOrigin": "https://localhost",
+      "result": "pass"
+    },
+    {
+      "method": "POST",
+      "origin": "https://simlyfe.vercel.app",
+      "authentication": "absent",
+      "status": 401,
+      "code": "UNAUTHENTICATED",
+      "result": "pass"
+    },
+    {
+      "method": "POST",
+      "origin": "https://p1-canary.invalid",
+      "authentication": "absent",
+      "status": 403,
+      "code": "ORIGIN_NOT_ALLOWED",
+      "allowOrigin": null,
+      "result": "pass"
+    }
+  ],
+  "actions": {
+    "providerRequestsByAgent": 0,
+    "successfulGeneratedEventObserved": false,
+    "eventResolutionObserved": false,
+    "saveReloadObservedInThisFollowUp": false,
+    "frontendDeployed": false,
+    "mainMerged": false
+  },
+  "remaining": [
+    "Set or confirm the server-owned OPENAI_MODEL value as gpt-5-nano after compatible function deployment.",
+    "Fresh bounded real-event approval is required; prior single-request approval was already consumed.",
+    "Record actual returned model, usage, valid event, resolution and reload. Existing token caps may be insufficient."
+  ]
+}

@@ -285,7 +285,10 @@ export const OPENAI_EVENT_RESPONSE_FORMAT = {
             additionalProperties: false,
             required: ["text", "numericEffects", "flags"],
             properties: {
-              text: { type: "string", minLength: 1, maxLength: 80 },
+              text: {
+                type: "string", minLength: 1, maxLength: 80,
+                description: "A short, complete English action label, ideally 4-10 words and at most 60 characters. Finish the thought; do not append an explanation of risks or consequences.",
+              },
               numericEffects: {
                 type: "array",
                 minItems: 0,
@@ -375,6 +378,9 @@ export function buildPromptMessages(request: GenerateEventRequest) {
         "Use only facts present in the supplied JSON. If actionContext is non-null, center the event on the immediate outcome of that action.",
         getAgeEventGuidance(request.state.age),
         "Return two or three concise, materially different choices that the character could plausibly make at their current age.",
+        "Write the description and choice labels in English, preserving supplied proper names.",
+        "Each choice text must be a complete action label of 4-10 words. Aim for at most 60 characters, leaving room below the hard 80-character limit. Never cut off a word or thought to fit the limit; rewrite the entire label more briefly instead.",
+        "Keep choice labels focused on the action; put consequences in numericEffects and flags rather than appending long risk explanations. For example: 'Ask a friend to help rehearse' or 'Perform a simple solo act'.",
         "From age 3 onward, include tension, surprise, opportunity, discovery, or relationship change; never return an uneventful routine milestone.",
         "Do not repeat or lightly reword recent history. Continue a prior thread only when the new event meaningfully escalates or changes it.",
         wordRule,
@@ -392,6 +398,21 @@ export function buildPromptMessages(request: GenerateEventRequest) {
       }),
     },
   ];
+}
+
+export const DEFAULT_OPENAI_MODEL = "gpt-5-nano";
+
+/** Provider parameters stay server-owned; original nano models reject temperature. */
+export function buildProviderRequest(request: GenerateEventRequest, model = DEFAULT_OPENAI_MODEL) {
+  const isNano = model === "gpt-5-nano" || model === "gpt-5-nano-2025-08-07";
+  return {
+    model,
+    messages: buildPromptMessages(request),
+    response_format: OPENAI_EVENT_RESPONSE_FORMAT,
+    // Reasoning tokens share this ceiling with the complete structured event.
+    max_completion_tokens: isNano ? 1024 : (request.narrativeMode ? 400 : 200),
+    ...(isNano ? { reasoning_effort: "minimal" } : { temperature: 0.8 }),
+  };
 }
 
 export function parseProviderEvent(value: unknown): GeneratedEvent {
@@ -505,6 +526,14 @@ export function parseGlobalDailyLimit(value: string | undefined | null) {
     100_000,
     true,
   );
+}
+
+export function parseClientOrigins(browserOrigins: string, androidOrigins?: string) {
+  const allowed = parseAllowedOrigins(browserOrigins);
+  if (androidOrigins) {
+    for (const origin of parseAllowedOrigins(androidOrigins)) allowed.add(origin);
+  }
+  return allowed;
 }
 
 export function parseAllowedOrigins(raw: string) {

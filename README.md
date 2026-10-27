@@ -4,6 +4,8 @@ SIMLYFE is a mobile-first browser life simulator. Create a character, age one ye
 
 **[Play SIMLYFE](https://simlyfe.vercel.app)** · [Documentation](./docs/README.md) · [Technical case study](./docs/case-study.md)
 
+[Application quality evidence](https://github.com/xmike04/SIMLYFE/actions/runs/40444810716) · [Current deployment evidence](./docs/operations.md#october-26-2026-replacement-key-canary)
+
 The project combines a React interface with explicit gameplay calculations and generated narrative. Firebase supplies guest/account identity and cloud saves. An authenticated Supabase Edge Function owns the OpenAI call, prompt, and quotas; the browser receives no OpenAI credential.
 
 ## Start locally
@@ -32,6 +34,8 @@ Fill in the public Firebase web-app configuration and Supabase URL/publishable k
 
 ## Verify changes
 
+The [October 26 CI run](https://github.com/xmike04/SIMLYFE/actions/runs/40444810716) passed 789 Vitest test cases across 38 files plus desktop/mobile browser checks. CI uses controlled service responses. Current production acceptance and deployed source differences are tracked in the [operations evidence](./docs/operations.md#october-26-2026-replacement-key-canary).
+
 ```bash
 npm run lint
 npm test
@@ -55,3 +59,11 @@ Install Playwright Chromium once if needed with `npx playwright install chromium
 | Understand the portfolio story | [Case study](./docs/case-study.md) |
 
 The three canonical contributor entry points remain architecture, game mechanics, and agent guide. [AGENTS.md](./AGENTS.md) and [CLAUDE.md](./CLAUDE.md) point to them. Setup commands, operational procedures, and validation results have dedicated owners to limit documentation drift.
+
+
+## Source availability and repository policy
+
+SIMLYFE is [publicly viewable source](./docs/licensing.md). See the
+[bounded security and CI-policy checkpoint](./docs/evidence/repository-policy-2026-10-27.md)
+for verified database permissions, selected-file scan limits, and outstanding
+administration access.

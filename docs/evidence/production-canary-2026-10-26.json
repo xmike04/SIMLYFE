@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "evidence_class": "approved single-event production canary",
+  "client_date": "2026-10-26",
+  "client_timezone": "America/Chicago",
+  "request_started_utc": "2026-10-27T02:32:24.915Z",
+  "reload_verified_utc": "2026-10-27T02:45:20.980Z",
+  "authorization": {
+    "scope": "One real AI-event request on Guest life P1 Canary Oct26, resolve the result, and check save/reload",
+    "event_generation_post_limit": 1,
+    "event_generation_post_observed": 1,
+    "retries": 0
+  },
+  "target": {
+    "origin": "https://simlyfe.vercel.app",
+    "observed_url": "https://simlyfe.vercel.app/",
+    "guest_life_label": "P1 Canary Oct26",
+    "narrative_mode": "Quick",
+    "module_asset": "/assets/index-CWUz-w8k.js",
+    "frontend_commit_currently_verified": null,
+    "last_recorded_frontend_commit": "e8617bbae81814da480ea28fc028bf8e4872a439"
+  },
+  "function": {
+    "name": "generate-event",
+    "version": 14,
+    "bundle_sha256": "899a7afc77fa3d617562d193a307133b374f3bbe9fe2e0f959767fab2f1e1ff8",
+    "matching_android_source": "f04e56bf77443565c807adee851d793ebe5afb78",
+    "execution_id": "cd4022e8-cbd0-462b-8241-a4b63fa23762",
+    "application_request_id": "8709799a-cd3c-4421-b54f-e0c38a44ae08"
+  },
+  "http_observations": [
+    {
+      "timestamp_utc": "2026-10-27T02:32:25.661Z",
+      "boundary": "function preflight",
+      "method": "OPTIONS",
+      "path": "/functions/v1/generate-event",
+      "status": 204
+    },
+    {
+      "timestamp_utc": "2026-10-27T02:32:26.188Z",
+      "boundary": "quota RPC",
+      "method": "POST",
+      "path": "/rest/v1/rpc/consume_generate_event_quota",
+      "status": 200
+    },
+    {
+      "timestamp_utc": "2026-10-27T02:32:28.264Z",
+      "boundary": "event function",
+      "method": "POST",
+      "path": "/functions/v1/generate-event",
+      "status": 502,
+      "edge_execution_ms": 2556
+    }
+  ],
+  "result": {
+    "overall": "failed_generation_persistence_observed",
+    "generated_event_received": false,
+    "function_error_code": "UPSTREAM_ERROR",
+    "ui_error": "LLM ERROR: Event generation failed. Please try again.",
+    "acknowledgment": "Understood",
+    "age_before": 0,
+    "age_after": 1,
+    "reload_returned_same_life": true,
+    "reload_returned_age": 1,
+    "reload_returned_error_acknowledgment": true
+  },
+  "interpretation": {
+    "origin_preflight": "passed for the web origin",
+    "firebase_guest_authentication": "accepted on this handler path; inferred from deployed validation order before quota/provider",
+    "quota_admission": "accepted on this handler path; rejected quota would return 429",
+    "provider_boundary": "OpenAI fetch returned response.ok=false; the function mapped it to HTTP 502 UPSTREAM_ERROR",
+    "openai_original_http_status": null,
+    "openai_original_error_code": null
+  },
+  "not_measured": {
+    "provider_billing_usd": null,
+    "provider_token_usage": null,
+    "configured_runtime_model": null,
+    "successful_generation_latency": null,
+    "narrative_quality": null,
+    "cross_device_save": null,
+    "independent_cloud_write_acknowledgment": null
+  },
+  "limits": [
+    "One failed request cannot establish a reliability rate, percentile, or production SLO.",
+    "Reload persistence was observed in the same browser; no cross-device or separately acknowledged cloud-write claim.",
+    "The deployed logger retains the application error code/status, not the underlying OpenAI HTTP status or error body.",
+    "Current Vercel deployment lookup returned not-found and a scoped project search found no accessible matching project; prior frontend commit mapping remains historical. The observed browser module asset is recorded.",
+    "No second event request, static-event replacement, provider/configuration change, or deployment was performed.",
+    "Receipt excludes credentials, auth tokens, real personal data, account UIDs and raw saved documents."
+  ]
+}

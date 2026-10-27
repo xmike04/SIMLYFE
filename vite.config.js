@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { buildInfoPlugin } from './scripts/build-info.js'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), buildInfoPlugin()],
   test: {
     environment: 'jsdom',
     globals: true,

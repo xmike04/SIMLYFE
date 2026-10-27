@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "approved-production-canary",
+  "userDate": "2026-10-26",
+  "userTimeZone": "America/Chicago",
+  "authorization": {
+    "ownerMessage": "model saved; approve one new canary",
+    "life": "P1 Canary Oct26",
+    "identity": "Guest",
+    "mode": "Quick",
+    "requestLimit": 1,
+    "ageClicks": 1,
+    "retries": 0
+  },
+  "observedAt": {
+    "requestStartedUtc": "2026-10-27T03:52:34.482Z",
+    "requestStartedLocal": "2026-10-26T22:52:34.482-05:00",
+    "eventCapturedUtc": "2026-10-27T03:53:10.403Z",
+    "choiceResolvedUtc": "2026-10-27T03:53:15.483Z",
+    "reloadReturnedUtc": "2026-10-27T03:54:20.594Z",
+    "reloadCapturedUtc": "2026-10-27T03:55:20.818Z"
+  },
+  "deployment": {
+    "origin": "https://simlyfe.vercel.app",
+    "observedModule": "/assets/index-CWUz-w8k.js",
+    "frontendCommitObserved": null,
+    "projectId": "zfzepijfnldpqsyqyuhj",
+    "function": "generate-event",
+    "version": 17,
+    "status": "ACTIVE",
+    "bundleSha256": "948ed7c6b9ddb8fdb117330f1135731cc23d73e759e8ade420fd42d730283f98",
+    "sourceRevision": "220b580b5f6c404b59186e366b4bc9aafd486547",
+    "bothFilesMatchTestedSource": true
+  },
+  "configuration": {
+    "ownerReportedKeySaved": true,
+    "ownerReportedModelSaved": "gpt-5-nano",
+    "sourceDefault": "gpt-5-nano",
+    "secretValuesRead": false,
+    "effectiveModelIndependentlyObserved": null
+  },
+  "result": {
+    "status": "passed",
+    "generatedEventObserved": true,
+    "description": "A small moment shifts at two: you notice a new sound in the apartment and your family cares for you more.",
+    "choices": [
+      "Touch the stuffed bear and feel the comforting hug from mom.",
+      "Creaking door leads to a quiet room where dad sits with you for a minute."
+    ],
+    "selectedChoice": "Touch the stuffed bear and feel the comforting hug from mom.",
+    "ageBefore": 1,
+    "ageAfter": 2,
+    "happinessBefore": 90,
+    "happinessAfter": 95,
+    "bankAfter": 0
+  },
+  "persistence": {
+    "reloaded": true,
+    "sameCharacterReturned": true,
+    "ageTwoReturned": true,
+    "selectedOutcomeReturned": true,
+    "happiness95Returned": true,
+    "previousFailureHistoryPreserved": true,
+    "independentCloudWriteAckObserved": false,
+    "crossDeviceRecoveryTested": false
+  },
+  "requestEvidence": {
+    "providerRequestsInitiatedByAgent": 1,
+    "quotaRpc": {
+      "method": "POST",
+      "status": 200,
+      "timestampUtc": "2026-10-27T03:52:35.209000"
+    },
+    "functionEdgeLogAvailableInCheckedWindow": false,
+    "proxyHttpStatusDirectlyObserved": null,
+    "applicationRequestIdObserved": null,
+    "providerRequestIdObserved": null,
+    "usageObserved": null,
+    "billedCostObserved": null,
+    "diagnosticsVisibility": "Browser console exposed sanitized diagnostic records as Object without metadata values. No credential or runtime-store inspection was performed."
+  },
+  "limits": [
+    "One short infancy event in one guest browser; not a reliability, latency, quality or cost benchmark.",
+    "Actual API-reported model and token/billing metadata were not independently visible through the available diagnostics.",
+    "Reload verifies same-browser state recovery, not independent cloud acknowledgment, deployed Firestore rules or cross-device recovery.",
+    "The cause of the earlier failed canary remains unproved; success after key/model replacement does not identify which prior setting caused it."
+  ],
+  "evidenceFiles": {
+    "eventScreenshot": "simlyfe-nano-generated-event-1793073190403.jpg",
+    "reloadScreenshot": "simlyfe-nano-canary-reloaded-1793073320818.jpg"
+  }
+}
