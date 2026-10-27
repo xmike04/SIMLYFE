@@ -528,3 +528,13 @@ observed failing before the instruction change, then passing. This establishes
 the repaired generation contract, not improved live prose: no additional paid
 provider request was made for this follow-up. The earlier canary receipt remains
 unchanged, including its wording defects and five bounded successes.
+
+The choice-contract follow-up is deployed as active function **v20**, with
+both source files read back exactly from source revision
+`ca3c1c371c1c482af6a231cf3a1baca3aeec577b`. Bundle SHA-256:
+`92236048ca835a19998d5a0281694d6dae737c4b65c390ed084208fdeae3b9f0`.
+[The deployment receipt](./evidence/production-choice-contract-2026-10-27.json)
+records successful nonbillable web/Android preflights (204), missing-identity
+rejection (401), and unlisted-origin rejection (403). These checks reach no
+provider request and do not test generated prose. The source quality CI job and
+local 795-case/39-file suite passed; the final PR workflow records browser checks.

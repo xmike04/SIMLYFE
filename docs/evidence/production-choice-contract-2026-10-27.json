@@ -1,0 +1,104 @@
+{
+  "at": "2026-10-27T16:29:24.603040+00:00",
+  "functionVersion": 20,
+  "sourceRevision": "ca3c1c371c1c482af6a231cf3a1baca3aeec577b",
+  "bundleSha256": "92236048ca835a19998d5a0281694d6dae737c4b65c390ed084208fdeae3b9f0",
+  "checks": [
+    {
+      "name": "web_preflight",
+      "method": "OPTIONS",
+      "origin": "https://simlyfe.vercel.app",
+      "expectedStatus": 204,
+      "status": 204,
+      "errorCode": null,
+      "allowOrigin": "https://simlyfe.vercel.app"
+    },
+    {
+      "name": "android_preflight",
+      "method": "OPTIONS",
+      "origin": "https://localhost",
+      "expectedStatus": 204,
+      "status": 204,
+      "errorCode": null,
+      "allowOrigin": "https://localhost"
+    },
+    {
+      "name": "missing_identity",
+      "method": "POST",
+      "origin": "https://simlyfe.vercel.app",
+      "expectedStatus": 401,
+      "status": 401,
+      "errorCode": "UNAUTHENTICATED",
+      "allowOrigin": "https://simlyfe.vercel.app"
+    },
+    {
+      "name": "unlisted_origin",
+      "method": "OPTIONS",
+      "origin": "https://p1-unlisted.example",
+      "expectedStatus": 403,
+      "status": 403,
+      "errorCode": "ORIGIN_NOT_ALLOWED",
+      "allowOrigin": null
+    }
+  ],
+  "billableProviderRequests": 0,
+  "newIdentities": 0,
+  "narrativeQualityTested": false,
+  "schemaVersion": 1,
+  "evidenceType": "choice-generation-contract-deployment",
+  "codeRevision": "becad4593d58de7c61e2f33cfbcd6da3e44ff8c9",
+  "deployedFilesReadback": {
+    "index.ts": true,
+    "contract.ts": true
+  },
+  "historicalLabelLengths": [
+    80,
+    80,
+    79,
+    80,
+    80
+  ],
+  "historicalReceipt": "production-age10-repair-2026-10-27.json",
+  "investigation": "Captured malformed labels are at or near the schema field boundary. The previous prompt supplied no English action-label style or character budget. Postvalidation rejects strings over80 and does not truncate them. Exact provider decoding mechanism was not observed.",
+  "generationGuidance": {
+    "language": "English, supplied proper names preserved",
+    "words": "4-10",
+    "targetCharacters": 60,
+    "hardSchemaCharacters": 80,
+    "consequences": "numericEffects and flags"
+  },
+  "unchangedBoundaries": [
+    "strict schema and postvalidation",
+    "Nano1024 completion ceiling",
+    "minimal reasoning",
+    "Firebase identity verification",
+    "web and Android exact-origin lists",
+    "durable quotas",
+    "deadlines",
+    "no automatic retry",
+    "no static fallback"
+  ],
+  "verification": {
+    "outboundRequestRegression": "Observed RED then GREEN in real Vitest; covers bothQuick andNarrative modes",
+    "sourceLocalSuite": {
+      "testCases": 795,
+      "files": 39,
+      "failed": 0
+    },
+    "sourceLocalChecks": [
+      "lint",
+      "build",
+      "documentation links",
+      "git diff --check"
+    ],
+    "sourceCiRun": 40540908523,
+    "sourceCiQualityJob": "success",
+    "sourceCiBrowserJob": "in progress when receipt collected"
+  },
+  "limits": [
+    "No paid provider call or new identity was used for this follow-up.",
+    "Improved live narrative quality remains unverified. Prompt and schema descriptions are instructions, not semantic validation.",
+    "The age10 production canary remains historical v19 evidence and is not relabeled as a v20 playtest.",
+    "API-reported model, token usage, billed cost, independent cloud acknowledgment and cross-device recovery remain unmeasured."
+  ]
+}
