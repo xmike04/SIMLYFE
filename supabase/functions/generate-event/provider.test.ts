@@ -31,12 +31,12 @@ function validBody() {
 
 
 describe("provider request compatibility", () => {
-  it("defaults to nano with minimal reasoning and strict event output", () => {
+  it("leaves bounded reasoning headroom for a complete strict Nano event", () => {
     const request = contract.parseGenerateEventRequest(validBody());
     const body = contract.buildProviderRequest(request);
     assert.equal(body?.model, "gpt-5-nano");
     assert.equal(body?.reasoning_effort, "minimal");
-    assert.equal(body?.max_completion_tokens, 200);
+    assert.equal(body?.max_completion_tokens, 1024);
     assert.equal(body?.response_format.json_schema.strict, true);
     assert.equal(body?.messages[0].role, "system");
     assert.equal(JSON.parse(body?.messages[1].content).GAME_STATE_JSON.age, 25);
@@ -48,7 +48,7 @@ describe("provider request compatibility", () => {
       const request = contract.parseGenerateEventRequest({ ...validBody(), narrativeMode: true });
       const body = contract.buildProviderRequest(request, model);
       assert.equal(body?.reasoning_effort, "minimal");
-      assert.equal(body?.max_completion_tokens, 400);
+      assert.equal(body?.max_completion_tokens, 1024);
       assert.equal(Object.hasOwn(body, "temperature"), false);
       assert.equal(Object.hasOwn(body, "top_p"), false);
     });
@@ -58,6 +58,11 @@ describe("provider request compatibility", () => {
     const request = contract.parseGenerateEventRequest(validBody());
     const body = contract.buildProviderRequest(request, "gpt-4.1-mini");
     assert.equal(body?.model, "gpt-4.1-mini");
+    assert.equal(body?.max_completion_tokens, 200);
+    const narrative = contract.buildProviderRequest(
+      contract.parseGenerateEventRequest({ ...validBody(), narrativeMode: true }), "gpt-4.1-mini",
+    );
+    assert.equal(narrative.max_completion_tokens, 400);
     assert.equal(body?.temperature, 0.8);
     assert.equal(Object.hasOwn(body, "reasoning_effort"), false);
   });

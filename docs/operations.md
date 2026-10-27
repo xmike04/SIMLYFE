@@ -444,3 +444,38 @@ messages were reviewed as server-owned literals. Raw provider content, game
 state, credentials and caught exception text are not logged. Generation limits,
 validation, authentication, origins, quotas and retry behavior are unchanged.
 The precise failure cause remains unconfirmed until an instrumented observation.
+
+## Nano completion-budget repair
+
+The recovered original Guest reached age 4 with a valid event, then failed at
+age 5 on the next separately authorized age-up. The instrumented request began
+at `2026-10-27T05:10:24.507Z`. Function v18 logged request
+`800715fa-092e-427c-9a7d-2a9a85899691` as
+`INVALID_PROVIDER_RESPONSE` /502 with the fixed message
+**The narrative provider response was incomplete.** This message is emitted only
+when OpenAI returns `finish_reason: "length"`. The failed Quick request's total
+completion ceiling was 200 tokens. The bounded input is far below model context
+capacity; reasoning and visible structured output share that small ceiling.
+This identifies truncation for the instrumented age-5 failure, rather than
+guessing at keys, billing or invalid credentials. The earlier age-3 rejection
+was not instrumented and is not independently classified further.
+
+The Nano alias and dated snapshot now receive a bounded **1,024-token**
+completion ceiling in both modes. Minimal reasoning, the strict schema,
+post-validation, authentication, quotas and deadlines remain intact. Explicit
+legacy overrides retain their previous 200/400 ceilings. The higher ceiling
+permits complete output; it does not require the model to consume it. At the
+documented Nano output rate of $0.40 per million tokens, the maximum completion
+component is $0.0004096 per request, excluding input. Actual cost still requires
+observed usage.
+
+The three Nano request cases failed against the old 200/400 ceilings and passed
+after the single budget change. Existing tests also verify both legacy budgets
+and origin behavior. Full repository CI and live verification are recorded on
+the PR. No automatic provider retries or static fallback were introduced.
+
+The separate new-QA-identity probe was rejected by automatic approval review
+because its account creation and allowance for 12 paid calls exceeded the clear
+existing-Guest scope. It was not retried through another route. Investigation
+and subsequent live checks use the restored original Guest within the owner’s
+age-10 instruction.

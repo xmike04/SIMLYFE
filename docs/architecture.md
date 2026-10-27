@@ -41,8 +41,8 @@ flowchart LR
 
 The server contract also builds the provider request. Its default is
 `gpt-5-nano` with minimal reasoning and strict JSON output; the original nano
-model's request omits unsupported temperature settings. Existing Quick/Narrative
-completion caps include reasoning tokens. Model selection, credential rotation,
+model's request omits unsupported temperature settings. Nano uses a 1,024-token completion ceiling in both modes, including reasoning;
+explicit legacy overrides retain their 200/400 ceilings. Model selection, credential rotation,
 retirement dates, and required live verification are tracked in
 [operations](./operations.md#october-27-2026-openai-replacement-preparation).
 

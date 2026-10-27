@@ -403,7 +403,8 @@ export function buildProviderRequest(request: GenerateEventRequest, model = DEFA
     model,
     messages: buildPromptMessages(request),
     response_format: OPENAI_EVENT_RESPONSE_FORMAT,
-    max_completion_tokens: request.narrativeMode ? 400 : 200,
+    // Reasoning tokens share this ceiling with the complete structured event.
+    max_completion_tokens: isNano ? 1024 : (request.narrativeMode ? 400 : 200),
     ...(isNano ? { reasoning_effort: "minimal" } : { temperature: 0.8 }),
   };
 }
