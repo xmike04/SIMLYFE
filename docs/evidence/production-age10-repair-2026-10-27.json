@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "bounded-production-repair-verification",
+  "timestamps": "UTC",
+  "origin": "https://simlyfe.vercel.app",
+  "life": "P1 Canary Oct26",
+  "identity": "same original Guest",
+  "authorization": {
+    "instruction": "go up to age 10; investigate first; stop coming back and fix it",
+    "startAge": 2,
+    "targetAge": 10,
+    "maxAgeUps": 8,
+    "ageUpsUsed": 8,
+    "retries": 0,
+    "newIdentitiesUsedForVerification": 0
+  },
+  "investigation": {
+    "originalAge3Code": "INVALID_PROVIDER_RESPONSE",
+    "instrumentedAge5Message": "The narrative provider response was incomplete.",
+    "rootCause": "The Nano Quick completion ceiling of 200 tokens includes reasoning and produced finish_reason length, rejecting an incomplete event.",
+    "earlierFailuresNotReclassified": true
+  },
+  "repair": {
+    "sourceRevision": "efff844e0c65a6f3ed4e2bf3fd61d96a61da3d79",
+    "functionVersion": 19,
+    "bundleSha256": "6f707c0a219835825e892ca7ef5a2c55a4214ef35c973d57f85a901f230fff31",
+    "bothDeployedFilesMatched": true,
+    "nanoCompletionCeiling": 1024,
+    "nanoModes": [
+      "Quick",
+      "Narrative"
+    ],
+    "legacyCeilings": {
+      "quick": 200,
+      "narrative": 400
+    },
+    "schemaValidationPreserved": true,
+    "authQuotaOriginDeadlinesPreserved": true,
+    "automaticRetriesAdded": false,
+    "sourceCiRun": 40454214650,
+    "sourceCiConclusion": "success",
+    "independentCodeReview": "no findings"
+  },
+  "events": [
+    {
+      "age": 3,
+      "at": "2026-10-27T04:13:03.433Z",
+      "version": 17,
+      "result": "failed",
+      "code": "INVALID_PROVIDER_RESPONSE",
+      "requestId": "d5ab0f00-48a4-45f6-b882-609f843301bb",
+      "cause": "not independently classified"
+    },
+    {
+      "age": 4,
+      "at": "2026-10-27T05:08:42.545Z",
+      "version": 18,
+      "result": "passed",
+      "description": "A small kitchen mishap sparks a new spark: you discover you can count quietly by tapping utensils while mom hums. A neighbor’s laugh reminds you of a pretend tea party you’ll lead.",
+      "choice": "Practice counting with the utensil rhythm and invite mom to a tiny tea party.",
+      "bank": 2,
+      "happiness": 99,
+      "smarts": 69
+    },
+    {
+      "age": 5,
+      "at": "2026-10-27T05:10:24.507Z",
+      "version": 18,
+      "result": "failed",
+      "code": "INVALID_PROVIDER_RESPONSE",
+      "requestId": "800715fa-092e-427c-9a7d-2a9a85899691",
+      "executionId": "c9078f9e-5251-419f-be05-e1bfe671db4f",
+      "observedErrorMessage": "The narrative provider response was incomplete.",
+      "provenBranch": "finish_reason === length"
+    },
+    {
+      "age": 6,
+      "at": "2026-10-27T05:16:40.993Z",
+      "version": 19,
+      "result": "passed",
+      "description": "A school day reveals a secret talent or rival tease that tests your nerve.",
+      "choice": "Join the school talent club to perform a safety-themed show, risking nerves butM",
+      "bank": 1,
+      "happiness": 97,
+      "health": 88,
+      "smarts": 72,
+      "athletic": 62,
+      "karma": 50
+    },
+    {
+      "age": 7,
+      "at": "2026-10-27T05:17:07.106Z",
+      "version": 19,
+      "result": "passed",
+      "description": "A rival at school hints you’re not practicing enough for the talent show, and a secret plan from a classmate could change the performance.",
+      "choice": "Practice with a small, secret rehearsal after school, risking discovery by the老师",
+      "bank": 0,
+      "happiness": 97,
+      "health": 88,
+      "smarts": 78,
+      "athletic": 60,
+      "karma": 52
+    },
+    {
+      "age": 8,
+      "at": "2026-10-27T05:17:29.144Z",
+      "version": 19,
+      "result": "passed",
+      "description": "A secret plan from a classmate surfaces, threatening a risky rehearsal choice that could expose your nerves or reveal a hidden talent to the whole class.",
+      "choice": "Choose a cautious rehearsal in a private corner of the gym, avoiding discovery,",
+      "bank": -20,
+      "happiness": 96,
+      "health": 90,
+      "smarts": 84,
+      "athletic": 60,
+      "karma": 52
+    },
+    {
+      "age": 9,
+      "at": "2026-10-27T05:17:48.053Z",
+      "version": 19,
+      "result": "passed",
+      "description": "A classmate’s risky rehearsal plan could push your nerves toward a breakthrough or a reveal.",
+      "choice": "Decline the risky plan and rehearse in a private corner, preserving nerves but可能",
+      "bank": -25,
+      "happiness": 96,
+      "health": 90,
+      "smarts": 87,
+      "athletic": 59,
+      "karma": 57
+    },
+    {
+      "age": 10,
+      "at": "2026-10-27T05:18:22.638Z",
+      "version": 19,
+      "result": "passed",
+      "description": "A school talent show stumble forces a risky choice that could redefine your nerves or reveal a hidden skill.",
+      "choice": "Refuse to reveal any private rehearsal and perform a simple, safe piece you’ve 1",
+      "bank": -30,
+      "happiness": 96,
+      "health": 90,
+      "smarts": 87,
+      "athletic": 57,
+      "karma": 56
+    }
+  ],
+  "postFix": {
+    "requestedAges": [
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "successful": 5,
+    "failed": 0
+  },
+  "persistence": {
+    "reloadVerified": true,
+    "sameNameAndGuestReturned": true,
+    "age": 10,
+    "bank": -30,
+    "stats": {
+      "happiness": 96,
+      "health": 90,
+      "smarts": 87,
+      "looks": 71,
+      "athletic": 57,
+      "karma": 56
+    },
+    "fullAge0To10HistoryReturned": true,
+    "earlierErrorHistoryPreserved": true,
+    "crossDeviceTested": false,
+    "independentCloudWriteAckObserved": false
+  },
+  "metadataLimits": {
+    "actualApiReportedModel": null,
+    "usage": null,
+    "billedCost": null,
+    "frontendCommit": null,
+    "observedModule": "/assets/index-CWUz-w8k.js"
+  },
+  "knownLimits": [
+    "Five post-fix successes are bounded observations, not an SLO or broad model-quality benchmark.",
+    "Some accepted choice text had awkward, mixed-language or incomplete phrasing; the truncation fix does not establish narrative quality.",
+    "The earlier age-3 rejection was not instrumented; its exact cause is not inferred from the later age-5 diagnosis.",
+    "A separate new-QA-identity/12-call probe was rejected by automatic approval review and abandoned; verification used the already-approved original Guest."
+  ],
+  "screenshots": {
+    "savedLife": "simlyfe-age10-saved-20261027T0518Z.jpg",
+    "guest": "simlyfe-age10-guest-20261027T0518Z.jpg",
+    "age5Failure": "simlyfe-age5-error-20261027T051024Z.jpg",
+    "location": "Browser proof files, not repository-relative assets."
+  }
+}

@@ -479,3 +479,30 @@ because its account creation and allowance for 12 paid calls exceeded the clear
 existing-Guest scope. It was not retried through another route. Investigation
 and subsequent live checks use the restored original Guest within the owner’s
 age-10 instruction.
+
+## Original Guest reached age 10 after the repair
+
+The fix source `efff844e0c65a6f3ed4e2bf3fd61d96a61da3d79` passed complete
+Application quality CI [40454214650](https://github.com/xmike04/SIMLYFE/actions/runs/40454214650)
+and independent code review with no findings. It was deployed as active
+function **v19**; readback matched both files exactly. Bundle SHA-256:
+`6f707c0a219835825e892ca7ef5a2c55a4214ef35c973d57f85a901f230fff31`.
+
+The recovered original **P1 Canary Oct26** Guest then generated and resolved
+events at ages **6, 7, 8, 9 and 10**, all successfully. These were the five
+remaining age-ups in the owner’s original age-2-to-10 instruction: eight total
+age-up requests, no retries, no advancement beyond age 10. The same browser
+profile and Guest were retained.
+
+One reload restored **age 10**, the complete history (including prior errors),
+**$-30**, happiness **96%**, health **90%**, smarts **87%**, looks **71%**,
+athleticism **57%**, and karma **56%**. The Account interface still showed Guest.
+The [age-10 receipt](./evidence/production-age10-repair-2026-10-27.json) records
+each request timestamp, the diagnosed age-5 failure, the deployed repair, and
+the final observed state.
+
+This closes the failed age-10 advancement checkpoint within its requested
+scope. It does not prove cross-device/cloud acknowledgment, actual token cost,
+a reliability SLO or broad narrative quality. Some valid choice text had
+awkward or mixed-language endings; those observations are retained rather than
+presented as polished output. Earlier failed canaries remain historical records.
