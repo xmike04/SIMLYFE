@@ -391,3 +391,38 @@ canary is still needed for actual model access, complete structured output,
 usage, event resolution and reload. The [deployment receipt](./evidence/openai-nano-deployment-2026-10-27.json)
 records these observations and limits. The frontend was not redeployed and the
 draft source branch was not merged.
+
+## October 26, 2026 replacement-key canary
+
+**Result: one generated event, resolution and same-browser reload passed.**
+After reporting the new key and `OPENAI_MODEL=gpt-5-nano` saved, the owner
+explicitly approved one new canary on Guest **P1 Canary Oct26**. One **+ Age**
+click was made in Quick mode at 10:52:34.482 p.m. CDT October 26
+(03:52:34.482 UTC October 27). There was no retry.
+
+The function was active as version **17**, with the same reviewed bundle hash
+as version 16. Readback again matched both tested source files at
+`220b580b5f6c404b59186e366b4bc9aafd486547` exactly. The canonical browser still
+loaded `/assets/index-CWUz-w8k.js`; fresh frontend commit attribution remains
+unavailable.
+
+The UI displayed a genuine short event with two choices. Selecting the
+comforting stuffed-bear/mother choice closed the event, added the selected
+outcome to history, and changed happiness from 90% to 95%. Reload briefly
+showed character creation while authentication/save hydration ran, then
+restored the same character at **age 2**, **95% happiness**, with the new event
+and selected outcome intact. The earlier failed-event history remains.
+
+The quota RPC returned 200 at 03:52:35.209 UTC. Function-edge rows were not
+available in the two bounded reads, and browser diagnostic objects did not
+expose their metadata values through the available console view. Actual
+API-reported model, request ID, tokens, billed cost and server latency therefore
+remain unobserved. The model setting is owner-reported and matches the source
+default; it is not presented as independently read from a provider response.
+
+This is one successful current application journey, not a reliability/quality
+benchmark or independent proof of cloud acknowledgment, cross-device recovery,
+all native behavior, or Firestore rules. It does not prove which old key/model
+setting caused the earlier failure. Historical failed and deployment receipts
+remain intact. The [new canary receipt](./evidence/production-nano-canary-2026-10-26.json)
+records the successful observations and remaining limits.
