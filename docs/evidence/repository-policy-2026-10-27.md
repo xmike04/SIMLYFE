@@ -1,4 +1,40 @@
-# Repository policy and bounded security evidence — October 27, 2026
+# Repository policy and bounded security evidence
+
+## Current administration readback — October 28, 2026
+
+The owner ran the local GitHub CLI fallback at 21:48:20 UTC. Independent GitHub
+API readback subsequently confirmed both active rulesets and protected main
+branches: [SIMLYFE 26079093](https://github.com/xmike04/SIMLYFE/rules/26079093)
+and [RAG_OPS 26079096](https://github.com/xmike04/RAG_OPS/rules/26079096).
+Each requires a pull request, its exact quality checks from GitHub Actions,
+an up-to-date branch, no force pushes or deletion, and no bypass actors.
+Both readbacks report current_user_can_bypass=never. Zero mandatory reviewers
+preserves the solo-maintainer workflow. Optional Pages deployment is excluded.
+
+SIMLYFE About now reads: “Life simulator with deterministic gameplay,
+authenticated AI events, and automated Vitest/browser checks.” Repository metadata
+was independently re-read. This also supplies the description used by the GitHub
+pinned repository card; no stale numeric assertion claim remains in About.
+
+The owner report returned zero open secret-scanning alerts for SIMLYFE, RAG_OPS
+and the profile repository. Dependabot and code-scanning access for all four
+P1 repositories, plus portfolio secret-scanning access, returned unavailable.
+The first script intentionally suppressed error bodies; these nine unknown
+results do not distinguish disabled scanning from insufficient permission.
+No scanning feature was enabled/disabled and no alert was dismissed. Alert
+inventory and triage remain open until those results are explained.
+
+[Machine-readable administration receipt](./github-administration-2026-10-28.json).
+[Owner-run CLI workflow and safeguards](../github-cli-admin.md).
+Ruleset configuration is independently verified; an intentionally rejected merge
+and a complete security audit are not claimed. Classic protection subfields may
+still show off because enforcement is supplied by repository rulesets.
+
+## Historical snapshot — October 27, 2026
+
+The following dated observations are retained as history. Statements about missing
+rules, blocked About edits, and inaccessible alerts below are superseded only
+within the specific October 28 scope above.
 
 This checkpoint supports inspectable engineering evidence. It is not a complete
 security audit, penetration test, or certification.

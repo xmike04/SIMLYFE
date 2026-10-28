@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-10-28T21:52:37.417Z",
+  "owner_execution_report_started_utc": "2026-10-28T21:48:20Z",
+  "method": {
+    "settings": "Independent GitHub API readback through the connected GitHub tool.",
+    "alerts": "Owner-supplied sanitized GitHub CLI report; alert endpoints cannot be independently read through the connector."
+  },
+  "rulesets": [
+    {
+      "repository": "xmike04/SIMLYFE",
+      "id": 26079093,
+      "url": "https://github.com/xmike04/SIMLYFE/rules/26079093",
+      "enforcement": "active",
+      "target": "branch",
+      "conditions": {
+        "ref_name": {
+          "exclude": [],
+          "include": [
+            "refs/heads/main"
+          ]
+        }
+      },
+      "bypass_actors": [],
+      "current_user_can_bypass": "never",
+      "rules": [
+        {
+          "type": "deletion"
+        },
+        {
+          "type": "non_fast_forward"
+        },
+        {
+          "type": "pull_request",
+          "parameters": {
+            "required_approving_review_count": 0,
+            "dismiss_stale_reviews_on_push": false,
+            "required_reviewers": [],
+            "require_code_owner_review": false,
+            "require_last_push_approval": false,
+            "required_review_thread_resolution": false,
+            "require_extra_approval_for_unattributed_changes": true,
+            "allowed_merge_methods": [
+              "merge",
+              "squash",
+              "rebase"
+            ]
+          }
+        },
+        {
+          "type": "required_status_checks",
+          "parameters": {
+            "strict_required_status_checks_policy": true,
+            "do_not_enforce_on_create": false,
+            "required_status_checks": [
+              {
+                "context": "Lint, unit tests, build, docs",
+                "integration_id": 15368
+              },
+              {
+                "context": "Desktop and mobile browser smoke",
+                "integration_id": 15368
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "repository": "xmike04/RAG_OPS",
+      "id": 26079096,
+      "url": "https://github.com/xmike04/RAG_OPS/rules/26079096",
+      "enforcement": "active",
+      "target": "branch",
+      "conditions": {
+        "ref_name": {
+          "exclude": [],
+          "include": [
+            "refs/heads/main"
+          ]
+        }
+      },
+      "bypass_actors": [],
+      "current_user_can_bypass": "never",
+      "rules": [
+        {
+          "type": "deletion"
+        },
+        {
+          "type": "non_fast_forward"
+        },
+        {
+          "type": "pull_request",
+          "parameters": {
+            "required_approving_review_count": 0,
+            "dismiss_stale_reviews_on_push": false,
+            "required_reviewers": [],
+            "require_code_owner_review": false,
+            "require_last_push_approval": false,
+            "required_review_thread_resolution": false,
+            "require_extra_approval_for_unattributed_changes": true,
+            "allowed_merge_methods": [
+              "merge",
+              "squash",
+              "rebase"
+            ]
+          }
+        },
+        {
+          "type": "required_status_checks",
+          "parameters": {
+            "strict_required_status_checks_policy": true,
+            "do_not_enforce_on_create": false,
+            "required_status_checks": [
+              {
+                "context": "Backend quality",
+                "integration_id": 15368
+              },
+              {
+                "context": "Frontend quality",
+                "integration_id": 15368
+              },
+              {
+                "context": "Retrieval benchmark integrity",
+                "integration_id": 15368
+              },
+              {
+                "context": "Container configuration",
+                "integration_id": 15368
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "branches": [
+    {
+      "repository": "xmike04/SIMLYFE",
+      "head_sha": "d0ac68f77488f11c274c3dce7a0be87a2e37789b",
+      "protected": true
+    },
+    {
+      "repository": "xmike04/RAG_OPS",
+      "head_sha": "80154be53538d072f0509b5db747ee01f41185e5",
+      "protected": true
+    }
+  ],
+  "simlyfe_about": {
+    "description": "Life simulator with deterministic gameplay, authenticated AI events, and automated Vitest/browser checks.",
+    "independently_verified": true
+  },
+  "alerts": [
+    {
+      "repository": "xmike04/SIMLYFE",
+      "dependabot": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "code_scanning": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "secret_scanning": {
+        "status": "available",
+        "open_alert_count": 0,
+        "provenance": "Owner CLI report"
+      }
+    },
+    {
+      "repository": "xmike04/RAG_OPS",
+      "dependabot": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "code_scanning": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "secret_scanning": {
+        "status": "available",
+        "open_alert_count": 0,
+        "provenance": "Owner CLI report"
+      }
+    },
+    {
+      "repository": "xmike04/xmike04.github.io",
+      "dependabot": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "code_scanning": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "secret_scanning": {
+        "status": "unavailable",
+        "reason": "Not captured."
+      }
+    },
+    {
+      "repository": "xmike04/xmike04",
+      "dependabot": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "code_scanning": {
+        "status": "unavailable",
+        "reason": "Not captured by the first script; disabled feature and permission failure remain distinguishable possibilities."
+      },
+      "secret_scanning": {
+        "status": "available",
+        "open_alert_count": 0,
+        "provenance": "Owner CLI report"
+      }
+    }
+  ],
+  "limits": [
+    "Ruleset readback proves active server configuration; no intentionally failing merge was attempted.",
+    "Classic branch-protection subfields are not used to negate active ruleset enforcement.",
+    "Unavailable alert access is not a zero-finding result or a security clearance.",
+    "No provider request, production gameplay call, credential change, new OAuth scope, alert dismissal, or security-feature toggle was performed during this readback."
+  ]
+}
