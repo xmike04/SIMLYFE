@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "title": "Current-release v20 Guest canary",
+  "local_date": "2026-10-27",
+  "timezone": "America/Chicago",
+  "authorization": "Owner requested finishing the remaining P1 gates after the explicit current-release canary gap was identified.",
+  "origin": "https://simlyfe.vercel.app/",
+  "mode": "Quick",
+  "synthetic_life": "P1 V20 Canary Oct27",
+  "frontend": {
+    "tested_commit": "0754a2140c109371fc9a62cdef5baac1a459b207",
+    "identity_evidence": "Canonical /build-info.json returned matching SHA before the request."
+  },
+  "backend": {
+    "function": "generate-event",
+    "version": 20,
+    "status": "ACTIVE",
+    "source_commit": "ca3c1c371c1c482af6a231cf3a1baca3aeec577b",
+    "bundle_sha256": "92236048ca835a19998d5a0281694d6dae737c4b65c390ed084208fdeae3b9f0",
+    "identity_evidence": "Management readback before request matched the reviewed function version and bundle."
+  },
+  "request": {
+    "ui_age_up_clicks": 1,
+    "manual_retries": 0,
+    "started_at_utc": "2026-10-28T02:35:40.483Z",
+    "started_at_local": "2026-10-27T21:35:40.483-05:00",
+    "provider_request_count_independently_captured": false
+  },
+  "account": {
+    "visible_label": "Guest",
+    "visible_save_mode": "Save lives in this browser only",
+    "credential_values_read": false
+  },
+  "before": {
+    "age": 0,
+    "bank": 0,
+    "stats": {
+      "happiness": 98,
+      "health": 98,
+      "smarts": 62,
+      "looks": 46,
+      "athletic": 54,
+      "karma": 50
+    }
+  },
+  "event": {
+    "description": "P1 V20 Canary Oct27 experiences a mild change at home as a new ripple of family life appears.",
+    "visible_choices": [
+      "Observe mother interact with sibling",
+      "Reach toward a familiar toy"
+    ],
+    "selected_choice": "Reach toward a familiar toy"
+  },
+  "after": {
+    "age": 1,
+    "bank": 0,
+    "stats": {
+      "happiness": 99,
+      "health": 98,
+      "smarts": 62,
+      "looks": 46,
+      "athletic": 54,
+      "karma": 50
+    }
+  },
+  "reload": {
+    "performed": true,
+    "restored_same_life": true,
+    "restored_age": 1,
+    "restored_chosen_history": true,
+    "restored_stats": true,
+    "observed_at_utc": "2026-10-28T02:37:27.696Z",
+    "transient_creation_screen": "Visible briefly before asynchronous save/auth hydration; waiting for the known life heading completed successfully."
+  },
+  "result": "PASS: one current-release event, choice resolution and same-browser reload persistence.",
+  "quality_observation": "Both displayed choices were complete English action labels; one sample is not broad narrative-quality evidence.",
+  "limits": [
+    "Browser-visible success, not an independently captured provider HTTP status, request ID or API-reported model.",
+    "No measured token usage, billed cost, server latency, reliability SLO or repetition benchmark.",
+    "No independent cloud write acknowledgment, cross-device recovery, native-device acceptance or deployed Firestore-rules verification.",
+    "No sign-in credential, token, account UID, raw save or raw provider response was inspected or published."
+  ],
+  "browser_proof_files": [
+    "simlyfe-v20-event-1793154973786.jpg",
+    "simlyfe-v20-reloaded-1793155047696.jpg"
+  ]
+}

@@ -538,3 +538,38 @@ records successful nonbillable web/Android preflights (204), missing-identity
 rejection (401), and unlisted-origin rejection (403). These checks reach no
 provider request and do not test generated prose. The source quality CI job and
 local 795-case/39-file suite passed; the final PR workflow records browser checks.
+
+
+## October 27, 2026 current-release v20 canary
+
+**Result: one real generated event, resolution and same-browser reload passed.**
+The owner requested completing the remaining P1 gates. Guest **P1 V20 Canary
+Oct27** used Quick mode on the canonical origin. Exactly one **+ Age** UI click
+was made, at 9:35:40.483 p.m. CDT October 27 (02:35:40.483 UTC October 28), with
+no manual retry. Provider attempt counts and HTTP metadata were not separately
+captured.
+
+Before that click, canonical `build-info.json` identified frontend commit
+`0754a2140c109371fc9a62cdef5baac1a459b207`; function readback identified ACTIVE
+**v20**, source `ca3c1c371c1c482af6a231cf3a1baca3aeec577b`, and the same
+`92236048ca835a19998d5a0281694d6dae737c4b65c390ed084208fdeae3b9f0` bundle.
+
+The newborn life advanced to age 1 and displayed a mild family event with two
+complete English labels: **Observe mother interact with sibling** and **Reach
+toward a familiar toy**. Selecting the toy choice recorded that outcome and
+raised happiness from **98% to 99%**. Health 98%, smarts 62%, looks 46%,
+athleticism 54%, karma 50%, and bank $0 were unchanged.
+
+Reload briefly showed character creation during asynchronous hydration, then
+restored the named life at **age 1**, with the selected history, $0 and all six
+stats intact. The Account interface identified Guest and explicitly described
+browser-only saving. This closes the previously unverified current v20 web
+journey within that scope. The [machine-readable receipt](./evidence/production-v20-canary-2026-10-27.json)
+retains exact source identities and observations.
+
+One event with complete labels does not establish broad prose quality, absence
+of repetition, billed cost, API-reported model, a reliability SLO, independent
+cloud acknowledgment, cross-device recovery, native gameplay or deployed
+Firestore rules. Historical v19 failures and age-10 evidence remain unchanged.
+This follow-up changes documentation only; it does not alter gameplay, the
+provider contract, credentials or quotas.
