@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import ActionSheet from '../ActionSheet';
+import CareerActionPanel, { CareerActionFeedback } from './CareerActionPanel';
+import { createDiagnosticId } from '../../engine/diagnostics';
 import { SPECIAL_CAREERS } from '../../config/specialCareers';
 import { DEGREE_CONFIG, DEGREE_LABELS, HEADHUNTER_COST, canAffordHeadhunter } from '../../engine/gameState';
 
@@ -20,29 +22,63 @@ const SECTOR_META = {
 
 export default function JobSheet({
   age, bank, stats, career, careersData, careerMeta, networking, education,
-  chooseCareer, studyHard, triggerActivityEvent, performGig, attendNetworkingEvent,
+  chooseCareer, quoteCareer, lastCareerAction, studyHard, triggerActivityEvent, performGig, attendNetworkingEvent,
   enrollInDegree, checkCareerEligibility, debugModifyBank, startStartup,
   enlistMilitary, hireViaHeadhunter,
   onClose,
 }) {
   const [jobMenu, setJobMenu] = useState(null);
   const [jobSector, setJobSector] = useState(null);
+  const [careerDecision, setCareerDecision] = useState(null);
+  const [decisionNotice, setDecisionNotice] = useState('');
+  const submittedRef = useRef(false);
+  const isSaving = lastCareerAction?.saveStatus === 'pending';
 
   const close = () => {
     setJobMenu(null);
     setJobSector(null);
+    setCareerDecision(null);
+    setDecisionNotice('');
     onClose();
   };
 
   const handleChooseJob = (id) => {
-    chooseCareer(id);
-    close();
+    if (isSaving) return;
+    submittedRef.current = false;
+    setDecisionNotice('');
+    setCareerDecision({ targetId: id, quote: quoteCareer?.(id) });
+  };
+
+  const confirmCareer = () => {
+    const careerQuote = careerDecision?.quote;
+    if (!careerQuote?.eligible || ['already_employed_here', 'already_unemployed'].includes(careerQuote.code) || isSaving || submittedRef.current) return;
+    submittedRef.current = true;
+    const response = chooseCareer(careerDecision.targetId, {
+      actionId: createDiagnosticId('career-action'), expectedBasis: careerQuote.basis,
+    });
+    if (!response?.result) {
+      setDecisionNotice('The career decision could not be completed. Close the preview and try again.');
+      submittedRef.current = false;
+      return;
+    }
+    if (response.result.status === 'rejected') {
+      const refreshedQuote = quoteCareer?.(careerDecision.targetId);
+      setCareerDecision({ targetId: careerDecision.targetId, quote: refreshedQuote });
+      setDecisionNotice(response.result.code === 'stale_quote'
+        ? 'Career details changed. Review the updated preview and confirm again.'
+        : refreshedQuote?.reason || 'This career decision could not be applied.');
+      submittedRef.current = false;
+      return;
+    }
+    setDecisionNotice('');
+    setCareerDecision(null);
   };
 
   const getSectors = (type) => [...new Set(careersData.filter(c => c.type === type).map(c => c.sector).filter(Boolean))].sort();
   const getSectorJobs = (type, sector) => careersData.filter(c => c.type === type && c.sector === sector);
 
   const getTitle = () => {
+    if (careerDecision) return 'Review Career Decision';
     if (age < 18) return "Education";
     if (!jobMenu) return "Career & Income";
     if (jobMenu === 'full_time') return jobSector ? (SECTOR_META[jobSector]?.label || jobSector) : "Full-Time Careers";
@@ -58,8 +94,17 @@ export default function JobSheet({
   };
 
   return (
-    <ActionSheet title={getTitle()} onClose={() => { setJobMenu(null); setJobSector(null); onClose(); }}>
-      {age < 18 ? (
+    <ActionSheet title={getTitle()} onClose={close}>
+      {!careerDecision && <CareerActionFeedback feedback={lastCareerAction} onContinue={close} />}
+      {decisionNotice && (
+        <section className="glass-panel career-feedback" role="alert">
+          <p className="career-rejection">{decisionNotice}</p>
+          <button className="btn btn-secondary" onClick={close}>Continue</button>
+        </section>
+      )}
+      {careerDecision ? (
+        <CareerActionPanel key={careerDecision.quote?.basis ?? 'unavailable'} quote={careerDecision.quote} isSaving={isSaving} onConfirm={confirmCareer} onCancel={() => { setCareerDecision(null); setDecisionNotice(''); }} />
+      ) : age < 18 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div className="glass-panel" style={{ padding: '1rem', marginBottom: '4px', background: 'rgba(59, 130, 246, 0.1)' }}>
             <strong>{age < 11 ? "Elementary School" : (age < 14 ? "Middle School" : "High School")}</strong>
@@ -106,7 +151,7 @@ export default function JobSheet({
                   ⚠️ Financial stress detected — PIP risk
                 </div>
               )}
-              <button className="glass-panel" onClick={() => handleChooseJob(null)} style={{ marginTop: '8px', padding: '0.5rem', width: '100%', background: 'rgba(239, 68, 68, 0.12)', fontSize: '0.85rem' }}>Quit Position</button>
+              <button className="glass-panel career-option" disabled={isSaving} onClick={() => handleChooseJob(null)} style={{ marginTop: '8px', padding: '0.5rem', width: '100%', background: 'rgba(239, 68, 68, 0.12)', fontSize: '0.85rem' }}>Quit Position</button>
             </div>
           )}
 
@@ -147,7 +192,7 @@ export default function JobSheet({
                 const elig = checkCareerEligibility ? checkCareerEligibility(c) : { eligible: true, reason: '' };
                 const isActive = career?.id === c.id;
                 return (
-                  <button key={c.id} className="glass-panel" disabled={!elig.eligible || isActive} onClick={() => { handleChooseJob(c.id); }}
+                  <button key={c.id} className="glass-panel career-option" disabled={isActive || isSaving} onClick={() => { handleChooseJob(c.id); }}
                     style={{ padding: '0.8rem', textAlign: 'left', background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.05)', opacity: elig.eligible ? 1 : 0.55 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <strong>{c.title}</strong>
@@ -175,12 +220,14 @@ export default function JobSheet({
               ))}
               {getSectors('part_time').length === 0 && careersData.filter(c => c.type === 'part_time').map(c => {
                 const elig = checkCareerEligibility ? checkCareerEligibility(c) : { eligible: true, reason: '' };
+                const isActive = career?.id === c.id;
                 return (
-                  <button key={c.id} className="glass-panel" disabled={!elig.eligible} onClick={() => { handleChooseJob(c.id); }}
+                  <button key={c.id} className="glass-panel career-option" disabled={isActive || isSaving} onClick={() => { handleChooseJob(c.id); }}
                     style={{ padding: '0.8rem', textAlign: 'left', gridColumn: 'span 2', background: 'rgba(255,255,255,0.05)', opacity: elig.eligible ? 1 : 0.55 }}>
                     <strong>{c.title}</strong>
                     <div style={{ fontSize: '0.8rem', color: '#10b981' }}>${c.salary?.toLocaleString()}/yr</div>
                     {!elig.eligible && <div style={{ fontSize: '0.72rem', color: '#ef4444' }}>🔒 {elig.reason}</div>}
+                    {isActive && <div style={{ fontSize: '0.72rem', color: '#34d399' }}>✓ Current job</div>}
                   </button>
                 );
               })}
@@ -195,7 +242,7 @@ export default function JobSheet({
                 const elig = checkCareerEligibility ? checkCareerEligibility(c) : { eligible: true, reason: '' };
                 const isActive = career?.id === c.id;
                 return (
-                  <button key={c.id} className="glass-panel" disabled={!elig.eligible || isActive} onClick={() => { handleChooseJob(c.id); }}
+                  <button key={c.id} className="glass-panel career-option" disabled={isActive || isSaving} onClick={() => { handleChooseJob(c.id); }}
                     style={{ padding: '0.8rem', textAlign: 'left', background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.05)', opacity: elig.eligible ? 1 : 0.55 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <strong>{c.title}</strong>
