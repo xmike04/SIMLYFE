@@ -119,6 +119,80 @@ describe('career decisions', () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['action_locked', /Finish the current event or year/i],
+    ['action_id_conflict', /confirmation.*different career decision/i],
+  ])('explains a rejected %s confirmation even when the refreshed quote is valid', (code, reason) => {
+    const props = propsFor({ chooseCareer: vi.fn(() => ({
+      result: { ...committedResult, status: 'rejected', code, patch: {}, record: null, facts: null },
+      persistence: null,
+    })) });
+    render(<JobSheet {...props} />);
+    openDeveloper();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm career' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(reason);
+    expect(screen.getByRole('region', { name: 'Career decision preview' })).toBeInTheDocument();
+    expect(props.chooseCareer).toHaveBeenCalledOnce();
+    expect(props.triggerActivityEvent).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps the specific requirement from a refreshed quote with the same rejection code', () => {
+    const props = propsFor({
+      chooseCareer: vi.fn(() => ({
+        result: { ...committedResult, status: 'rejected', code: 'degree_required', patch: {}, record: null, facts: null },
+        persistence: null,
+      })),
+      quoteCareer: vi.fn().mockReturnValueOnce(quote).mockReturnValueOnce({
+        ...quote, eligible: false, code: 'degree_required', reason: "Requires Master's Degree",
+      }),
+    });
+    render(<JobSheet {...props} />);
+    openDeveloper();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm career' }));
+    expect(screen.getByRole('alert')).toHaveTextContent("Requires Master's Degree");
+    expect(screen.getByRole('button', { name: 'Confirm career' })).toBeDisabled();
+  });
+
+  it('does not replace a rejected action lock with an unrelated refreshed eligibility reason', () => {
+    const props = propsFor({
+      chooseCareer: vi.fn(() => ({
+        result: { ...committedResult, status: 'rejected', code: 'action_locked', patch: {}, record: null, facts: null },
+        persistence: null,
+      })),
+      quoteCareer: vi.fn().mockReturnValueOnce(quote).mockReturnValueOnce({
+        ...quote, eligible: false, code: 'age_required', reason: 'Requires age 35+',
+      }),
+    });
+    render(<JobSheet {...props} />);
+    openDeveloper();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm career' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/Finish the current event or year/i);
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Requires age 35+');
+    expect(screen.getByRole('region', { name: 'Career decision preview' })).toHaveTextContent('Requires age 35+');
+  });
+
+  it.each([
+    ['age_required', /minimum age/i],
+    ['degree_required', /degree.*required/i],
+    ['networking_required', /networking.*requirement/i],
+    ['stat_required', /stats.*requirements/i],
+    ['invalid_career', /career.*invalid/i],
+    ['invalid_command', /career decision.*invalid/i],
+    ['action_id_conflict', /confirmation.*different career decision/i],
+  ])('shows an actionable %s reason in reopened outcome feedback', (code, reason) => {
+    const props = propsFor({ lastCareerAction: {
+      ...pendingAction, saveStatus: 'not_requested',
+      result: { ...committedResult, status: 'rejected', code, patch: {}, record: null, facts: null },
+    } });
+    render(<JobSheet {...props} />);
+    const feedback = screen.getByRole('alert', { name: 'Career outcome' });
+    expect(feedback).toHaveTextContent(reason);
+    expect(feedback).toHaveTextContent('No save requested.');
+    expect(props.chooseCareer).not.toHaveBeenCalled();
+    expect(props.triggerActivityEvent).not.toHaveBeenCalled();
+  });
+
   it('shows the current salary and loss of tenure before replacing a role', () => {
     const props = propsFor({ career: currentJob, quoteCareer: () => ({ ...quote,
       preview: { ...quote.preview, previousTitle: 'Teacher', previousId: 'teacher', previousSalary: 62000 },

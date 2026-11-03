@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import ActionSheet from '../ActionSheet';
 import CareerActionPanel, { CareerActionFeedback } from './CareerActionPanel';
+import { careerActionReason } from './careerActionMessages';
 import { createDiagnosticId } from '../../engine/diagnostics';
 import { SPECIAL_CAREERS } from '../../config/specialCareers';
 import { DEGREE_CONFIG, DEGREE_LABELS, HEADHUNTER_COST, canAffordHeadhunter } from '../../engine/gameState';
@@ -64,9 +65,7 @@ export default function JobSheet({
     if (response.result.status === 'rejected') {
       const refreshedQuote = quoteCareer?.(careerDecision.targetId);
       setCareerDecision({ targetId: careerDecision.targetId, quote: refreshedQuote });
-      setDecisionNotice(response.result.code === 'stale_quote'
-        ? 'Career details changed. Review the updated preview and confirm again.'
-        : refreshedQuote?.reason || 'This career decision could not be applied.');
+      setDecisionNotice(careerActionReason(response.result.code, refreshedQuote));
       submittedRef.current = false;
       return;
     }

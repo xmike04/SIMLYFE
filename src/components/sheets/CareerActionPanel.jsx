@@ -1,5 +1,6 @@
 import React from 'react';
 import { DEGREE_LABELS } from '../../engine/mechanics/education';
+import { careerActionReason } from './careerActionMessages';
 
 const statLabel = stat => stat.charAt(0).toUpperCase() + stat.slice(1);
 const signedPoints = value => value > 0 ? `+${value}` : value < 0 ? `−${Math.abs(value)}` : '0';
@@ -8,20 +9,9 @@ const money = amount => `$${amount.toLocaleString()}`;
 export function CareerActionFeedback({ feedback, onContinue }) {
   if (!feedback) return null;
   const result = feedback.result;
-  const resultMessages = {
-    already_employed_here: 'You already work in this role. Your pay and progress are unchanged.',
-    already_unemployed: 'You are already unemployed. Nothing changed.',
-    duplicate_action: 'This career decision was already applied.',
-    stale_quote: 'Career details changed. Review the updated preview and confirm again.',
-    ineligible: 'You do not meet the requirements for this role.',
-    unknown_career: 'This career is no longer available.',
-    action_locked: 'Finish the current event or year before changing careers.',
-    no_life: 'Start a life before changing careers.',
-    dead: 'This life has ended.',
-  };
   const resultText = result?.status === 'committed'
     ? result.patch?.history?.at(-1)?.text || 'Your career decision was applied.'
-    : resultMessages[result?.code] || 'This career decision could not be applied.';
+    : careerActionReason(result?.code);
   const saveMessages = {
     pending: 'Saving…',
     saved: 'Saved to cloud.',
@@ -95,8 +85,8 @@ export default function CareerActionPanel({ quote, isSaving, onConfirm, onCancel
         </ul>
         <p className="career-detail">These career effects are part of the yearly simulation, not a complete forecast of the year.</p>
       </div>
-      {!quote.eligible && <p className="career-rejection">{quote.reason}</p>}
-      {isNoop && <p>{quote.reason}</p>}
+      {!quote.eligible && <p className="career-rejection">{careerActionReason(quote.code, quote)}</p>}
+      {isNoop && <p>{careerActionReason(quote.code, quote)}</p>}
       <div className="career-decision-controls">
         <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
         <button className="btn" disabled={!quote.eligible || isNoop || isSaving} onClick={onConfirm}>
