@@ -38,6 +38,17 @@ describe('privacy-safe diagnostics', () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain('contains private data');
   });
 
+  it('reports consequence validation paths without exposing decision facts', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const record = emitDiagnostic('save_load', {
+      operationId: 'save-load-abc-123', status: 'loaded_with_warnings',
+      fields: ['history[].action'],
+      consequence: { career: { title: 'Private Career Title' }, actionId: 'private-action' },
+    });
+    expect(record.fields).toEqual(['history[].action']);
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/Private Career Title|private-action/);
+  });
+
   it('emits LLM usage while discarding prompts, state, and response content', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
 

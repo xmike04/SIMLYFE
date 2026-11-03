@@ -46,6 +46,7 @@ const SAFE_VALIDATION_FIELDS = new Set([
   'history[]',
   'history[].age',
   'history[].text',
+  'history[].action',
   'relationships[]',
   'relationships[].id',
   'relationships[].type',

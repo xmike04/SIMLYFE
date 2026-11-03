@@ -130,4 +130,26 @@ describe('validateHydratedSave', () => {
       'bank', 'character', 'history', 'isDead', 'stats',
     ]));
   });
+  it('warns about optional action metadata without changing legacy entries or exposing values', () => {
+    const save = makeValidSave();
+    const legacy = { age: 20, text: 'An existing memory' };
+    save.history = [legacy];
+    expect(validateHydratedSave(save).hasWarnings).toBe(false);
+    save.history.push({ age: 24, text: 'Keep this.', action: { version: 999, id: 'Private command' } });
+    const before = structuredClone(save);
+    const result = validateHydratedSave(save);
+    expect(result.warnings).toContainEqual({ code: 'invalid_value', field: 'history[].action' });
+    expect(JSON.stringify(result)).not.toMatch(/Private command|Keep this/);
+    expect(save).toEqual(before);
+    expect(save.history[0]).toBe(legacy);
+  });
+
+  it('accepts a valid versioned action record alongside ordinary age/text entries', () => {
+    const save = makeValidSave();
+    save.history.push({ age: 24, text: 'Career: Selected Teacher.', action: { version: 1, id: 'career-test-1', type: 'career.choose', targetId: 'teacher', beforeCareerId: null, afterCareerId: 'teacher', beforeSalary: null, afterSalary: 50000, code: 'career_selected' } });
+    const before = structuredClone(save);
+    expect(validateHydratedSave(save).hasWarnings).toBe(false);
+    expect(save).toEqual(before);
+  });
+
 });
