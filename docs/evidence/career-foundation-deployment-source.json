@@ -22,7 +22,18 @@
   "deploymentPolicy": {
     "documentedAt": "docs/operations.md#verified-git-commits",
     "requirement": "The connected Vercel project requires GitHub-verified commits.",
-    "action": "Append this evidence through GitHub's authenticated Contents API; inspect the resulting commit signature and deployment status independently."
+    "action": "Use a normal GitHub server-side squash merge of documentation-only evidence into the feature branch; verify the resulting commit signature and deployment status independently.",
+    "attempts": [
+      {
+        "method": "GitHub authenticated Contents API",
+        "commit": "c0669cce2d4e937bd75a1b7ad50f6a979b4c9143",
+        "verification": {
+          "verified": false,
+          "reason": "unsigned"
+        },
+        "vercelStatus": "blocked"
+      }
+    ]
   },
   "scope": {
     "applicationSourceChangedByThisRecord": false,
