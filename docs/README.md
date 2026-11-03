@@ -16,6 +16,7 @@ These three canonical references are the entry point for contributors and coding
 |---|---|
 | [Development](./development.md) | Local setup, environment table, executable checks, test boundaries, manual tools |
 | [Operations](./operations.md) | Firebase/Supabase/Vercel setup, deployment procedure, dated production baseline |
+| [Product direction](./product-direction.md) | Player promise, life-strategy priority, AI authority, and feature evaluation |
 | [Refactor plan](./refactor-plan.md) | Refactor scope, phases, implementation and verification ledger |
 | [Case study](./case-study.md) | Portfolio narrative, screenshots, engineering tradeoffs, evidence limits |
 
