@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as gameState from '../engine/gameState';
 import { generateDynamicEvent } from '../engine/llmService';
@@ -37,6 +37,7 @@ it('routes a visible choice through the event identity/index API to the real own
     return { ...owner, handleChoice };
   });
   render(<App />);
+  await waitFor(() => expect(owner.cloudLoadState.status).toBe('local'));
   act(() => owner.startLife('UI Choice Player', 'Female', 'US'));
   generateDynamicEvent.mockResolvedValueOnce({ description: 'An offer', choices: [
     { text: 'Decline the opportunity', effects: {} },

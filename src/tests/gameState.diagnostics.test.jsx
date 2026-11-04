@@ -78,6 +78,7 @@ describe('game state diagnostics safeguards', () => {
 it('distinguishes a committed career from unavailable cloud persistence without requesting AI', async () => {
   const requestsBefore = generateDynamicEvent.mock.calls.length;
   const { result } = renderHook(() => useGameState());
+  await waitFor(() => expect(result.current.cloudLoadState.status).toBe('local'));
   act(() => {
     result.current.startLife('Local Player', 'Female', 'US');
     result.current.debugAddAge(30);

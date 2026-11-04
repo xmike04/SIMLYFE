@@ -14,7 +14,7 @@ import { WEALTH_TIERS } from '../config/wealthTiers';
 import { ASSET_CATALOG } from '../config/assetCatalog';
 
 const backend = vi.hoisted(() => ({
-  configured: true, auth: { currentUser: null }, db: {},
+  observe: null, configured: true, auth: { currentUser: null }, db: {},
   getDoc: vi.fn(), setDoc: vi.fn(), getDocs: vi.fn(), unsubscribe: vi.fn(),
   signInAnonymously: vi.fn(), linkWithPopup: vi.fn(), signInWithCredential: vi.fn(),
   signInWithPopup: vi.fn(), linkWithCredential: vi.fn(), signInWithEmailAndPassword: vi.fn(),
@@ -29,7 +29,8 @@ vi.mock('firebase/firestore', () => ({
   getDoc: backend.getDoc, setDoc: backend.setDoc, getDocs: backend.getDocs,
 }));
 vi.mock('firebase/auth', () => ({
-  onAuthStateChanged: (auth, callback) => {
+  onAuthStateChanged: (auth, callback, error) => {
+    if (backend.observe) return backend.observe(auth, callback, error);
     queueMicrotask(() => callback(auth.currentUser));
     return backend.unsubscribe;
   },
@@ -48,16 +49,24 @@ const deferred = () => {
 const savedLife = (name = 'Saved Player', fields = {}) => buildLifeSave({
   character: { name, gender: 'Female', country: 'US' }, age: 33, bank: 12000, ...fields,
 });
-async function ready(options = {}) {
+async function adopted(options = {}) {
   const rendered = renderHook(() => useGameState(), options);
   await waitFor(() => expect(rendered.result.current.authAccount).not.toBeNull());
+  return rendered;
+}
+
+async function ready(options = {}) {
+  const rendered = await adopted(options);
+  await waitFor(() => expect(['loaded', 'missing', 'local']).toContain(rendered.result.current.cloudLoadState?.status));
   return rendered;
 }
 
 beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   vi.clearAllMocks();
+  for (const value of Object.values(backend)) if (vi.isMockFunction(value)) value.mockReset();
   backend.configured = true;
+  backend.observe = null;
   vi.spyOn(console, 'debug').mockImplementation(() => {});
   vi.spyOn(console, 'info').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -90,18 +99,26 @@ describe('cloud lifecycle contract through the game hook', () => {
     expect(backend.signInAnonymously).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['startLife', 'resetLife'])('%s wins over a delayed boot save and replaces every save field', async boundary => {
+  it.each(['startLife', 'resetLife'])('%s protects an unread acknowledged life before any RNG or writes', async boundary => {
+    const original = savedLife('Acknowledged Player', { isDead: true });
+    let acknowledged = structuredClone(original);
     const pending = deferred();
     backend.getDoc.mockReturnValueOnce(pending.promise);
-    const { result } = await ready();
+    backend.setDoc.mockImplementation(async (_path, save) => { acknowledged = structuredClone(save); });
+    const { result } = await adopted();
+    expect(result.current.cloudLoadState).toEqual({ status: 'loading', accountId: 'guest', reason: null });
+    const random = vi.spyOn(Math, 'random');
+    act(() => expect(result.current[boundary]('New Player', 'Female', 'US')).toEqual({ status: 'rejected', code: 'account_load_blocked', persistence: null }));
+    expect(random).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    expect(acknowledged).toEqual(original);
+    await act(async () => pending.resolve(snapshot(acknowledged)));
+    expect(result.current.character?.name).toBe('Acknowledged Player');
+    expect(result.current.cloudLoadState.status).toBe('loaded');
     act(() => result.current[boundary]('New Player', 'Female', 'US'));
-    await act(async () => pending.resolve(snapshot(savedLife('Late Player', { isDead: true }))));
-    expect(result.current.character?.name ?? null).toBe(boundary === 'startLife' ? 'New Player' : null);
-    expect(result.current.isDead).toBe(false);
-    const write = backend.setDoc.mock.calls.at(-1);
-    expect(write).toHaveLength(2); // replace: setDoc receives no merge options
-    expect(Object.keys(write[1]).sort()).toEqual([...LIFE_SAVE_KEYS].sort());
-    expect(write[1]).toMatchObject({ age: 0, isDead: false, career: null, pets: [], will: null });
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0]).toHaveLength(2);
+    expect(Object.keys(acknowledged).sort()).toEqual([...LIFE_SAVE_KEYS].sort());
   });
 
   it('ordinary actions merge complete snapshots with the new state and existing character', async () => {
@@ -173,7 +190,7 @@ describe('cloud lifecycle contract through the game hook', () => {
 
   it('signout clears this device and starts a guest without overwriting the account save', async () => {
     backend.auth.currentUser = user('owner', false);
-    backend.getDoc.mockResolvedValue(snapshot(savedLife()));
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife()));
     const { result } = await ready();
     await waitFor(() => expect(result.current.character).not.toBeNull());
     await act(async () => { expect(await result.current.signOutAccount()).toEqual({ ok: true, mode: 'signed_out' }); });
@@ -438,15 +455,15 @@ describe('canonical career lifecycle and preview basis', () => {
   });
 });
 
-it('still adopts the remote career catalog when a life boundary suppresses a delayed boot save', async () => {
+it('adopts the remote career catalog while replacement waits for a delayed boot save', async () => {
   const pending = deferred();
   const remoteCareer = { id: 'remote_teacher', title: 'Remote Teacher', type: 'full_time', salary: 51000, minAge: 22, statRequirements: {} };
   backend.getDoc.mockReturnValueOnce(pending.promise);
   backend.getDocs.mockResolvedValueOnce({ empty: false, docs: [{ data: () => remoteCareer }] });
-  const { result } = await ready();
-  act(() => result.current.startLife('New Life', 'Female', 'US'));
-  await act(async () => pending.resolve(snapshot(savedLife('Obsolete Life'))));
-  expect(result.current.character.name).toBe('New Life');
+  const { result } = await adopted();
+  act(() => expect(result.current.startLife('New Life', 'Female', 'US').code).toBe('account_load_blocked'));
+  await act(async () => pending.resolve(snapshot(savedLife('Acknowledged Life'))));
+  expect(result.current.character.name).toBe('Acknowledged Life');
   await waitFor(() => expect(result.current.careersData).toEqual([remoteCareer]));
 });
 
@@ -839,10 +856,7 @@ describe('activity continuity commits and receipts', () => {
     const boot = deferred();
     if (boundary === 'signout') backend.auth.currentUser = user('signed-in', false);
     let rendered;
-    if (boundary === 'hydration') {
-      backend.getDoc.mockReturnValueOnce(boot.promise);
-      rendered = await ready();
-    } else rendered = await loaded();
+    rendered = await loaded();
     const { result, unmount } = rendered;
     const pending = deferred();
     backend.setDoc.mockReturnValueOnce(pending.promise);
@@ -850,7 +864,13 @@ describe('activity continuity commits and receipts', () => {
     const before = result.current.lastContinuitySave;
     expect(before?.saveStatus).toBe('pending');
     if (boundary === 'startLife' || boundary === 'resetLife') act(() => result.current[boundary]('New', 'Female', 'US'));
-    if (boundary === 'hydration') await act(async () => boot.resolve(snapshot(savedLife())));
+    if (boundary === 'hydration') {
+      backend.getDoc.mockReturnValueOnce(boot.promise);
+      backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('hydration-target', false) });
+      let switching;
+      await act(async () => { switching = result.current.signInWithEmail('a@example.com', 'password', 'signin'); });
+      await act(async () => { boot.resolve(snapshot(savedLife())); await switching; });
+    }
     if (boundary === 'switch') {
       backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Other')));
       backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('other', false) });
@@ -1032,7 +1052,7 @@ describe('generated offers are acknowledged with their originating life', () => 
     let rendered;
     if (boundary === 'hydration') {
       backend.getDoc.mockReturnValueOnce(boot.promise);
-      rendered = await ready();
+      rendered = await adopted();
     } else rendered = await loaded({ history: [{ age: 30, text: 'Origin history' }] });
     const old = deferred(), current = deferred();
     generateDynamicEvent.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
@@ -1534,6 +1554,7 @@ describe('education command commit and lifecycle-scoped receipts', () => {
   it('reports skipped when Firebase is unconfigured without requiring an age gate', async () => {
     backend.configured = false;
     const { result } = renderHook(() => useGameState());
+    await waitFor(() => expect(result.current.cloudLoadState.status).toBe('local'));
     act(() => result.current.startLife('Offline', 'Female', 'US'));
     act(() => result.current.debugGrantDegree('highSchool'));
     act(() => result.current.debugModifyBank(100000));
@@ -1631,7 +1652,7 @@ describe('education command commit and lifecycle-scoped receipts', () => {
   it('boot hydration clears rejected pre-hydration domain feedback without manufacturing a valid blank life', async () => {
     const boot = deferred();
     backend.getDoc.mockReturnValueOnce(boot.promise);
-    const { result } = await ready();
+    const { result } = await adopted();
     act(() => {
       expect(result.current.enrollInDegree('bachelor').result).toMatchObject({ status: 'rejected', code: 'invalid_state' });
       expect(result.current.chooseCareer('barista').result.status).toBe('rejected');
@@ -2069,7 +2090,7 @@ describe('new-character name admission before lifecycle mutation', () => {
   it('leaves a pending boot read eligible to hydrate after rejection', async () => {
     const load = deferred();
     backend.getDoc.mockReturnValue(load.promise);
-    const { result } = await ready();
+    const { result } = await adopted();
     act(() => result.current.startLife('a'.repeat(81), 'Female', 'US'));
     await act(async () => load.resolve(snapshot(savedLife('Loaded Player'))));
     expect(result.current.character?.name).toBe('Loaded Player');
@@ -2087,7 +2108,7 @@ describe('new-character name admission before lifecycle mutation', () => {
       return <CharacterCreation onStartLife={current.startLife} />;
     }
     const ui = render(<Connected />);
-    await waitFor(() => expect(engine.authAccount).not.toBeNull());
+    await waitFor(() => expect(['loaded', 'missing', 'local']).toContain(engine.cloudLoadState.status));
     const random = vi.spyOn(Math, 'random').mockReturnValue(0);
     const name = '🌈'.repeat(40);
     fireEvent.change(screen.getByLabelText('First and Last Name'), { target: { value: `  ${name}  ` } });
@@ -2119,7 +2140,7 @@ describe('new-character name admission before lifecycle mutation', () => {
       return <CharacterCreation onStartLife={current.startLife} />;
     }
     render(<Connected />);
-    await waitFor(() => expect(engine.authAccount).not.toBeNull());
+    await waitFor(() => expect(['loaded', 'missing', 'local']).toContain(engine.cloudLoadState.status));
     const input = screen.getByLabelText('First and Last Name');
     expect(input).toHaveAttribute('maxlength', '80');
     const random = vi.spyOn(Math, 'random');
@@ -2137,4 +2158,270 @@ describe('new-character name admission before lifecycle mutation', () => {
     expect(engine.character.name).toBe('Zoë 李');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+});
+
+describe('owned account recovery readiness', () => {
+  it.each(['boot', 'switch'])('keeps %s read failures and repeated failed retries blocked without replacing the document', async mode => {
+    const original = savedLife('Acknowledged', {
+      bank: 54321, flags: ['kept'], activitiesThisYear: { kept: 1 },
+      education: { ...INITIAL_EDUCATION, bachelor: true },
+      currentEvent: { version: 1, id: 'restored-choice', age: 33, source: 'activity', description: 'Acknowledged offer', choices: [{ text: 'Continue', effects: {} }] },
+    });
+    let acknowledged = structuredClone(original);
+    backend.setDoc.mockImplementation(async (_path, save) => { acknowledged = structuredClone(save); });
+    backend.getDoc.mockRejectedValue(new Error('private read failure'));
+    let hook;
+    if (mode === 'boot') hook = await adopted();
+    else {
+      backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Origin')));
+      hook = await ready();
+      backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('owner', false) });
+      await act(async () => { await hook.result.current.signInWithEmail('a@example.com', 'password', 'signin'); });
+    }
+    const { result } = hook;
+    await waitFor(() => expect(result.current.cloudLoadState).toMatchObject({ status: 'failed', reason: 'read_failed' }));
+    const random = vi.spyOn(Math, 'random');
+    for (let i = 0; i < 2; i++) {
+      act(() => {
+        expect(result.current.startLife('New', 'Female', 'US')).toEqual({ status: 'rejected', code: 'account_load_blocked', persistence: null });
+        expect(result.current.resetLife()).toEqual({ status: 'rejected', code: 'account_load_blocked', persistence: null });
+      });
+      await act(async () => expect(await result.current.retryCloudLoad()).toEqual({ ok: false, reason: 'error' }));
+      expect(result.current.cloudLoadState.status).toBe('failed');
+    }
+    expect(random).not.toHaveBeenCalled();
+    expect(acknowledged).toEqual(original);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    backend.getDoc.mockResolvedValueOnce(snapshot(acknowledged));
+    await act(async () => expect(await result.current.retryCloudLoad()).toEqual({ ok: true, mode: 'loaded' }));
+    expect(result.current.cloudLoadState.status).toBe('loaded');
+    expect(result.current.character.name).toBe('Acknowledged');
+    expect(result.current.flags).toEqual(['kept']);
+    expect(result.current.activitiesThisYear).toEqual({ kept: 1 });
+    expect(result.current.education.bachelor).toBe(true);
+    expect(result.current.currentEvent.id).toBe('restored-choice');
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+    expect(backend.signInAnonymously).not.toHaveBeenCalled();
+  });
+
+  it.each([{}, [], { character: [] }, { age: 30 }, { character: null }, null])('rejects an existing malformed root %j instead of treating it as missing', async data => {
+    backend.getDoc.mockResolvedValue({ exists: () => true, data: () => data });
+    const { result } = await adopted();
+    await waitFor(() => expect(result.current.cloudLoadState).toMatchObject({ status: 'failed', reason: 'invalid_save' }));
+    act(() => expect(result.current.startLife('New', 'Female', 'US').code).toBe('account_load_blocked'));
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('admits an explicit cleared life and preserves ready retry without restoring an older acknowledged snapshot', async () => {
+    backend.getDoc.mockResolvedValue(snapshot({ character: null, isDead: false }));
+    const { result } = await ready();
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    act(() => result.current.startLife('Pending Newborn', 'Female', 'US'));
+    await act(async () => expect(await result.current.retryCloudLoad()).toEqual({ ok: true, mode: 'loaded' }));
+    expect(result.current.character.name).toBe('Pending Newborn');
+    expect(backend.getDoc).toHaveBeenCalledTimes(1);
+    await act(async () => pending.resolve());
+  });
+
+  it('deduplicates retry in the same turn and enables replacement only after confirmed missing', async () => {
+    backend.getDoc.mockRejectedValueOnce(new Error('unavailable'));
+    const { result } = await adopted();
+    await waitFor(() => expect(result.current.cloudLoadState.status).toBe('failed'));
+    const pending = deferred();
+    backend.getDoc.mockReturnValueOnce(pending.promise);
+    let retry;
+    await act(async () => {
+      retry = result.current.retryCloudLoad();
+      expect(await result.current.retryCloudLoad()).toEqual({ ok: false, reason: 'busy' });
+      expect(result.current.resetLife().code).toBe('account_load_blocked');
+    });
+    expect(backend.getDoc).toHaveBeenCalledTimes(2);
+    await act(async () => { pending.resolve(snapshot(null)); expect(await retry).toEqual({ ok: true, mode: 'missing' }); });
+    await act(async () => expect(await result.current.retryCloudLoad()).toEqual({ ok: true, mode: 'missing' }));
+    expect(backend.getDoc).toHaveBeenCalledTimes(2);
+    act(() => result.current.startLife('New', 'Female', 'US'));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+  });
+
+  it.each(['null', 'error'])('an obsolete observer %s after explicit signin cannot mint or replace the adopted account', async completion => {
+    let observer;
+    backend.observe = (_auth, next, error) => { observer = { next, error }; return backend.unsubscribe; };
+    const hook = renderHook(() => useGameState());
+    await waitFor(() => expect(observer).toBeDefined());
+    backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('owner', false) });
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Owner')));
+    await act(async () => expect((await hook.result.current.signInWithEmail('a@example.com', 'password', 'signin')).ok).toBe(true));
+    await act(async () => completion === 'null' ? observer.next(null) : observer.error(new Error('obsolete')));
+    expect(backend.signInAnonymously).not.toHaveBeenCalled();
+    expect(hook.result.current.authAccount.uid).toBe('owner');
+    expect(hook.result.current.cloudLoadState.status).toBe('loaded');
+    expect(backend.getDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('an auth observer failure stays failed and retry re-observes without minting until confirmed null', async () => {
+    backend.auth.currentUser = null;
+    backend.observe = (_auth, _next, error) => { queueMicrotask(() => error(new Error('private auth error'))); return backend.unsubscribe; };
+    const { result } = renderHook(() => useGameState());
+    await waitFor(() => expect(result.current.cloudLoadState).toEqual({ status: 'failed', accountId: null, reason: 'auth_failed' }));
+    expect(backend.signInAnonymously).not.toHaveBeenCalled();
+    backend.observe = (_auth, next) => { queueMicrotask(() => next(null)); return backend.unsubscribe; };
+    await act(async () => expect(await result.current.retryCloudLoad()).toEqual({ ok: true, mode: 'missing' }));
+    expect(backend.signInAnonymously).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['loading', 'failed'])('same-UID link retains the adopted %s reader state', async status => {
+    const pending = deferred();
+    backend.getDoc.mockReturnValueOnce(status === 'failed' ? Promise.reject(new Error('read')) : pending.promise);
+    const { result } = await adopted();
+    await waitFor(() => expect(result.current.cloudLoadState.status).toBe(status));
+    backend.linkWithPopup.mockResolvedValueOnce({ user: user('guest', false) });
+    await act(async () => expect(await result.current.signInWithGoogle()).toEqual({ ok: true, mode: 'linked' }));
+    expect(result.current.cloudLoadState.status).toBe(status);
+    expect(backend.getDoc).toHaveBeenCalledTimes(1);
+    if (status === 'loading') {
+      await act(async () => pending.resolve(snapshot(savedLife('Original reader'))));
+      expect(result.current.cloudLoadState.status).toBe('loaded');
+      expect(result.current.character.name).toBe('Original reader');
+    }
+  });
+
+  it.each(['linked', 'already'])('pre-adoption %s establishes an owned read even when provider UID already matches', async mode => {
+    let observer;
+    backend.auth.currentUser = user('guest', mode === 'linked');
+    backend.observe = (_auth, next) => { observer = next; return backend.unsubscribe; };
+    backend.linkWithPopup.mockResolvedValueOnce({ user: user('guest', false) });
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Recovered before boot')));
+    const { result } = renderHook(() => useGameState());
+    await waitFor(() => expect(observer).toBeDefined());
+    await act(async () => expect(await result.current.signInWithGoogle()).toEqual({ ok: true, mode }));
+    expect(result.current.cloudLoadState.status).toBe('loaded');
+    expect(result.current.character.name).toBe('Recovered before boot');
+    await act(async () => observer(null));
+    expect(backend.signInAnonymously).not.toHaveBeenCalled();
+    expect(backend.getDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['resolve', 'reject'])('old-account %s cannot change a newer pending reader or its eventual readiness', async completion => {
+    const old = deferred(), current = deferred();
+    backend.getDoc.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const { result } = await adopted();
+    backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('owner', false) });
+    let switching;
+    await act(async () => { switching = result.current.signInWithEmail('a@example.com', 'password', 'signin'); });
+    await act(async () => old[completion](completion === 'resolve' ? snapshot(savedLife('Old')) : new Error('old')));
+    expect(result.current.cloudLoadState).toEqual({ status: 'loading', accountId: 'owner', reason: null });
+    await act(async () => { current.resolve(snapshot(savedLife('Current'))); await switching; });
+    expect(result.current.cloudLoadState.status).toBe('loaded');
+    expect(result.current.character.name).toBe('Current');
+  });
+
+  it('waits for an abandoned anonymous mutation on remount and rejects concurrent explicit commands as busy', async () => {
+    backend.auth.currentUser = null;
+    const anonymous = deferred();
+    backend.signInAnonymously.mockImplementationOnce(async () => { await anonymous.promise; backend.auth.currentUser = user('actual-guest'); return { user: backend.auth.currentUser }; });
+    const first = renderHook(() => useGameState());
+    await waitFor(() => expect(backend.signInAnonymously).toHaveBeenCalledTimes(1));
+    await act(async () => expect(await first.result.current.signInWithEmail('a@example.com', 'password', 'signin')).toEqual({ ok: false, reason: 'busy' }));
+    expect(backend.signInWithEmailAndPassword).not.toHaveBeenCalled();
+    first.unmount();
+    const second = renderHook(() => useGameState(), { wrapper: StrictMode });
+    await act(async () => anonymous.resolve());
+    await waitFor(() => expect(second.result.current.cloudLoadState.status).toBe('missing'));
+    expect(second.result.current.authAccount.uid).toBe('actual-guest');
+    expect(backend.signInAnonymously).toHaveBeenCalledTimes(1);
+    expect(backend.getDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['null', 'error'])('unmounted/abandoned StrictMode observer %s never mutates providers', async completion => {
+    const observers = [];
+    backend.observe = (_auth, next, error) => { observers.push({ next, error }); return backend.unsubscribe; };
+    const first = renderHook(() => useGameState());
+    await waitFor(() => expect(observers).toHaveLength(1));
+    first.unmount();
+    const second = renderHook(() => useGameState(), { wrapper: StrictMode });
+    await waitFor(() => expect(observers.length).toBeGreaterThan(1));
+    await act(async () => completion === 'null' ? observers[0].next(null) : observers[0].error(new Error('old')));
+    expect(backend.signInAnonymously).not.toHaveBeenCalled();
+    expect(second.result.current.cloudLoadState.status).toBe('loading');
+    await act(async () => observers.at(-1).next(user('current')));
+    await waitFor(() => expect(second.result.current.cloudLoadState.status).toBe('missing'));
+    second.unmount();
+  });
+
+  it('confirmed unconfigured local mode permits life boundaries and idempotent retry', async () => {
+    backend.configured = false;
+    const { result } = renderHook(() => useGameState());
+    await waitFor(() => expect(result.current.cloudLoadState).toEqual({ status: 'local', accountId: null, reason: null }));
+    await act(async () => expect(await result.current.retryCloudLoad()).toEqual({ ok: true, mode: 'local' }));
+    act(() => result.current.startLife('Local', 'Female', 'US'));
+    expect(result.current.character.name).toBe('Local');
+    expect(backend.getDoc).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+});
+
+it('a cancelled pre-adoption explicit intent leaves a retryable auth failure rather than stranded loading', async () => {
+  let observer;
+  backend.observe = (_auth, next) => { observer = next; return backend.unsubscribe; };
+  backend.linkWithPopup.mockRejectedValueOnce({ code: 'auth/popup-closed-by-user' });
+  const { result } = renderHook(() => useGameState());
+  await waitFor(() => expect(observer).toBeDefined());
+  await act(async () => expect(await result.current.signInWithGoogle()).toEqual({ ok: false, reason: 'cancelled' }));
+  expect(result.current.cloudLoadState).toEqual({ status: 'failed', accountId: null, reason: 'auth_failed' });
+  await act(async () => observer(null));
+  expect(backend.signInAnonymously).not.toHaveBeenCalled();
+  backend.observe = null;
+  await act(async () => expect(await result.current.retryCloudLoad()).toEqual({ ok: true, mode: 'missing' }));
+});
+
+it('superseding a retry auth observer settles its promise as stale instead of leaving the caller pending', async () => {
+  backend.observe = (_auth, _next, error) => { queueMicrotask(() => error(new Error('auth'))); return backend.unsubscribe; };
+  const { result } = renderHook(() => useGameState());
+  await waitFor(() => expect(result.current.cloudLoadState.status).toBe('failed'));
+  let observer, retryResult;
+  backend.observe = (_auth, next) => { observer = next; return backend.unsubscribe; };
+  act(() => { result.current.retryCloudLoad().then(value => { retryResult = value; }); });
+  await waitFor(() => expect(observer).toBeDefined());
+  backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('owner', false) });
+  await act(async () => expect(await result.current.signInWithEmail('a@example.com', 'password', 'signin')).toEqual({ ok: true, mode: 'switched' }));
+  await waitFor(() => expect(retryResult).toEqual({ ok: false, reason: 'stale' }));
+  expect(result.current.cloudLoadState).toEqual({ status: 'missing', accountId: 'owner', reason: null });
+});
+
+it('concurrent explicit commands return busy without superseding the accepted provider mutation', async () => {
+  const { result } = await ready();
+  const provider = deferred();
+  backend.signInWithEmailAndPassword.mockReturnValueOnce(provider.promise);
+  let signingIn;
+  await act(async () => { signingIn = result.current.signInWithEmail('a@example.com', 'password', 'signin'); });
+  await act(async () => {
+    expect(await result.current.signInWithGoogle()).toEqual({ ok: false, reason: 'busy' });
+    expect(await result.current.signOutAccount()).toEqual({ ok: false, reason: 'busy' });
+  });
+  expect(backend.linkWithPopup).not.toHaveBeenCalled();
+  expect(backend.signOut).not.toHaveBeenCalled();
+  expect(backend.getDoc).toHaveBeenCalledTimes(1);
+  await act(async () => { provider.resolve({ user: user('accepted', false) }); expect(await signingIn).toEqual({ ok: true, mode: 'switched' }); });
+  expect(result.current.cloudLoadState).toEqual({ status: 'missing', accountId: 'accepted', reason: null });
+});
+
+it('a failed provider mutation releases ownership so the next explicit sign-in can succeed', async () => {
+  const { result } = await ready();
+  backend.signInWithEmailAndPassword.mockRejectedValueOnce({ code: 'auth/invalid-credential' })
+    .mockResolvedValueOnce({ user: user('accepted', false) });
+  await act(async () => expect(await result.current.signInWithEmail('a@example.com', 'password', 'signin')).toEqual({ ok: false, reason: 'invalid_credentials' }));
+  await act(async () => expect(await result.current.signInWithEmail('a@example.com', 'password', 'signin')).toEqual({ ok: true, mode: 'switched' }));
+  expect(result.current.cloudLoadState.accountId).toBe('accepted');
+});
+
+it('already-guest signout preserves a failed adopted read and leaves creation blocked', async () => {
+  backend.getDoc.mockRejectedValueOnce(new Error('private read'));
+  const { result } = await adopted();
+  await waitFor(() => expect(result.current.cloudLoadState.status).toBe('failed'));
+  await act(async () => expect(await result.current.signOutAccount()).toEqual({ ok: true, mode: 'already_guest' }));
+  expect(result.current.cloudLoadState).toEqual({ status: 'failed', accountId: 'guest', reason: 'read_failed' });
+  act(() => expect(result.current.startLife('New', 'Female', 'US').code).toBe('account_load_blocked'));
+  expect(backend.getDoc).toHaveBeenCalledTimes(1);
+  expect(backend.setDoc).not.toHaveBeenCalled();
 });

@@ -169,6 +169,7 @@ export async function runPlaythrough({ name, pathId, plan, targetAge = 40 }) {
   const findings = [];
   const log = [];
   const { result } = renderHook(() => useGameState());
+  await waitFor(() => { if (result.current.cloudLoadState.status !== 'local') throw new Error('Waiting for local readiness'); });
 
   await act(async () => {
     result.current.startLife(name, 'non-binary', 'USA', 'nyc');
