@@ -15,13 +15,21 @@ function freezeTree(value) {
   return value;
 }
 const holding = fields => ({ type: 'investment', yearsOwned: 0, currentValue: 1000, purchasePrice: 1000, ...fields });
-const life = fields => ({ ...buildLifeSave({ character: { name: 'Fixture', gender: 'Female', country: 'US' }, ...fields }), activitiesThisYear: {} });
+const life = fields => ({ ...buildLifeSave({ character: { name: 'Fixture', gender: 'Female', country: 'US' }, ...fields }), activitiesThisYear: fields.activitiesThisYear ?? {} });
 const rolls = (...values) => vi.fn(() => {
   if (!values.length) throw new Error('Unexpected extra random draw');
   return values.shift();
 });
 
 describe('annual simulation boundary', () => {
+  it('retains a restored positive interaction for annual decay while the same unmarked friend loses two points', () => {
+    const relationship = { id: 'friend', name: 'Alex', age: 30, status: 'friend', relation: 60, isAlive: true };
+    const marked = advanceLifeYear(life({ relationships: [relationship], activitiesThisYear: { rel_interact__friend: 1 } }), { randomFn: () => .999 });
+    const unmarked = advanceLifeYear(life({ relationships: [relationship] }), { randomFn: () => .999 });
+    expect(marked.state.relationships[0].relation).toBe(60);
+    expect(unmarked.state.relationships[0].relation).toBe(58);
+  });
+
   it('does not mutate frozen life data, even across catalog returns and family changes', () => {
     const input = freezeTree(life({
       age: 17,

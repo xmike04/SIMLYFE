@@ -179,6 +179,6 @@ Living pets age, charge the species' annual upkeep, and grant its happiness bonu
 
 [activities.js](../src/config/activities.js) owns menu categories, age/bank gates, special actions, and yearly limits. Limited activities share tracker IDs `categoryId__itemText`. Gym/run consume that tracker before training and show “Done this year” after use.
 
-Yearly counters are transient and reset on annual progression; they are not written in the current cloud-save payload. The refactor preserves that persistence behavior.
+Yearly counters and relationship interaction markers are saved with each affected activity or relationship command and restored on reload. Cost, base effects, and the counter share one coherent save. Acknowledged counters retain the current year’s allowance; annual progression resets them for the new year. Activity progress feedback reports the acknowledgement of that command’s save; reload before acknowledgement can restore an older snapshot.
 
 The game intentionally includes mature themes such as crime, violence, adult relationships, and drugs. Do not sanitize them without an explicit instruction.

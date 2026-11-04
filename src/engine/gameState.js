@@ -180,6 +180,22 @@ export function useGameState() {
     return syncToCloud(buildLifeSave(next));
   }, [syncToCloud]);
 
+  /** Track only the latest continuity write in this life; transport owns acknowledgement. */
+  const persistContinuity = useCallback((overrides, kind) => {
+    const revision = lifeRevisionRef.current;
+    const feedback = { id: createDiagnosticId('continuity-save'), kind, saveStatus: 'pending', operationId: null };
+    continuityFeedbackRef.current = feedback;
+    setLastContinuitySave(feedback);
+    const persistence = persistLife(overrides);
+    persistence.then(receipt => {
+      if (lifeRevisionRef.current !== revision || continuityFeedbackRef.current !== feedback) return;
+      const acknowledged = { ...feedback, saveStatus: receipt.status, operationId: receipt.operationId };
+      continuityFeedbackRef.current = acknowledged;
+      setLastContinuitySave(acknowledged);
+    });
+    return persistence;
+  }, [persistLife]);
+
   const isActionLocked = () => lifeSnapshotRef.current.isDead || agingInFlightRef.current || !!currentEventRef.current;
 
   /**
@@ -376,6 +392,7 @@ export function useGameState() {
           stats: nextStats,
           bank: nextBank,
           isDead: true,
+          activitiesThisYear: {},
           history: updatedHistory,
           belongings: nextBelongings,
           properties: nextProperties,
@@ -433,7 +450,7 @@ export function useGameState() {
 
       setHistory(updatedHistory);
 
-      persistLife({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
+      persistLife({ age: nextAge, activitiesThisYear: {}, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
       emitDiagnostic('age_transition', {
         operationId: transitionOperationId,
         status: 'completed',
@@ -521,63 +538,52 @@ export function useGameState() {
    */
   const performActivity = (item, categoryId) => {
     if (isActionLocked()) return 'blocked_busy';
+    const snap = lifeSnapshotRef.current;
     const trackId = yearlyActivityTrackId(categoryId, item.text);
-
-    // 1. Per-year limit gate
-    if (item.yearlyLimit && !canConsumeYearlyActivity(activitiesThisYear, categoryId, item.text, item.yearlyLimit)) {
+    if (item.yearlyLimit && !canConsumeYearlyActivity(snap.activitiesThisYear, categoryId, item.text, item.yearlyLimit)) {
       return 'blocked_yearly';
     }
-
-    // 2. Stat guard
     if (item.statGuard) {
       const { stat, op, value } = item.statGuard;
-      const actual = stats[stat] ?? 0;
+      const actual = snap.stats[stat] ?? 0;
       if (op === 'gte' && actual < value) return 'blocked_guard';
       if (op === 'lte' && actual > value) return 'blocked_guard';
     }
-
-    // 3. Cost deduction + base effects (compute synchronously for cloud persist)
     const cost = item.cost ?? 0;
-    if (cost > 0 && bank < cost) return 'blocked_cost';
-
-    let nextBank = bank;
-    let nextStats = stats;
-    let nextFlags = flags;
-    if (cost > 0) nextBank = bank - cost;
+    if (cost > 0 && snap.bank < cost) return 'blocked_cost';
+    let nextBank = cost > 0 ? snap.bank - cost : snap.bank;
+    let nextStats = snap.stats;
+    let nextFlags = snap.flags;
     if (item.baseEffects) {
       const applied = applyEffectsPure(nextStats, nextBank, nextFlags, item.baseEffects);
       nextStats = applied.stats;
       nextBank = applied.bank;
       nextFlags = applied.flags;
     }
-    if (nextBank !== bank) setBank(nextBank);
+    if (nextBank !== snap.bank) setBank(nextBank);
     if (item.baseEffects) {
       setStats(nextStats);
       setFlags(nextFlags);
     }
-
-    // 5. Track usage
-    if (item.yearlyLimit) {
-      setActivitiesThisYear(prev => ({ ...prev, [trackId]: (prev[trackId] ?? 0) + 1 }));
+    const nextActivities = item.yearlyLimit
+      ? { ...snap.activitiesThisYear, [trackId]: (snap.activitiesThisYear[trackId] ?? 0) + 1 }
+      : snap.activitiesThisYear;
+    if (item.yearlyLimit) setActivitiesThisYear(nextActivities);
+    if (nextBank !== snap.bank || item.baseEffects || item.yearlyLimit) {
+      persistContinuity({ bank: nextBank, stats: nextStats, flags: nextFlags, activitiesThisYear: nextActivities }, 'activity');
     }
-
-    if (nextBank !== bank || item.baseEffects) {
-      persistLife({ bank: nextBank, stats: nextStats, flags: nextFlags });
-    }
-
-    // 6. Fire LLM event
     triggerActivityEvent(item.context);
     return 'ok';
   };
 
   const modifyRelationship = (id, delta) => {
     if (isActionLocked()) return;
-    setRelationships(prev => {
-      const next = prev.map(r => r.id === id ? { ...r, relation: Math.max(0, Math.min(100, r.relation + delta)) } : r);
-      persistLife({ relationships: next });
-      return next;
-    });
-    if (delta > 0) setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${id}`]: 1 }));
+    const snap = lifeSnapshotRef.current;
+    const next = snap.relationships.map(r => r.id === id ? { ...r, relation: Math.max(0, Math.min(100, r.relation + delta)) } : r);
+    const nextActivities = delta > 0 ? { ...snap.activitiesThisYear, [`rel_interact__${id}`]: 1 } : snap.activitiesThisYear;
+    setRelationships(next);
+    if (delta > 0) setActivitiesThisYear(nextActivities);
+    persistContinuity({ relationships: next, activitiesThisYear: nextActivities }, 'activity');
   };
 
   const modifyProperty = (id, valueDelta) => {
@@ -756,29 +762,33 @@ export function useGameState() {
 
   const addRelationship = (npc) => {
     if (isActionLocked()) return;
+    const snap = lifeSnapshotRef.current;
     const normalized = normalizeRelationshipNpc(npc, { asDating: true });
-    const updatedRels = [...relationships, normalized];
-    const updatedHistory = [...history, { age, text: `Relationships: You are now dating ${normalized.name}.` }];
+    const updatedRels = [...snap.relationships, normalized];
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You are now dating ${normalized.name}.` }];
+    const nextActivities = { ...snap.activitiesThisYear, [`rel_interact__${normalized.id}`]: 1 };
     setRelationships(updatedRels);
     setHistory(updatedHistory);
-    setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${normalized.id}`]: 1 }));
-    persistLife({ relationships: updatedRels, history: updatedHistory });
+    setActivitiesThisYear(nextActivities);
+    persistContinuity({ relationships: updatedRels, history: updatedHistory, activitiesThisYear: nextActivities }, 'activity');
   };
 
-  /** Returns false if yearlyLimit already reached; otherwise increments the slot. */
+  /** Returns false while locked or exhausted; unrestricted activities need no counter save. */
   const consumeYearlyActivity = (categoryId, itemText, yearlyLimit) => {
-    if (!canConsumeYearlyActivity(activitiesThisYear, categoryId, itemText, yearlyLimit)) return false;
+    if (isActionLocked()) return false;
+    const snap = lifeSnapshotRef.current;
+    if (!canConsumeYearlyActivity(snap.activitiesThisYear, categoryId, itemText, yearlyLimit)) return false;
     if (!yearlyLimit) return true;
     const trackId = yearlyActivityTrackId(categoryId, itemText);
-    setActivitiesThisYear(prev => ({ ...prev, [trackId]: (prev[trackId] ?? 0) + 1 }));
+    const nextActivities = { ...snap.activitiesThisYear, [trackId]: (snap.activitiesThisYear[trackId] ?? 0) + 1 };
+    setActivitiesThisYear(nextActivities);
+    persistContinuity({ activitiesThisYear: nextActivities }, 'activity');
     return true;
   };
 
   // ─── Relationship engine functions ───────────────────────────────────────────
 
-  const markRelInteraction = (id) => {
-    setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${id}`]: 1 }));
-  };
+  const markRelInteraction = (id, counters) => ({ ...counters, [`rel_interact__${id}`]: 1 });
 
   const proposeMarriage = (id) => {
     if (isActionLocked()) return 'blocked';
@@ -901,25 +911,20 @@ export function useGameState() {
 
   const giftRelationship = (id, amount) => {
     if (isActionLocked()) return 'blocked';
-    const rel = relationships.find(r => r.id === id);
-    if (!rel || bank < amount) return 'blocked';
+    const snap = lifeSnapshotRef.current;
+    const rel = snap.relationships.find(r => r.id === id);
+    if (!rel || snap.bank < amount) return 'blocked';
     const relationGain = amount >= 1000 ? 20 : amount >= 200 ? 10 : 5;
-    const newBank = bank - amount;
+    const newBank = snap.bank - amount;
+    const nextRelationships = snap.relationships.map(r => r.id === id
+      ? { ...r, relation: Math.min(100, r.relation + relationGain) } : r);
+    const nextActivities = markRelInteraction(id, snap.activitiesThisYear);
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You gifted ${rel.name} $${amount.toLocaleString()}. +${relationGain} Relation.` }];
     setBank(newBank);
-    setRelationships(prev => {
-      const next = prev.map(r => r.id === id
-        ? { ...r, relation: Math.min(100, r.relation + relationGain) }
-        : r
-      );
-      persistLife({ relationships: next, bank: newBank });
-      return next;
-    });
-    markRelInteraction(id);
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Relationships: You gifted ${rel.name} $${amount.toLocaleString()}. +${relationGain} Relation.` }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    setRelationships(nextRelationships);
+    setActivitiesThisYear(nextActivities);
+    setHistory(updatedHistory);
+    persistContinuity({ relationships: nextRelationships, bank: newBank, activitiesThisYear: nextActivities, history: updatedHistory }, 'activity');
     return 'ok';
   };
 

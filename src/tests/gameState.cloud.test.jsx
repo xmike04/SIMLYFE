@@ -605,3 +605,200 @@ describe('continuity hydration and lifecycle ownership', () => {
     expect(result.current.isAging).toBe(false);
   });
 });
+
+// Real command boundaries: snapshots are durable only after the mocked transport acknowledges.
+describe('activity continuity commits and receipts', () => {
+  const friend = { id: 'friend', name: 'Alex', age: 30, status: 'friend', type: 'Friend', relation: 50, isAlive: true };
+  async function loaded(fields = {}, options) {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Continuity Player', { relationships: [friend], ...fields })));
+    const rendered = await ready(options);
+    await waitFor(() => expect(rendered.result.current.character?.name).toBe('Continuity Player'));
+    return rendered;
+  }
+  async function remount(save, unmount) {
+    unmount();
+    backend.getDoc.mockResolvedValue(snapshot(save));
+    const rendered = await ready();
+    await waitFor(() => expect(rendered.result.current.character?.name).toBe('Continuity Player'));
+    return rendered;
+  }
+
+  it('consumes a counter once before a React flush, saves once, and retains it after acknowledged remount', async () => {
+    const { result, unmount } = await loaded();
+    act(() => {
+      expect(result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(true);
+      expect(result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false);
+      expect(result.current.consumeYearlyActivity('health', 'Unlimited', 0)).toBe(true);
+    });
+    await waitFor(() => expect(result.current.lastContinuitySave?.saveStatus).toBe('saved'));
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    const save = backend.setDoc.mock.calls[0][1];
+    expect(save.activitiesThisYear).toEqual({ health__Run: 1 });
+    const restored = await remount(save, unmount);
+    act(() => expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false));
+    await act(async () => { await restored.result.current.ageUp(); });
+    expect(restored.result.current.activitiesThisYear).toEqual({});
+    act(() => restored.result.current.handleChoice(restored.result.current.currentEvent.choices[0]));
+    act(() => {
+      expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(true);
+      expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false);
+    });
+  });
+
+  it.each([false, true])('the completed annual save resets counters explicitly, including death=%s', async death => {
+    const { result, unmount } = await loaded({ activitiesThisYear: { health__Run: 1 }, ...(death ? { stats: { health: 1 } } : {}) });
+    const acknowledgment = deferred();
+    backend.setDoc.mockReturnValueOnce(acknowledgment.promise);
+    await act(async () => { await result.current.ageUp(); });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    const save = backend.setDoc.mock.calls[0][1];
+    expect(save.activitiesThisYear).toEqual({});
+    expect(save.isDead).toBe(death);
+    await act(async () => acknowledgment.resolve());
+    const restored = await remount(save, unmount);
+    expect(restored.result.current.activitiesThisYear).toEqual({});
+    if (!death) {
+      act(() => restored.result.current.handleChoice(restored.result.current.currentEvent.choices[0]));
+      act(() => {
+        expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(true);
+        expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false);
+      });
+    }
+  });
+
+  it('blocks standalone consumption throughout annual generation and its offered event', async () => {
+    const { result } = await loaded();
+    const generation = deferred();
+    generateDynamicEvent.mockReturnValueOnce(generation.promise);
+    let aging;
+    act(() => {
+      aging = result.current.ageUp();
+      expect(result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false);
+      expect(result.current.consumeYearlyActivity('health', 'Unlimited', 0)).toBe(false);
+    });
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    await act(async () => { generation.resolve({ description: 'Year', choices: [{ text: 'OK', effects: {} }] }); await aging; });
+    const writes = backend.setDoc.mock.calls.length;
+    act(() => expect(result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false));
+    expect(backend.setDoc).toHaveBeenCalledTimes(writes);
+  });
+
+  it.each(['staycation', 'counter-only'])('saves a coherent %s base commit before deferred generation', async variant => {
+    const { ACTIVITY_MENUS } = await import('../config/activities');
+    const item = variant === 'staycation' ? ACTIVITY_MENUS.vacation.find(item => item.text === 'Staycation')
+      : { text: 'Counter only', context: 'A quiet activity', yearlyLimit: 1 };
+    const { result } = await loaded({ stats: { health: 50, happiness: 50 } });
+    const generation = deferred();
+    generateDynamicEvent.mockReturnValueOnce(generation.promise);
+    act(() => {
+      expect(result.current.performActivity(item, 'vacation')).toBe('ok');
+      expect(result.current.performActivity(item, 'vacation')).toBe('blocked_busy');
+    });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({
+      stats: variant === 'staycation' ? { health: 54, happiness: 58 } : { health: 50, happiness: 50 },
+      activitiesThisYear: { [`vacation__${item.text}`]: 1 },
+    });
+    await act(async () => generation.resolve({ description: 'Activity', choices: [{ text: 'OK', effects: {} }] }));
+    act(() => result.current.handleChoice(result.current.currentEvent.choices[0]));
+    act(() => expect(result.current.performActivity(item, 'vacation')).toBe('blocked_yearly'));
+  });
+
+  it.each([5, -5])('commits relationship delta %s and only positive interaction markers once in StrictMode', async delta => {
+    const { result } = await loaded({}, { wrapper: StrictMode });
+    act(() => result.current.modifyRelationship('friend', delta));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ relationships: [{ ...friend, relation: 50 + delta }], activitiesThisYear: delta > 0 ? { rel_interact__friend: 1 } : {} });
+  });
+
+  it.each(['counter-first', 'relationship-first'])('preserves both mixed same-tick commands and untouched fields after reload: %s', async order => {
+    const first = deferred();
+    const initial = { flags: ['kept'], pets: [{ id: 'pet', name: 'Pup' }], will: { allocations: [] }, history: [{ age: 20, text: 'Memory' }] };
+    const { result, unmount } = await loaded(initial);
+    backend.setDoc.mockReturnValueOnce(first.promise);
+    act(() => {
+      const consume = () => result.current.consumeYearlyActivity('health', 'Run', 1);
+      const interact = () => result.current.modifyRelationship('friend', 5);
+      if (order === 'counter-first') { consume(); interact(); } else { interact(); consume(); }
+    });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    await act(async () => first.resolve());
+    await waitFor(() => expect(result.current.lastContinuitySave?.saveStatus).toBe('saved'));
+    expect(backend.setDoc).toHaveBeenCalledTimes(2);
+    const save = backend.setDoc.mock.calls[1][1];
+    expect(save).toEqual(savedLife('Continuity Player', { ...initial, activitiesThisYear: { health__Run: 1, rel_interact__friend: 1 }, relationships: [{ ...friend, relation: 55 }] }));
+    expect(Object.keys(save).sort()).toEqual([...LIFE_SAVE_KEYS].sort());
+    const restored = await remount(save, unmount);
+    expect(restored.result.current.activitiesThisYear).toEqual(save.activitiesThisYear);
+    expect(restored.result.current.relationships).toEqual(save.relationships);
+  });
+
+  it('saves gift and normalized dating markers/history together with latest money and relations in StrictMode', async () => {
+    const first = deferred();
+    const { result } = await loaded({}, { wrapper: StrictMode });
+    backend.setDoc.mockReturnValueOnce(first.promise);
+    act(() => {
+      expect(result.current.giftRelationship('friend', 1000)).toBe('ok');
+      result.current.addRelationship({ id: 'date', name: 'Taylor', age: 31, relation: 60 });
+      expect(result.current.giftRelationship('date', 200)).toBe('ok');
+    });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    await act(async () => first.resolve());
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(3));
+    const datingSave = backend.setDoc.mock.calls[1][1];
+    expect(datingSave).toMatchObject({ bank: 11000, activitiesThisYear: { rel_interact__friend: 1, rel_interact__date: 1 } });
+    expect(datingSave.relationships[1]).toMatchObject({ id: 'date', status: 'dating', isAlive: true });
+    expect(datingSave.history.at(-1).text).toContain('now dating Taylor');
+    const save = backend.setDoc.mock.calls[2][1];
+    expect(save.bank).toBe(10800);
+    expect(save.relationships.map(r => r.relation)).toEqual([70, 70]);
+    expect(save.history).toHaveLength(3);
+    expect(save.history.at(-1).text).toContain('gifted Taylor $200');
+    expect(save.activitiesThisYear).toEqual({ rel_interact__friend: 1, rel_interact__date: 1 });
+  });
+
+  it.each([['resolve', 'resolve', 'saved'], ['resolve', 'reject', 'failed'], ['reject', 'resolve', 'saved'], ['reject', 'reject', 'failed']])('keeps B pending when older A receipts %s, then B receipts %s', async (completion, latestCompletion, status) => {
+    const { result } = await loaded();
+    const first = deferred(), second = deferred();
+    backend.setDoc.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    act(() => {
+      result.current.consumeYearlyActivity('health', 'Run', 1);
+      result.current.modifyRelationship('friend', 5);
+    });
+    const pending = result.current.lastContinuitySave;
+    expect(pending).toMatchObject({ kind: 'activity', saveStatus: 'pending', operationId: null });
+    await act(async () => first[completion](completion === 'reject' ? new Error('private') : undefined));
+    expect(backend.setDoc).toHaveBeenCalledTimes(2);
+    expect(result.current.lastContinuitySave).toBe(pending);
+    await act(async () => second[latestCompletion](latestCompletion === 'reject' ? new Error('private') : undefined));
+    expect(result.current.lastContinuitySave).toMatchObject({ id: pending.id, kind: 'activity', saveStatus: status, operationId: expect.any(String) });
+  });
+
+  it.each(['startLife', 'resetLife', 'hydration', 'switch', 'signout', 'unmount'])('invalidates a deferred activity receipt across %s', async boundary => {
+    const boot = deferred();
+    if (boundary === 'signout') backend.auth.currentUser = user('signed-in', false);
+    let rendered;
+    if (boundary === 'hydration') {
+      backend.getDoc.mockReturnValueOnce(boot.promise);
+      rendered = await ready();
+    } else rendered = await loaded();
+    const { result, unmount } = rendered;
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    act(() => result.current.consumeYearlyActivity('health', 'Run', 1));
+    const before = result.current.lastContinuitySave;
+    expect(before?.saveStatus).toBe('pending');
+    if (boundary === 'startLife' || boundary === 'resetLife') act(() => result.current[boundary]('New', 'Female', 'US'));
+    if (boundary === 'hydration') await act(async () => boot.resolve(snapshot(savedLife())));
+    if (boundary === 'switch') {
+      backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Other')));
+      backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('other', false) });
+      await act(async () => { await result.current.signInWithEmail('other@example.com', 'fixture-password', 'signin'); });
+    }
+    if (boundary === 'signout') await act(async () => { await result.current.signOutAccount(); });
+    if (boundary === 'unmount') unmount();
+    else expect(result.current.lastContinuitySave).toBeNull();
+    await act(async () => pending.resolve());
+    expect(result.current.lastContinuitySave).toBe(boundary === 'unmount' ? before : null);
+  });
+});

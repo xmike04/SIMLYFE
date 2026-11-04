@@ -138,10 +138,18 @@ describe('MainGame sheet navigation', () => {
 
 describe('continuity save announcements', () => {
   it.each([
-    ['pending', 'Saving progress…'],
-    ['saved', 'Progress saved to the cloud.'],
-    ['failed', 'Progress remains in this session, but saving failed. Reloading may restore an older save.'],
-    ['skipped', 'Progress remains in this session, but cloud saving is unavailable. Reloading may restore an older save.'],
+    ['activity', 'Activity progress'], ['year', 'Year progress'],
+    ['event_offered', 'Pending choice'], ['event_resolved', 'Choice outcome'],
+  ])('names the acknowledged %s scope without claiming all commands saved', (kind, subject) => {
+    render(<MainGame engine={createEngine({ lastContinuitySave: { id: 'scoped', kind, saveStatus: 'saved', operationId: 'write' } })} />);
+    expect(screen.getByRole('status', { name: 'Progress save status' })).toHaveTextContent(`${subject} saved to the cloud.`);
+  });
+
+  it.each([
+    ['pending', 'Saving activity progress…'],
+    ['saved', 'Activity progress saved to the cloud.'],
+    ['failed', 'Activity progress remains in this session, but saving failed. Reloading may restore an older save.'],
+    ['skipped', 'Activity progress remains in this session, but cloud saving is unavailable. Reloading may restore an older save.'],
   ])('announces %s without provider details', (saveStatus, message) => {
     render(<MainGame engine={createEngine({ lastContinuitySave: { id: 'save', kind: 'activity', saveStatus, operationId: null, error: 'PRIVATE PROVIDER DETAIL' } })} />);
     const status = screen.getByRole('status', { name: 'Progress save status' });
@@ -155,7 +163,7 @@ describe('continuity save announcements', () => {
     const feedback = { id: 'save', kind: 'event_offered', saveStatus: 'pending', operationId: null };
     const { rerender } = render(<><MainGame engine={createEngine({ currentEvent: event, lastContinuitySave: feedback })} /><EventModal event={event} onChoice={vi.fn()} saveFeedback={feedback} /></>);
     const status = screen.getByRole('status', { name: 'Progress save status' });
-    expect(status).toHaveTextContent('Saving progress…');
+    expect(status).toHaveTextContent('Saving pending choice…');
     expect(status.closest('.glass-panel')).toHaveTextContent('An offered choice');
     rerender(<><MainGame engine={createEngine({ currentEvent: event, lastContinuitySave: null })} /><EventModal event={event} onChoice={vi.fn()} saveFeedback={null} /></>);
     expect(screen.queryByRole('status', { name: 'Progress save status' })).not.toBeInTheDocument();
