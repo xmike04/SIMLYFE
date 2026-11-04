@@ -111,6 +111,8 @@ Firestore `{ merge: true }` would recursively merge nonempty maps. After a faile
 
 Special-skill activities use `performSkillTraining` in the state owner: it installs and saves counter, bank, and stats together before starting generation. MainGame only delegates and displays the returned skill toast; it does not debit through debug commands. The separately saved event always sees the accepted base outcome.
 
+Child, friend, and non-custody breakup commands also read the eager snapshot and persist happiness, relationships, bank, and history once outside React updater callbacks. Same-tick milestones retain preceding outcomes. Custody continues to use its pending-choice save contract.
+
 ### Career and education decision workflows
 
 Standard career selection, switching, voluntary quitting, and higher-degree enrollment use an explicit action boundary:

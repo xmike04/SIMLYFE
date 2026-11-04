@@ -891,30 +891,27 @@ export function useGameState() {
         return 'ok';
       }
 
-      setBank(newBank);
     }
-    setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
-    setRelationships(prev => {
-      const next = prev.map(r => r.id === id ? markAsEx(r) : r);
-      persistLife({ relationships: next, ...(wasMarried ? { bank: newBank } : {}) });
-      return next;
-    });
-    setHistory(prev => {
-      const msg = wasMarried
-        ? `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.`
-        : `Relationships: You broke up with ${rel.name}. -15 Happiness.`;
-      const updated = [...prev, { age, text: msg }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    const nextStats = { ...snap.stats, happiness: Math.max(0, snap.stats.happiness - 15) };
+    const nextRelationships = snap.relationships.map(r => r.id === id ? markAsEx(r) : r);
+    const msg = wasMarried
+      ? `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.`
+      : `Relationships: You broke up with ${rel.name}. -15 Happiness.`;
+    const updatedHistory = [...snap.history, { age: snap.age, text: msg }];
+    setBank(newBank);
+    setStats(nextStats);
+    setRelationships(nextRelationships);
+    setHistory(updatedHistory);
+    persistLife({ bank: newBank, stats: nextStats, relationships: nextRelationships, history: updatedHistory });
     return 'ok';
   };
 
   const haveChild = (partnerId) => {
     if (isActionLocked()) return 'blocked_busy';
-    const partner = relationships.find(r => r.id === partnerId);
+    const snap = lifeSnapshotRef.current;
+    const partner = snap.relationships.find(r => r.id === partnerId);
     if (!partner || (partner.status !== 'married' && partner.status !== 'dating')) return 'blocked_partner';
-    if (age < 18 || age > 55) return 'blocked_age';
+    if (snap.age < 18 || snap.age > 55) return 'blocked_age';
     const childNames = ['Ava', 'Liam', 'Mia', 'Noah', 'Zoe', 'Ethan', 'Luna', 'Leo', 'Isla', 'Owen'];
     const childName = childNames[Math.floor(Math.random() * childNames.length)];
     const child = {
@@ -926,17 +923,13 @@ export function useGameState() {
       status: 'family',
       isAlive: true,
     };
-    setRelationships(prev => {
-      const next = [...prev, child];
-      persistLife({ relationships: next });
-      return next;
-    });
-    setStats(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 20) }));
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Relationships: You and ${partner.name} welcomed a child, ${childName}! +20 Happiness. 👶` }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    const nextRelationships = [...snap.relationships, child];
+    const nextStats = { ...snap.stats, happiness: Math.min(100, snap.stats.happiness + 20) };
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You and ${partner.name} welcomed a child, ${childName}! +20 Happiness. 👶` }];
+    setRelationships(nextRelationships);
+    setStats(nextStats);
+    setHistory(updatedHistory);
+    persistLife({ relationships: nextRelationships, stats: nextStats, history: updatedHistory, bank: snap.bank });
     return 'ok';
   };
 
@@ -961,28 +954,25 @@ export function useGameState() {
 
   const meetFriend = () => {
     if (isActionLocked()) return;
+    const snap = lifeSnapshotRef.current;
     const friendNames = ['Jordan', 'Casey', 'Morgan', 'Alex', 'Riley', 'Taylor', 'Sam', 'Drew', 'Quinn', 'Blake'];
     const friendName = friendNames[Math.floor(Math.random() * friendNames.length)];
     const friend = {
       id: `rel_${Date.now()}_friend`,
       type: 'Friend',
       name: friendName,
-      age: age + Math.floor(Math.random() * 10) - 5,
+      age: snap.age + Math.floor(Math.random() * 10) - 5,
       relation: 40 + Math.floor(Math.random() * 30),
       status: 'friend',
       isAlive: true,
     };
-    setRelationships(prev => {
-      const next = [...prev, friend];
-      persistLife({ relationships: next });
-      return next;
-    });
-    setStats(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 5) }));
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Relationships: You met a new friend, ${friendName}. +5 Happiness.` }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    const nextRelationships = [...snap.relationships, friend];
+    const nextStats = { ...snap.stats, happiness: Math.min(100, snap.stats.happiness + 5) };
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You met a new friend, ${friendName}. +5 Happiness.` }];
+    setRelationships(nextRelationships);
+    setStats(nextStats);
+    setHistory(updatedHistory);
+    persistLife({ relationships: nextRelationships, stats: nextStats, history: updatedHistory, bank: snap.bank });
   };
 
   const surrender = () => {

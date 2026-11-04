@@ -52,6 +52,7 @@ async function ready(options = {}) {
 }
 
 beforeEach(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   vi.clearAllMocks();
   backend.configured = true;
   vi.spyOn(console, 'debug').mockImplementation(() => {});
@@ -1835,5 +1836,72 @@ describe('accepted skill training through MainGame and the real owner', () => {
       expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
       expect(backend.setDoc).toHaveBeenCalledTimes(2);
     }
+  });
+});
+
+describe('coherent relationship milestone outcomes', () => {
+  const partner = { id: 'partner', name: 'Partner', age: 30, status: 'dating', type: 'Lover', relation: 80, isAlive: true };
+  it.each([
+    ['child', /Have a Child/, 70, 50000, 'Child'],
+    ['friend', /Meet Someone New/, 55, 50000, 'Friend'],
+    ['dating', /Break Up/, 35, 50000, 'Ex'],
+    ['married', /File for Divorce/, 35, 42500, 'Ex'],
+  ])('%s saves and acknowledges happiness, bank, relationship and memory together through its real UI', async (scenario, action, happiness, balance, type) => {
+    let acknowledged = savedLife('Milestone Player', { age: 30, bank: 50000, stats: { happiness: 50 }, flags: ['kept'], activitiesThisYear: { kept: 1 }, history: [{ age: 0, text: 'Born' }], relationships: [{ ...partner, status: scenario === 'married' ? 'married' : 'dating' }] });
+    backend.getDoc.mockImplementation(async () => snapshot(structuredClone(acknowledged)));
+    const receipt = deferred();
+    backend.setDoc.mockImplementation(async (_path, save, options) => {
+      await receipt.promise;
+      acknowledged = applyFirestoreSave(acknowledged, save, options);
+    });
+    let engine;
+    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    const ui = render(<StrictMode><Connected /></StrictMode>);
+    await screen.findByText('Milestone Player');
+    fireEvent.click(screen.getByRole('button', { name: /Relationships/ }));
+    if (scenario !== 'friend') fireEvent.click(screen.getByRole('button', { name: /Partner/ }));
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    expect(engine.stats.happiness).toBe(happiness);
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    const save = backend.setDoc.mock.calls[0][1];
+    expect(save).toMatchObject({ bank: balance, stats: { happiness }, flags: ['kept'], activitiesThisYear: { kept: 1 }, currentEvent: null });
+    expect(save.relationships.some(rel => rel.type === type)).toBe(true);
+    expect(save.history).toHaveLength(2);
+    expect(save.history).toEqual(engine.history);
+    expect(save.relationships).toEqual(engine.relationships);
+    await act(async () => receipt.resolve());
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    ui.unmount();
+    const reload = await ready();
+    await waitFor(() => expect(reload.result.current.character?.name).toBe('Milestone Player'));
+    expect(reload.result.current.stats.happiness).toBe(happiness);
+    expect(reload.result.current.bank).toBe(balance);
+    expect(reload.result.current.relationships).toEqual(save.relationships);
+    expect(reload.result.current.history).toEqual(save.history);
+  });
+
+  it.each([['haveChild', 95, 100], ['meetFriend', 98, 100], ['breakUp', 2, 0]])('%s preserves happiness clamping', async (command, happiness, expected) => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Clamp Player', { age: 30, stats: { happiness }, relationships: [partner] })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Clamp Player'));
+    act(() => result.current[command]('partner'));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0][1].stats.happiness).toBe(expected);
+    expect(result.current.stats.happiness).toBe(expected);
+  });
+
+  it('chains child, friend and breakup from the eager snapshot without losing an outcome', async () => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Chained Player', { age: 30, bank: 50000, stats: { happiness: 50 }, relationships: [partner], history: [] })));
+    const { result } = await ready({ wrapper: StrictMode });
+    await waitFor(() => expect(result.current.character?.name).toBe('Chained Player'));
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    act(() => { result.current.haveChild('partner'); result.current.meetFriend(); result.current.breakUp('partner'); });
+    expect(result.current.stats.happiness).toBe(60);
+    expect(result.current.relationships.map(rel => rel.type)).toEqual(['Ex', 'Child', 'Friend']);
+    expect(result.current.history).toHaveLength(3);
+    expect(random).toHaveBeenCalledTimes(5);
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(3));
+    expect(backend.setDoc.mock.calls[2][1]).toMatchObject({ stats: { happiness: 60 }, relationships: result.current.relationships, history: result.current.history });
   });
 });
