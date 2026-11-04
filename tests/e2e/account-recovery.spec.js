@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectFullyInsideScrollport } from './support/scrollport.js';
 import { buildLifeSave, INITIAL_EDUCATION } from '../../src/engine/lifeSave.js';
 import { createFirebaseIdToken, mockFirebase } from './support/firebase.js';
 import { applyFirestoreSave } from './support/firestoreWrites.js';
@@ -117,23 +118,7 @@ async function recoveryEvidence(page, testInfo, name) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   for (const control of await page.getByRole('button').all()) {
     await control.scrollIntoViewIfNeeded();
-    const fullyInside = await control.evaluate(node => {
-      const rect = node.getBoundingClientRect();
-      let top = 0, bottom = innerHeight, left = 0, right = innerWidth;
-      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
-        const style = getComputedStyle(parent), box = parent.getBoundingClientRect();
-        if (/auto|scroll|hidden|clip/.test(style.overflowY)) {
-          top = Math.max(top, box.top + parent.clientTop);
-          bottom = Math.min(bottom, box.top + parent.clientTop + parent.clientHeight);
-        }
-        if (/auto|scroll|hidden|clip/.test(style.overflowX)) {
-          left = Math.max(left, box.left + parent.clientLeft);
-          right = Math.min(right, box.left + parent.clientLeft + parent.clientWidth);
-        }
-      }
-      return rect.top >= top - 0.5 && rect.bottom <= bottom + 0.5 && rect.left >= left - 0.5 && rect.right <= right + 0.5;
-    });
-    expect(fullyInside).toBe(true);
+    await expectFullyInsideScrollport(control);
   }
   await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: true, animations: 'disabled' });
 }

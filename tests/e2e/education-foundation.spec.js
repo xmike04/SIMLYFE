@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { buildLifeSave, INITIAL_EDUCATION, INITIAL_STATS } from '../../src/engine/lifeSave.js';
 import { createFirebaseIdToken, mockFirebase } from './support/firebase.js';
 import { applyFirestoreSave } from './support/firestoreWrites.js';
+import { expectFullyInsideScrollport } from './support/scrollport.js';
 
 const LEGACY_MEMORY = 'An existing memory from before education decisions.';
 const PRESERVED = {
@@ -105,8 +106,8 @@ test('education preview and acknowledged enrollment survive reload', async ({ pa
   const confirm = page.getByRole('button', { name: 'Confirm enrollment', exact: true });
   const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
   await confirm.scrollIntoViewIfNeeded();
-  await expect(confirm).toBeInViewport({ ratio: 1 });
-  await expect(cancel).toBeInViewport({ ratio: 1 });
+  await expectFullyInsideScrollport(confirm);
+  await expectFullyInsideScrollport(cancel);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('education-preview-controls.png'), fullPage: true, animations: 'disabled' });
   await cancel.click();
@@ -190,8 +191,8 @@ test('funded PhD preview explains zero tuition, later happiness effects and comp
   ]) await expect(preview(page)).toContainText(text);
   const confirm = page.getByRole('button', { name: 'Confirm enrollment', exact: true });
   await confirm.scrollIntoViewIfNeeded();
-  await expect(confirm).toBeInViewport({ ratio: 1 });
-  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 });
+  await expectFullyInsideScrollport(confirm);
+  await expectFullyInsideScrollport(page.getByRole('button', { name: 'Cancel', exact: true }));
   await expect(confirm).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
