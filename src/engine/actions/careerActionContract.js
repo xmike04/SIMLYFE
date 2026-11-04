@@ -72,4 +72,3 @@ export function coherentCareerCommittedResult(result) {
   const approvedFacts = projectCareerActionFacts(record, { age: entry.age, beforeTitle: facts?.beforeTitle, afterTitle: patch.career?.title ?? null });
   return approvedFacts !== null && equalFields(facts, approvedFacts);
 }
-
