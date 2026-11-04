@@ -1,6 +1,6 @@
 /** education career entry mechanics, grouped from the original engine regression suite. */
 import { describe, it, expect } from 'vitest';
-import { enrollDegree, DEGREE_CONFIG as ENGINE_DEGREE_CONFIG, DEGREE_LABELS as ENGINE_DEGREE_LABELS, advanceDegreeYear, hasRequiredDegree } from '../../engine/mechanics/education';
+import { enrollDegree, DEGREE_CONFIG as ENGINE_DEGREE_CONFIG, DEGREE_LABELS as ENGINE_DEGREE_LABELS, advanceDegreeYear, hasRequiredDegree, summarizeDegreeProgress } from '../../engine/mechanics/education';
 import { HEADHUNTER_COST, canAffordHeadhunter, pickHeadhunterPlacement, MILITARY_ENLIST_CAREER_ID } from '../../engine/mechanics/careers';
 
 import { checkCareerEligibility } from '../../engine/mechanics/careers';
@@ -122,6 +122,42 @@ describe('enrollDegree', () => {
     expect(ENGINE_DEGREE_CONFIG.bachelor.years).toBe(4);
     expect(ENGINE_DEGREE_CONFIG.bachelor.annualCost).toBe(20_000);
     expect(ENGINE_DEGREE_LABELS.bachelor).toBeTruthy();
+  });
+});
+
+describe('summarizeDegreeProgress', () => {
+  const stored = { type: 'bachelor', yearsInProgram: 1, totalYears: 4, annualCost: 20000 };
+
+  it.each([
+    [0, 1, 3, 60000, 4],
+    [1, 1, 3, 60000, 3],
+    [2, 2, 2, 40000, 2],
+    [3, 3, 1, 20000, 1],
+    [4, 4, 0, 0, 1],
+  ])('describes saved paid-year counter %s without changing it', (yearsInProgram, paidYears, remainingPayments, remainingTuition, ageUpsToCompletion) => {
+    const degree = Object.freeze({ ...stored, yearsInProgram });
+    expect(summarizeDegreeProgress(degree)).toEqual({ paidYears, remainingPayments, remainingTuition, ageUpsToCompletion });
+    expect(degree).toEqual({ ...stored, yearsInProgram });
+  });
+
+  it('uses historical tuition and duration rather than current catalog terms', () => {
+    expect(summarizeDegreeProgress({ ...stored, totalYears: 3, annualCost: 12345 })).toEqual({ paidYears: 1, remainingPayments: 2, remainingTuition: 24690, ageUpsToCompletion: 2 });
+    expect(summarizeDegreeProgress({ ...stored, yearsInProgram: 4, annualCost: 12345 })).toEqual({ paidYears: 4, remainingPayments: 0, remainingTuition: 0, ageUpsToCompletion: 1 });
+    expect(summarizeDegreeProgress({ type: 'phd', yearsInProgram: 0, totalYears: 4, annualCost: 0 })).toEqual({ paidYears: 1, remainingPayments: 3, remainingTuition: 0, ageUpsToCompletion: 4 });
+  });
+
+  it.each([
+    null, undefined, {}, [], 'bachelor',
+    { ...stored, type: 'highSchool' }, { ...stored, type: 'unknown' }, { ...stored, type: 'constructor' },
+    { ...stored, yearsInProgram: -1 }, { ...stored, yearsInProgram: 1.5 }, { ...stored, yearsInProgram: NaN },
+    { ...stored, yearsInProgram: Infinity }, { ...stored, yearsInProgram: '1' },
+    { ...stored, totalYears: 0 }, { ...stored, totalYears: -4 }, { ...stored, totalYears: 4.5 },
+    { ...stored, totalYears: Infinity }, { ...stored, totalYears: '4' },
+    { ...stored, annualCost: -1 }, { ...stored, annualCost: NaN }, { ...stored, annualCost: Infinity },
+    { ...stored, annualCost: '20000' },
+    { ...stored, annualCost: Number.MAX_VALUE },
+  ])('returns null for missing or malformed stored progress %j', degree => {
+    expect(summarizeDegreeProgress(degree)).toBeNull();
   });
 });
 

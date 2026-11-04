@@ -30,6 +30,27 @@ export function hasRequiredDegree(education, requiredDegree) {
 
 export const DEGREE_SMARTS_BONUS = { associate: 3, bachelor: 10, master: 5, phd: 3 };
 
+/** Describe stored program terms without changing legacy counters or annual progression. */
+export function summarizeDegreeProgress(currentDegree) {
+  if (!currentDegree || typeof currentDegree !== 'object' || Array.isArray(currentDegree)
+    || !Object.hasOwn(DEGREE_SMARTS_BONUS, currentDegree.type)
+    || !Number.isInteger(currentDegree.yearsInProgram) || currentDegree.yearsInProgram < 0
+    || !Number.isInteger(currentDegree.totalYears) || currentDegree.totalYears <= 0
+    || !Number.isFinite(currentDegree.annualCost) || currentDegree.annualCost < 0) return null;
+
+  const { yearsInProgram, totalYears, annualCost } = currentDegree;
+  const paidYears = Math.max(1, yearsInProgram);
+  const remainingPayments = Math.max(0, totalYears - paidYears);
+  const remainingTuition = remainingPayments * annualCost;
+  if (!Number.isFinite(remainingTuition)) return null;
+  return {
+    paidYears,
+    remainingPayments,
+    remainingTuition,
+    ageUpsToCompletion: Math.max(1, totalYears - yearsInProgram),
+  };
+}
+
 /**
  * Enroll in a degree: charge year-1 tuition and set yearsInProgram = 1 (year 1 prepaid).
  * See docs/game-mechanics.md — Education.
