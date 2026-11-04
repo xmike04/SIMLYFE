@@ -175,6 +175,12 @@ export function useGameState() {
    * See docs/architecture.md — mid-life sync.
    */
   const persistLife = useCallback((overrides = {}) => {
+    // A newer write supersedes domain feedback even when it has no status UI.
+    // Guard the setter: legacy callers can persist inside a React updater.
+    if (continuityFeedbackRef.current !== null) {
+      continuityFeedbackRef.current = null;
+      setLastContinuitySave(null);
+    }
     const next = { ...lifeSnapshotRef.current, ...overrides };
     lifeSnapshotRef.current = next;
     return syncToCloud(buildLifeSave(next));
@@ -184,9 +190,9 @@ export function useGameState() {
   const persistContinuity = useCallback((overrides, kind) => {
     const revision = lifeRevisionRef.current;
     const feedback = { id: createDiagnosticId('continuity-save'), kind, saveStatus: 'pending', operationId: null };
+    const persistence = persistLife(overrides);
     continuityFeedbackRef.current = feedback;
     setLastContinuitySave(feedback);
-    const persistence = persistLife(overrides);
     persistence.then(receipt => {
       if (lifeRevisionRef.current !== revision || continuityFeedbackRef.current !== feedback) return;
       const acknowledged = { ...feedback, saveStatus: receipt.status, operationId: receipt.operationId };

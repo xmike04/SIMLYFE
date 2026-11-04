@@ -73,7 +73,7 @@ npx playwright install chromium
 CI=1 npm run test:e2e
 ```
 
-The browser install is needed only when Playwright's matching Chromium version is missing. [playwright.config.js](../playwright.config.js) runs desktop Chrome and a Pixel 7 viewport in Chromium. It starts a separate Vite server on port 4173 with explicit test configuration and does not reuse an existing server. Set `PLAYWRIGHT_PORT` if that port is occupied. Each first-run test writes gameplay and assets screenshots under its `test-results/` directory.
+The browser install is needed only when Playwright's matching Chromium version is missing. If an approved environment already provides Chromium, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium` to use that executable through the normal config; leaving it unset preserves Playwright's bundled runtime. Record the actual browser version in acceptance evidence. A blocked download is an environment limit, not a reason to bypass network policy or add a browser package. [playwright.config.js](../playwright.config.js) runs desktop Chrome and a Pixel 7 viewport in Chromium. It starts a separate Vite server on port 4173 with explicit test configuration and does not reuse an existing server. Set `PLAYWRIGHT_PORT` if that port is occupied. Each first-run test writes gameplay and assets screenshots under its `test-results/` directory.
 
 | Command | Purpose |
 |---|---|
@@ -101,6 +101,10 @@ Check [package.json](../package.json) for the executable command definitions. Ad
 | Static content and markets | `src/tests/config.data.test.js`, `src/tests/market.test.js` | Catalog shapes, references, and market behavior |
 | Saves and diagnostics | `src/tests/stateValidation.test.js`, `src/tests/diagnostics.test.js`, `src/tests/firestoreRules.test.js` | Warning/redaction behavior and save-field allowlist drift |
 | Career workflow | `src/tests/actions/careerActions.test.js`, `src/tests/careerDecision.test.jsx`, `src/tests/cloudSaveReceipts.test.jsx`, `src/tests/gameState.cloud.test.jsx`, `tests/e2e/career-foundation.spec.js` | Pure resolution, preview/confirmation, acknowledgment ordering, lifecycle-scoped feedback, and reload of acknowledged saves |
+| Life continuity contract | `src/tests/lifeContinuity.test.js`, `src/tests/mechanics/life-state.test.js`, `src/tests/stateValidation.test.js` | Normalization, bounds, metadata projection, compatible legacy wrapping, safe recovery, and canonical payloads |
+| Continuity commands and lifecycle | `src/tests/gameState.cloud.test.jsx`, `src/tests/annualSimulation.test.js`, `src/tests/mechanics/relationships-annual.test.js` | Real-hook counter/base-effect coherence, interaction markers/decay, annual reset, generation/life races, same-tick replay rejection, custody production/outcomes, reset/newborn replacement, and receipt recency (including untracked/updater writers) |
+| Continuity interface | `src/tests/EventModal.test.jsx`, `src/tests/MainGame.test.jsx` | Stored ID/index callback wiring, locking, single accessible save status and no-effect recovery |
+| Continuity browser acceptance | `tests/e2e/life-continuity.spec.js` | A–F desktop/mobile acknowledged reload: ordinary choices, Staycation, custody negotiation, failed/pending saves, legacy defaults, old merge/replacement hazards, recovery, Live Again/newborn, and long accepted content with scroll/keyboard/overflow checks |
 | Cloud lifecycle | `src/tests/gameState.cloud.test.jsx` | Real hook with mocked Firebase: delayed boot, replace/merge, linking, account switches, sign-out, and async action locking |
 | Annual composition | `src/tests/annualSimulation.test.js` | Ordered random draws, immutable inputs, cash/principal accounting, and history order |
 | Manual probe | `src/tests/llmProbe.test.js` | Actual script against a local HTTP fixture; required Origin and separate auth headers |
@@ -109,6 +113,21 @@ Check [package.json](../package.json) for the executable command definitions. Ad
 The default test setup mocks Firebase and the LLM client. Playwright verifies browser wiring and header separation with controlled responses. These checks do not verify a deployed Firebase provider, Firestore rules release, Supabase migration, or real OpenAI response; those need the [live verification flow](./operations.md#verify-a-deployment).
 
 The [mechanics test inventory](../src/tests/mechanics/README.md) distinguishes adapters around production helpers from the remaining copied formulas. A passing copied formula test does not prove that its corresponding hook action or UI is wired correctly.
+
+## Acknowledged continuity acceptance
+
+The career and continuity browser fixtures hold acknowledged documents in the Node test process. Their intercepted Firestore modules queue writes; only explicit `acknowledge()` advances that document. A page-local request, pending promise, or failed write cannot become durability through a reload. Fixture merges replace top-level fields and do not emulate Firestore recursive nested-map merge semantics. All AI responses are controlled valid envelopes; real Firestore requests are rejected. The continuity cases verify zero regeneration when restoring a saved offer and count the expected Staycation/annual requests.
+
+Run targeted acceptance through both configured projects before the final whole-suite gate:
+
+```bash
+npm run test:e2e -- tests/e2e/life-continuity.spec.js
+npm run test:e2e -- tests/e2e/career-foundation.spec.js
+```
+
+Screenshots in `test-results/` include restored/acknowledged choices, retained activity limits, custody, failed/pending feedback, recovery, newborn reload, and the top/final controls of a long restored offer. Check actual text and keyboard reachability as well as layout assertions. Expected failed-save cases emit sanitized `save_sync` failure diagnostics; malformed/dead legacy fixtures emit bounded `save_load` warnings. Identify these fixtures in the evidence instead of treating expected diagnostics as successful production saves.
+
+Acceptance establishes reload of the latest acknowledged document in a current supported client. It does not resume in-progress generation or guarantee offline durability, simultaneous writers, safe mixed-version writing, live Firebase connectivity, deployed rules, or model quality. The [rollback notes](./architecture.md#supported-clients-and-rollback) explain older-writer data loss and recovery. Keep exact commands, exits, counts, actual runtime, screenshots, and tested commit in the dated implementation evidence; do not reuse historical release counts.
 
 ## Manual tools
 

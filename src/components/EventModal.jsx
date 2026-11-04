@@ -11,8 +11,8 @@ export default function EventModal({ event, onChoice, saveFeedback }) {
       display: 'flex', justifyContent: 'center', alignItems: 'center',
       padding: '20px', zIndex: 100
     }}>
-      <div className="glass-panel animate-slide-up" style={{ width: '100%', border: '1px solid var(--accent-primary)', position: 'relative' }}>
-        <div style={{ position: 'absolute', top: '-15px', right: '20px', background: 'var(--accent-primary)', padding: '5px 15px', borderRadius: '15px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+      <div className="glass-panel event-panel animate-slide-up" style={{ width: '100%', border: '1px solid var(--accent-primary)', position: 'relative' }}>
+        <div style={{ position: 'absolute', top: '0', right: '20px', background: 'var(--accent-primary)', padding: '5px 15px', borderRadius: '15px', fontSize: '0.8rem', fontWeight: 'bold' }}>
           EVENT
         </div>
         <h3 className="mb-4 mt-2" style={{ lineHeight: '1.4' }}>{event.description}</h3>

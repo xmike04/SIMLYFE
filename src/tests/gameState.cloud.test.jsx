@@ -523,6 +523,28 @@ describe('continuity hydration and lifecycle ownership', () => {
     expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ flags: [], activitiesThisYear: {}, currentEvent: null });
   });
 
+  it('reset then newborn creation replaces a saved pending life and all prior continuity/history', async () => {
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Prior life', {
+      age: 30, flags: ['prior_flag'], activitiesThisYear: { vacation__Staycation: 1 },
+      currentEvent: offeredEvent, history: [{ age: 20, text: 'Prior memory' }],
+    })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.currentEvent?.id).toBe(offeredEvent.id));
+    act(() => result.current.resetLife());
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0]).toHaveLength(2);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ character: null, flags: [], activitiesThisYear: {}, currentEvent: null, history: [] });
+    act(() => result.current.startLife('Newborn', 'Female', 'US'));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+    expect(backend.setDoc.mock.calls[1]).toHaveLength(2);
+    const newborn = backend.setDoc.mock.calls[1][1];
+    expect(newborn).toMatchObject({ character: { name: 'Newborn' }, age: 0, flags: [], activitiesThisYear: {}, currentEvent: null });
+    expect(newborn.history).toHaveLength(1);
+    expect(newborn.history[0].text).not.toContain('Prior memory');
+    expect(result.current.history).toEqual(newborn.history);
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+  });
+
   it('keeps the origin life and transport when provider sign-out fails', async () => {
     backend.auth.currentUser = user('owner', false);
     backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Origin life', { flags: ['origin_flag'] })));
@@ -773,6 +795,33 @@ describe('activity continuity commits and receipts', () => {
     expect(result.current.lastContinuitySave).toBe(pending);
     await act(async () => second[latestCompletion](latestCompletion === 'reject' ? new Error('private') : undefined));
     expect(result.current.lastContinuitySave).toMatchObject({ id: pending.id, kind: 'activity', saveStatus: status, operationId: expect.any(String) });
+  });
+
+  it.each(['saved', 'pending'])('a newer untracked gig clears %s continuity feedback and old receipts cannot restore it', async status => {
+    const { result } = await loaded({ flags: ['retained_flag'] });
+    const first = deferred();
+    backend.setDoc.mockReturnValueOnce(first.promise);
+    act(() => result.current.consumeYearlyActivity('health', 'Run', 1));
+    if (status === 'saved') await act(async () => first.resolve());
+    expect(result.current.lastContinuitySave.saveStatus).toBe(status);
+    act(() => result.current.performGig('Newer gig', 500));
+    expect(result.current.lastContinuitySave).toBeNull();
+    if (status === 'pending') await act(async () => first.resolve());
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+    expect(result.current.lastContinuitySave).toBeNull();
+    expect(backend.setDoc.mock.calls[1][1]).toMatchObject({ bank: 12500, flags: ['retained_flag'], activitiesThisYear: { health__Run: 1 } });
+  });
+
+  it('an updater-based property writer clears a visible notice without render warnings or duplicate writes', async () => {
+    const { result } = await loaded({ properties: [{ id: 'home', currentValue: 50000 }] }, { wrapper: StrictMode });
+    act(() => result.current.consumeYearlyActivity('health', 'Run', 1));
+    await waitFor(() => expect(result.current.lastContinuitySave?.saveStatus).toBe('saved'));
+    act(() => result.current.modifyProperty('home', 1000));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+    expect(result.current.lastContinuitySave).toBeNull();
+    expect(result.current.properties[0].currentValue).toBe(51000);
+    expect(backend.setDoc.mock.calls[1][1]).toMatchObject({ properties: [{ id: 'home', currentValue: 51000 }], activitiesThisYear: { health__Run: 1 } });
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it.each(['startLife', 'resetLife', 'hydration', 'switch', 'signout', 'unmount'])('invalidates a deferred activity receipt across %s', async boundary => {

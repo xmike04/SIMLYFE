@@ -10,8 +10,8 @@ The engine orchestrates player actions in [gameState.js](../src/engine/gameState
 1. The player selects **+Age**. Mutating actions and sheets lock while the transition runs.
 2. The annual calculation advances grades and economy, grants the high-school diploma when due, charges degree tuition, applies aging, income, lifestyle costs, and career review, then processes assets, family obligations, pets, and relationships.
 3. The engine commits the calculated life state and checks death.
-4. A surviving life requests one dynamic event. The player chooses, `handleChoice` applies effects, and the history/save update.
-5. Annual activity counters reset for the new year. An open event continues to lock other mutations until resolved.
+4. A surviving life requests one dynamic event. The complete calculated year, reset counters, history, and offered choice share one save. Acknowledged offers restore unchanged on reload without another AI request.
+5. The player chooses a stored option through `handleChoice(eventId, choiceIndex)`. Effects, history, and clearing the offer share one save. An open event continues to lock other mutations until resolved; duplicate or stale callbacks apply nothing.
 
 Calculation order affects outcomes. For example, tuition changes the balance before income tax is calculated; income changes the balance before lifestyle costs are chosen. This order is part of the current behavior.
 
@@ -173,6 +173,8 @@ Family-status elders have a death roll from age 70, rising to certainty at 130. 
 
 Dating-app additions are normalized with `status: 'dating'` and `isAlive: true`. Explicit and automatic breakup both clear the romantic type/status so an ex cannot remain the current spouse in UI summaries.
 
+Divorce with living children commits the divorce fee, happiness loss, ex relationship, history, and a pending custody choice together. The fee is 15% of bank rounded down, with a $5,000 minimum and $50,000 maximum; happiness falls by 15. Fighting costs another $10,000 with the existing 80% win chance; negotiation costs $3,000 and sets the ex's annual support to $2,400; surrender costs 20 happiness and assigns custody to the ex. Reloading an acknowledged custody offer retains its references and outcomes. Negotiation adds its fee and legal history once when the current choice is resolved.
+
 Living pets age, charge the species' annual upkeep, and grant its happiness bonus. Death chance begins rising at the minimum lifespan and is certain at the maximum; each pet death costs 5 happiness. Species rules live in [petCatalog.js](../src/config/petCatalog.js).
 
 ## Activity limits and content
@@ -180,5 +182,9 @@ Living pets age, charge the species' annual upkeep, and grant its happiness bonu
 [activities.js](../src/config/activities.js) owns menu categories, age/bank gates, special actions, and yearly limits. Limited activities share tracker IDs `categoryId__itemText`. Gym/run consume that tracker before training and show “Done this year” after use.
 
 Yearly counters and relationship interaction markers are saved with each affected activity or relationship command and restored on reload. Cost, base effects, and the counter share one coherent save. Acknowledged counters retain the current year’s allowance; annual progression resets them for the new year. Activity progress feedback reports the acknowledgement of that command’s save; reload before acknowledgement can restore an older snapshot.
+
+Ordinary Staycation costs $0, grants +8 happiness and +4 health (subject to existing stat bounds), and consumes `vacation__Staycation` once per year. Its base-effect/counter save precedes the separately generated offer save. Gym/run trackers also survive acknowledged reload; this continuity work does not change the existing special-skill gain timing.
+
+A restored invalid or unsupported choice stays locked behind explicit recovery: “This saved choice is unavailable. Clearing it applies no outcome and keeps your loaded life.” Clearing it changes no stats, money, flags, or relationships. Missing legacy fields use defaults. Progress messages distinguish session commitment from cloud acknowledgment; a failed or pending save may reload an older event and balance. See [supported-client limits](./architecture.md#supported-clients-and-rollback).
 
 The game intentionally includes mature themes such as crime, violence, adult relationships, and drugs. Do not sanitize them without an explicit instruction.

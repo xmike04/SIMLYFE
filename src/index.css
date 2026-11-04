@@ -80,6 +80,14 @@ body {
   padding: 1.5rem;
 }
 
+/* Restored choices may use the larger saved-content envelope. */
+.event-panel {
+  max-height: 100%;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
 /* Typography */
 h1, h2, h3, h4 { color: var(--text-primary); font-weight: 700; line-height: 1.2; }
 p { color: var(--text-secondary); line-height: 1.5; }
