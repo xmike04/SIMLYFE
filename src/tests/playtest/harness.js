@@ -115,10 +115,10 @@ export async function resolveEvent(result, choiceIndex = 0) {
   await flush();
   const g = result.current;
   if (!g.currentEvent) return;
-  const choice = g.currentEvent.choices?.[choiceIndex] ?? g.currentEvent.choices?.[0];
-  if (!choice) return;
+  const index = g.currentEvent.choices?.[choiceIndex] ? choiceIndex : 0;
+  if (!g.currentEvent.choices?.[index]) return;
   await act(async () => {
-    g.handleChoice(choice);
+    g.handleChoice(g.currentEvent.id, index);
   });
   await flush();
 }

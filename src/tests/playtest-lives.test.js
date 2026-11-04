@@ -228,8 +228,7 @@ describe('playtest lives to age 40', () => {
         // Resolve custody event if present
         if (ctx.result.current.currentEvent?.isCustodyBattle) {
           await ctx.tryAction('custody choice', async (g) => {
-            const c = g.currentEvent.choices[1];
-            g.handleChoice(c);
+            g.handleChoice(g.currentEvent.id, 1);
           });
         }
 

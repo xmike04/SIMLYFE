@@ -639,7 +639,7 @@ describe('activity continuity commits and receipts', () => {
     act(() => expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false));
     await act(async () => { await restored.result.current.ageUp(); });
     expect(restored.result.current.activitiesThisYear).toEqual({});
-    act(() => restored.result.current.handleChoice(restored.result.current.currentEvent.choices[0]));
+    act(() => restored.result.current.handleChoice(restored.result.current.currentEvent.id, 0));
     act(() => {
       expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(true);
       expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false);
@@ -659,7 +659,7 @@ describe('activity continuity commits and receipts', () => {
     const restored = await remount(save, unmount);
     expect(restored.result.current.activitiesThisYear).toEqual({});
     if (!death) {
-      act(() => restored.result.current.handleChoice(restored.result.current.currentEvent.choices[0]));
+      act(() => restored.result.current.handleChoice(restored.result.current.currentEvent.id, 0));
       act(() => {
         expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(true);
         expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false);
@@ -701,7 +701,7 @@ describe('activity continuity commits and receipts', () => {
       activitiesThisYear: { [`vacation__${item.text}`]: 1 },
     });
     await act(async () => generation.resolve({ description: 'Activity', choices: [{ text: 'OK', effects: {} }] }));
-    act(() => result.current.handleChoice(result.current.currentEvent.choices[0]));
+    act(() => result.current.handleChoice(result.current.currentEvent.id, 0));
     act(() => expect(result.current.performActivity(item, 'vacation')).toBe('blocked_yearly'));
   });
 
@@ -958,7 +958,7 @@ describe('generated offers are acknowledged with their originating life', () => 
     const random = vi.spyOn(Math, 'random').mockImplementation(() => { throw new Error('Offer identity used gameplay RNG'); });
     await act(async () => { await result.current.triggerActivityEvent('First'); });
     const firstId = result.current.currentEvent.id;
-    act(() => result.current.handleChoice(result.current.currentEvent.choices[0]));
+    act(() => result.current.handleChoice(result.current.currentEvent.id, 0));
     await act(async () => { await result.current.triggerActivityEvent('Second'); });
     expect(result.current.currentEvent.id).not.toBe(firstId);
     expect(result.current.currentEvent.meta).toEqual(offer.meta);
@@ -1023,5 +1023,219 @@ describe('generated offers are acknowledged with their originating life', () => 
     expect(backend.setDoc.mock.calls[0][0]).toBe(`users/${boundary === 'switch' ? 'other' : boundary === 'signout' ? 'fresh-guest' : 'guest'}/saves/currentLife`);
     expect(backend.setDoc.mock.calls[0][1].currentEvent).toEqual(rendered.result.current.currentEvent);
     expect(backend.setDoc.mock.calls[0][1].history.some(entry => entry.text === 'Origin history')).toBe(false);
+  });
+});
+
+
+// Real command boundaries: never trust caller effects, and clear a pending identity eagerly.
+describe('canonical pending choice resolution', () => {
+  const opportunity = {
+    version: 1, id: 'annual-30', age: 30, source: 'annual', description: 'A saved opportunity',
+    choices: [{ text: 'Consider the opportunity', effects: { bank: 20000 } }],
+  };
+  async function loaded(fields = {}, options) {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Choice Player', { age: 30, bank: 250, currentEvent: opportunity, ...fields })));
+    const rendered = await ready(options);
+    await waitFor(() => expect(rendered.result.current.character?.name).toBe('Choice Player'));
+    return rendered;
+  }
+  async function remount(save, unmount) {
+    unmount();
+    return loaded(save);
+  }
+
+  it('commits a restored choice once in the same tick and remounts its acknowledged cleared snapshot', async () => {
+    const { result, unmount } = await loaded();
+    let first, duplicate;
+    act(() => {
+      first = result.current.handleChoice('annual-30', 0);
+      duplicate = result.current.handleChoice('annual-30', 0);
+    });
+    expect(first).toMatchObject({ status: 'committed', code: 'event_resolved' });
+    expect(duplicate).toEqual({ status: 'noop', code: 'no_pending_event', persistence: null });
+    expect(result.current.bank).toBe(20250);
+    expect(result.current.currentEvent).toBeNull();
+    expect(result.current.history.filter(x => x.text.includes('Consider the opportunity'))).toHaveLength(1);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: 20250, currentEvent: null });
+    await act(async () => expect(await first.persistence).toMatchObject({ status: 'saved' }));
+    const restored = await remount(backend.setDoc.mock.calls[0][1], unmount);
+    expect(restored.result.current.currentEvent).toBeNull();
+    act(() => expect(restored.result.current.handleChoice('annual-30', 0)).toEqual(duplicate));
+    expect(restored.result.current.bank).toBe(20250);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 0.5, 1, NaN, '0', undefined, null, { text: 'Forged', effects: { bank: 100000 } }])('rejects invalid choice index %# without any outcome, randomness, or write', async index => {
+    const { result } = await loaded();
+    const before = { bank: result.current.bank, stats: result.current.stats, history: result.current.history, event: result.current.currentEvent };
+    const random = vi.spyOn(Math, 'random');
+    act(() => expect(result.current.handleChoice('annual-30', index)).toEqual({ status: 'rejected', code: 'invalid_choice', persistence: null }));
+    expect(result.current.bank).toBe(before.bank);
+    expect(result.current.stats).toEqual(before.stats);
+    expect(result.current.history).toEqual(before.history);
+    expect(result.current.currentEvent).toEqual(before.event);
+    expect(random).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it.each(['old-event', { text: 'Forged', effects: { bank: 100000 } }])('rejects wrong IDs and the former object API %#', async id => {
+    const { result } = await loaded();
+    const random = vi.spyOn(Math, 'random');
+    act(() => expect(result.current.handleChoice(id, 0)).toEqual({ status: 'rejected', code: 'stale_event', persistence: null }));
+    expect(result.current.bank).toBe(250);
+    expect(result.current.history).toEqual([]);
+    expect(random).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('rejects an old callback after a different offer with identical choice text', async () => {
+    const { result } = await loaded();
+    const oldHandleChoice = result.current.handleChoice;
+    const oldCallback = () => oldHandleChoice('annual-30', 0);
+    await act(async () => { await oldCallback().persistence; });
+    generateDynamicEvent.mockResolvedValueOnce({ description: 'Another opportunity', choices: opportunity.choices });
+    await act(async () => { await result.current.triggerActivityEvent('A fresh opportunity'); });
+    const newEvent = result.current.currentEvent;
+    const count = backend.setDoc.mock.calls.length;
+    const random = vi.spyOn(Math, 'random');
+    act(() => expect(oldCallback()).toEqual({ status: 'rejected', code: 'stale_event', persistence: null }));
+    expect(result.current.currentEvent).toEqual(newEvent);
+    expect(result.current.bank).toBe(20250);
+    expect(result.current.history).toHaveLength(1);
+    expect(backend.setDoc).toHaveBeenCalledTimes(count);
+    expect(random).not.toHaveBeenCalled();
+  });
+
+  it('retains the local outcome on failed save while reload honestly restores the older pending snapshot', async () => {
+    const acknowledged = savedLife('Choice Player', { age: 30, bank: 250, currentEvent: opportunity });
+    const { result, unmount } = await loaded();
+    backend.setDoc.mockRejectedValueOnce({ code: 'unavailable' });
+    let resolution;
+    act(() => { resolution = result.current.handleChoice('annual-30', 0); });
+    await act(async () => expect(await resolution.persistence).toMatchObject({ status: 'failed' }));
+    expect(result.current.bank).toBe(20250);
+    expect(result.current.currentEvent).toBeNull();
+    expect(result.current.lastContinuitySave).toMatchObject({ kind: 'event_resolved', saveStatus: 'failed' });
+    const restored = await remount(acknowledged, unmount);
+    expect(restored.result.current.bank).toBe(250);
+    expect(restored.result.current.currentEvent).toEqual(opportunity);
+    expect(restored.result.current.history).toEqual([]);
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+  });
+
+  it('keeps unavailable saved choices locked until explicit no-effect clearing', async () => {
+    const { result } = await loaded({ currentEvent: { description: 'Damaged', choices: [] }, stats: { health: 0, happiness: 80 }, flags: ['retained'] });
+    const recovery = result.current.currentEvent;
+    const before = { stats: result.current.stats, relationships: result.current.relationships };
+    await act(async () => {
+      await result.current.ageUp();
+      await result.current.triggerActivityEvent('Do not generate');
+      expect(result.current.performActivity({ text: 'Quiet', effects: { bank: 100 } }, 'other')).toBe('blocked_busy');
+    });
+    expect(recovery.source).toBe('recovery');
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    const random = vi.spyOn(Math, 'random');
+    let resolution;
+    act(() => { resolution = result.current.handleChoice(recovery.id, 0); });
+    expect(resolution).toMatchObject({ status: 'committed', code: 'event_cleared' });
+    expect(result.current.bank).toBe(250);
+    expect(result.current.stats).toEqual(before.stats);
+    expect(result.current.relationships).toEqual(before.relationships);
+    expect(result.current.flags).toEqual(['retained']);
+    expect(result.current.isDead).toBe(false);
+    expect(result.current.history).toEqual([{ age: 30, text: 'Recovery: Cleared an unavailable saved choice without applying an outcome.' }]);
+    expect(result.current.currentEvent).toBeNull();
+    expect(random).not.toHaveBeenCalled();
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: 250, currentEvent: null, history: result.current.history });
+    await act(async () => { await resolution.persistence; });
+  });
+
+  it('does not turn a missing event into recovery or request a save', async () => {
+    const { result } = await loaded({ currentEvent: null });
+    act(() => expect(result.current.handleChoice('annual-30', 0)).toEqual({ status: 'noop', code: 'no_pending_event', persistence: null }));
+    expect(result.current.currentEvent).toBeNull();
+    expect(result.current.history).toEqual([]);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  const spouse = { id: 'spouse', name: 'Alex', age: 30, type: 'Spouse', status: 'married', isAlive: true, relation: 80 };
+  const children = [
+    { id: 'child-1', name: 'Ava', age: 10, type: 'Child', status: 'family', isAlive: true, relation: 80, custodyWith: 'player' },
+    { id: 'child-2', name: 'Liam', age: 18, type: 'Child', status: 'family', isAlive: true, relation: 80 },
+  ];
+  async function divorce(options, relationships = [spouse, ...children]) {
+    const rendered = await loaded({ bank: 50000, currentEvent: null, stats: { health: 80, happiness: 80 }, relationships }, options);
+    act(() => expect(rendered.result.current.breakUp('spouse')).toBe('ok'));
+    return rendered;
+  }
+
+  it('produces one coherent versioned custody save from real divorce, even under StrictMode', async () => {
+    const { result } = await divorce({ wrapper: StrictMode });
+    await waitFor(() => expect(result.current.lastContinuitySave?.saveStatus).toBe('saved'));
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    const payload = backend.setDoc.mock.calls[0][1];
+    expect(payload).toMatchObject({ bank: 42500, stats: { happiness: 65 }, currentEvent: { version: 1, age: 30, source: 'custody', isCustodyBattle: true, exId: 'spouse', childIds: ['child-1', 'child-2'] } });
+    expect(payload.currentEvent.id).not.toBe('custody_battle');
+    expect(payload.currentEvent.choices).toEqual([
+      { text: 'Fight for full custody (hire lawyer, -$10,000)', effects: { bank: -10000 }, custodyOutcome: 'fight' },
+      { text: 'Negotiate joint custody (-$3,000, $2,400/yr child support)', effects: { bank: -3000 }, custodyOutcome: 'negotiate' },
+      { text: 'Let them have the kids', effects: { happiness: -20 }, custodyOutcome: 'surrender' },
+    ]);
+    expect(payload.relationships).toEqual([{ ...spouse, type: 'Ex', status: 'ex' }, ...children]);
+    expect(payload.history).toEqual([{ age: 30, text: 'Relationships: You divorced Alex. It cost $7,500 and left you heartbroken.' }]);
+    expect(result.current.currentEvent).toEqual(payload.currentEvent);
+    expect(result.current.bank).toBe(42500);
+    expect(result.current.stats.happiness).toBe(65);
+    expect(result.current.lastContinuitySave.kind).toBe('event_offered');
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+  });
+
+  it('blocks invalid custody preparation without committing any divorce field', async () => {
+    const { result } = await loaded({ bank: 50000, currentEvent: null, stats: { happiness: 80 }, relationships: [spouse, ...children, { ...children[0] }] });
+    act(() => expect(result.current.breakUp('spouse')).toBe('blocked'));
+    expect(result.current.bank).toBe(50000);
+    expect(result.current.stats.happiness).toBe(80);
+    expect(result.current.relationships[0]).toEqual(spouse);
+    expect(result.current.history).toEqual([]);
+    expect(result.current.currentEvent).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { index: 0, randomValue: 0.79, bank: 32500, happiness: 65, legal: 'Legal: You won full custody of your children. The judge ruled in your favor.', exCustody: false, support: false, draws: 1 },
+    { index: 0, randomValue: 0.80, bank: 32500, happiness: 65, legal: 'Legal: You lost the custody battle. The judge awarded full custody to your ex.', exCustody: true, support: false, draws: 1 },
+    { index: 1, randomValue: 0.50, bank: 39500, happiness: 65, legal: 'Legal: Joint custody agreed. You pay $2,400/yr in child support.', exCustody: false, support: true, draws: 0 },
+    { index: 2, randomValue: 0.50, bank: 42500, happiness: 45, legal: 'Legal: You signed away custody. You may see them on holidays.', exCustody: true, support: false, draws: 0 },
+  ])('resolves restored custody index $index at RNG $randomValue exactly once', async fixture => {
+    const produced = await divorce();
+    await waitFor(() => expect(produced.result.current.lastContinuitySave?.saveStatus).toBe('saved'));
+    const payload = backend.setDoc.mock.calls[0][1];
+    const restored = await remount(payload, produced.unmount);
+    const { result } = restored;
+    backend.setDoc.mockClear();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(fixture.randomValue);
+    let resolution;
+    act(() => {
+      resolution = result.current.handleChoice(payload.currentEvent.id, fixture.index);
+      expect(result.current.handleChoice(payload.currentEvent.id, fixture.index)).toEqual({ status: 'noop', code: 'no_pending_event', persistence: null });
+    });
+    expect(resolution).toMatchObject({ status: 'committed', code: 'event_resolved' });
+    expect(result.current.bank).toBe(fixture.bank);
+    expect(result.current.stats.happiness).toBe(fixture.happiness);
+    const expectedChildren = fixture.exCustody ? children.map(child => ({ ...child, custodyWith: 'ex' })) : children;
+    expect(result.current.relationships).toEqual([{ ...spouse, type: 'Ex', status: 'ex', ...(fixture.support ? { childSupport: 2400 } : {}) }, ...expectedChildren]);
+    expect(result.current.history).toHaveLength(3);
+    expect(result.current.history[1]).toEqual({ age: 30, text: fixture.legal });
+    expect(result.current.history[2].text).toBe(`Event: ${payload.currentEvent.description} -> You chose: ${payload.currentEvent.choices[fixture.index].text}`);
+    expect(result.current.currentEvent).toBeNull();
+    expect(random).toHaveBeenCalledTimes(fixture.draws);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: fixture.bank, currentEvent: null, relationships: result.current.relationships, history: result.current.history, stats: result.current.stats });
+    await act(async () => { await resolution.persistence; });
   });
 });

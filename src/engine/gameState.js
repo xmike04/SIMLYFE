@@ -278,31 +278,26 @@ export function useGameState() {
     checkDeathPure(currentStats, currentAge, Math.random())
   ), []);
 
-  const applyEffects = (effects) => {
-    const applied = applyEffectsPure(stats, bank, flags, effects);
-    setStats(applied.stats);
-    setBank(applied.bank);
-    setFlags(applied.flags);
-    return applied;
-  };
-
-  const handleChoice = (choice) => {
-    let nextStats = stats;
-    let nextBank = bank;
-    let nextFlags = flags;
-    let nextRelationships = relationships;
-
-    if (choice.effects) {
-      const applied = applyEffects(choice.effects);
-      nextStats = applied.stats;
-      nextBank = applied.bank;
-      nextFlags = applied.flags;
+  const handleChoice = (eventId, choiceIndex) => {
+    const snap = lifeSnapshotRef.current;
+    const event = snap.currentEvent;
+    if (!event) return { status: 'noop', code: 'no_pending_event', persistence: null };
+    if (event.id !== eventId || event.age !== snap.age) {
+      return { status: 'rejected', code: 'stale_event', persistence: null };
     }
+    if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= event.choices.length) {
+      return { status: 'rejected', code: 'invalid_choice', persistence: null };
+    }
+    const choice = event.choices[choiceIndex];
+    const recovery = event.source === 'recovery';
+    const applied = recovery ? { stats: snap.stats, bank: snap.bank, flags: snap.flags }
+      : applyEffectsPure(snap.stats, snap.bank, snap.flags, choice.effects);
+    let nextRelationships = snap.relationships;
 
     const historyLines = [];
 
-    if (currentEvent?.isCustodyBattle && choice.custodyOutcome) {
-      const { exId, childIds } = currentEvent;
+    if (event.isCustodyBattle && choice.custodyOutcome) {
+      const { exId, childIds } = event;
       const childLabel = childIds.length > 1 ? 'children' : 'child';
 
       if (choice.custodyOutcome === 'fight') {
@@ -322,19 +317,21 @@ export function useGameState() {
       }
     }
 
-    historyLines.push(`Event: ${currentEvent.description} -> You chose: ${choice.text}`);
-    const updatedHistory = [...history, ...historyLines.map(text => ({ age, text }))];
+    historyLines.push(recovery
+      ? 'Recovery: Cleared an unavailable saved choice without applying an outcome.'
+      : `Event: ${event.description} -> You chose: ${choice.text}`);
+    const updatedHistory = [...snap.history, ...historyLines.map(text => ({ age: snap.age, text }))];
+    const patch = { ...applied, relationships: nextRelationships, history: updatedHistory, currentEvent: null };
 
-    if (nextRelationships !== relationships) setRelationships(nextRelationships);
-    setHistory(updatedHistory);
+    // Clear the eager event lock before another callback can resolve this identity.
     setCurrentEvent(null);
-    persistLife({
-      history: updatedHistory,
-      stats: nextStats,
-      bank: nextBank,
-      flags: nextFlags,
-      relationships: nextRelationships,
-    });
+    setStats(applied.stats);
+    setBank(applied.bank);
+    setFlags(applied.flags);
+    setRelationships(nextRelationships);
+    setHistory(updatedHistory);
+    const persistence = persistContinuity(patch, 'event_resolved');
+    return { status: 'committed', code: recovery ? 'event_cleared' : 'event_resolved', persistence };
   };
 
   const ageUp = useCallback(async () => {
@@ -771,20 +768,21 @@ export function useGameState() {
 
   const breakUp = (id) => {
     if (isActionLocked()) return 'blocked';
-    const rel = relationships.find(r => r.id === id);
+    const snap = lifeSnapshotRef.current;
+    const rel = snap.relationships.find(r => r.id === id);
     if (!rel || (rel.status !== 'dating' && rel.status !== 'married')) return 'blocked';
     const wasMarried = rel.status === 'married';
     let divorceCostAmount = 0;
-    let newBank = bank;
+    let newBank = snap.bank;
     if (wasMarried) {
-      divorceCostAmount = Math.min(50000, Math.max(5000, Math.floor(bank * 0.15)));
-      newBank = bank - divorceCostAmount;
+      divorceCostAmount = Math.min(50000, Math.max(5000, Math.floor(snap.bank * 0.15)));
+      newBank = snap.bank - divorceCostAmount;
 
-      const playerChildren = relationships.filter(r => r.isAlive && r.type === 'Child');
+      const playerChildren = snap.relationships.filter(r => r.isAlive && r.type === 'Child');
       if (playerChildren.length > 0) {
         const childNamesStr = playerChildren.map(c => c.name).join(', ');
-        setCurrentEvent({
-          id: 'custody_battle',
+        const nextRelationships = snap.relationships.map(r => r.id === rel.id ? markAsEx(r) : r);
+        const event = preparePendingEvent({
           isCustodyBattle: true,
           exId: rel.id,
           childIds: playerChildren.map(c => c.id),
@@ -806,19 +804,19 @@ export function useGameState() {
               custodyOutcome: 'surrender',
             },
           ],
-        });
+        }, { id: createDiagnosticId('pending-event'), age: snap.age, source: 'custody', relationships: nextRelationships });
+        if (event?.source !== 'custody') return 'blocked';
+        const nextStats = { ...snap.stats, happiness: Math.max(0, snap.stats.happiness - 15) };
+        const updatedHistory = [...snap.history, {
+          age: snap.age,
+          text: `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.`,
+        }];
         setBank(newBank);
-        setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
-        setRelationships(prev => {
-          const next = prev.map(r => r.id === rel.id ? markAsEx(r) : r);
-          persistLife({ relationships: next, bank: newBank });
-          return next;
-        });
-        setHistory(prev => {
-          const updated = [...prev, { age, text: `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.` }];
-          persistLife({ history: updated });
-          return updated;
-        });
+        setStats(nextStats);
+        setRelationships(nextRelationships);
+        setHistory(updatedHistory);
+        setCurrentEvent(event);
+        persistContinuity({ bank: newBank, stats: nextStats, relationships: nextRelationships, history: updatedHistory, currentEvent: event }, 'event_offered');
         return 'ok';
       }
 

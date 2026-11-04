@@ -23,7 +23,7 @@ export default function EventModal({ event, onChoice, saveFeedback }) {
             <button 
               key={i} 
               className="btn btn-secondary" 
-              onClick={() => onChoice(choice)}
+              onClick={() => onChoice(event.id, i)}
               style={{ textAlign: 'left', justifyContent: 'flex-start', padding: '1rem', whiteSpace: 'normal', height: 'auto', display: 'flex' }}
             >
               {choice.text}
