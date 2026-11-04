@@ -12,10 +12,10 @@ import { createDiagnosticId, diagnosticNow, emitDiagnostic, emitLlmDiagnostic, g
 
 import staticCareers from './careers.json';
 import { quoteCareerChange, resolveCareerChange } from './actions/careerActions';
+import { quoteEducationEnrollment, resolveEducationEnrollment } from './actions/educationActions';
 import { makeActionResult } from './actions/actionResult';
 
 import { INITIAL_STATS, INITIAL_EDUCATION, INITIAL_CAREER_META, INITIAL_ECONOMY, buildLifeSave } from './lifeSave';
-import { DEGREE_CONFIG, DEGREE_LABELS, enrollDegree } from './mechanics/education';
 import { NAMES, pickParentName, markAsEx, normalizeRelationshipNpc, prepareWillDraft } from './mechanics/relationships';
 import { HEADHUNTER_COST, STARTUP_COST, MILITARY_ENLIST_CAREER_ID, canAffordHeadhunter, computeStartupLaunch, pickHeadhunterPlacement } from './mechanics/careers';
 import { prepareInvestmentPurchase, computeInvestmentSale } from './mechanics/investments';
@@ -66,10 +66,12 @@ export function useGameState() {
   const [pets, setPets] = useState([]);
   const [will, setWill] = useState(null);
   const [lastCareerAction, setLastCareerAction] = useState(null);
+  const [lastEducationAction, setLastEducationAction] = useState(null);
   const [lastContinuitySave, setLastContinuitySave] = useState(null);
   // Transient lifecycle identity: never persisted or sent to narration.
   const lifeRevisionRef = useRef(0);
   const careerFeedbackRef = useRef(null);
+  const educationFeedbackRef = useRef(null);
   const agingInFlightRef = useRef(false);
   const continuityFeedbackRef = useRef(null);
   const activeEventRequestRef = useRef(null);
@@ -80,6 +82,8 @@ export function useGameState() {
     lifeRevisionRef.current += 1;
     careerFeedbackRef.current = null;
     setLastCareerAction(null);
+    educationFeedbackRef.current = null;
+    setLastEducationAction(null);
     continuityFeedbackRef.current = null;
     setLastContinuitySave(null);
     activeEventRequestRef.current = null;
@@ -89,6 +93,7 @@ export function useGameState() {
   useEffect(() => () => {
     lifeRevisionRef.current += 1;
     careerFeedbackRef.current = null;
+    educationFeedbackRef.current = null;
     continuityFeedbackRef.current = null;
     activeEventRequestRef.current = null;
     agingInFlightRef.current = false;
@@ -449,20 +454,32 @@ export function useGameState() {
     return evaluateCareerEligibility(careerEntry, education, stats, networking, age);
   }, [age, education, networking, stats]);
 
-  const enrollInDegree = (degreeType) => {
-    if (isActionLocked()) return;
-    const result = enrollDegree(degreeType, education, bank);
-    if (result.error) {
-      setHistory(prev => [...prev, { age, text: `Education: ${result.error}.` }]);
-      return;
-    }
-    setBank(result.newBank);
-    setEducation(result.newEducation);
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Education: You enrolled in a ${DEGREE_LABELS[degreeType]} program (Year 1/${DEGREE_CONFIG[degreeType].years}).` }];
-      persistLife({ education: result.newEducation, history: updated, bank: result.newBank });
-      return updated;
+  const quoteEducation = (degreeType) => quoteEducationEnrollment(lifeSnapshotRef.current, degreeType);
+
+  /** Commit enrollment locally once; only the transport receipt reports saved. */
+  const enrollInDegree = (degreeType, { actionId = createDiagnosticId('education-action'), expectedBasis = null } = {}) => {
+    const result = agingInFlightRef.current || currentEventRef.current
+      ? makeActionResult({ status: 'rejected', actionId, actionType: 'education.enroll', targetId: degreeType, code: 'action_locked' })
+      : resolveEducationEnrollment(lifeSnapshotRef.current, { actionId, targetId: degreeType, expectedBasis });
+    const feedback = { actionId, result, saveStatus: result.status === 'committed' ? 'pending' : 'not_requested' };
+    // A repeated command must leave its committed decision's pending receipt visible.
+    if (result.status === 'noop' && educationFeedbackRef.current?.saveStatus === 'pending') return { result, persistence: null };
+    educationFeedbackRef.current = feedback;
+    setLastEducationAction(feedback);
+    if (result.status !== 'committed') return { result, persistence: null };
+
+    const revision = lifeRevisionRef.current;
+    setBank(result.patch.bank);
+    setEducation(result.patch.education);
+    setHistory(result.patch.history);
+    const persistence = persistLife(result.patch);
+    persistence.then(receipt => {
+      if (lifeRevisionRef.current !== revision || educationFeedbackRef.current !== feedback) return;
+      const acknowledged = { ...feedback, saveStatus: receipt.status };
+      educationFeedbackRef.current = acknowledged;
+      setLastEducationAction(acknowledged);
     });
+    return { result, persistence };
   };
 
   const quoteCareer = (jobId) => quoteCareerChange(lifeSnapshotRef.current, jobId, careerCatalogRef.current);
@@ -1294,6 +1311,8 @@ export function useGameState() {
     chooseCareer,
     quoteCareer,
     lastCareerAction,
+    quoteEducation,
+    lastEducationAction,
     lastContinuitySave,
     checkCareerEligibility,
     enrollInDegree,

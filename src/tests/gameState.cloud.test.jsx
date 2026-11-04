@@ -2,20 +2,23 @@ import { StrictMode } from 'react';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameState } from '../engine/gameState';
-import { buildLifeSave, LIFE_SAVE_KEYS } from '../engine/lifeSave';
+import { buildLifeSave, LIFE_SAVE_KEYS, INITIAL_EDUCATION } from '../engine/lifeSave';
 import { generateDynamicEvent } from '../engine/llmService';
 import { getFirebaseIdToken } from '../engine/firebaseToken';
 import { applyFirestoreSave } from '../../tests/e2e/support/firestoreWrites.js';
 import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 
 const backend = vi.hoisted(() => ({
-  auth: { currentUser: null }, db: {},
+  configured: true, auth: { currentUser: null }, db: {},
   getDoc: vi.fn(), setDoc: vi.fn(), getDocs: vi.fn(), unsubscribe: vi.fn(),
   signInAnonymously: vi.fn(), linkWithPopup: vi.fn(), signInWithCredential: vi.fn(),
   signInWithPopup: vi.fn(), linkWithCredential: vi.fn(), signInWithEmailAndPassword: vi.fn(),
   createUserWithEmailAndPassword: vi.fn(), signOut: vi.fn(), sendPasswordResetEmail: vi.fn(),
 }));
-vi.mock('../config/firebase', () => ({ auth: backend.auth, db: backend.db }));
+vi.mock('../config/firebase', () => ({
+  get auth() { return backend.configured ? backend.auth : null; },
+  get db() { return backend.configured ? backend.db : null; },
+}));
 vi.mock('firebase/firestore', () => ({
   doc: (_db, ...parts) => parts.join('/'), collection: (_db, path) => path,
   getDoc: backend.getDoc, setDoc: backend.setDoc, getDocs: backend.getDocs,
@@ -48,6 +51,7 @@ async function ready(options = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  backend.configured = true;
   vi.spyOn(console, 'debug').mockImplementation(() => {});
   vi.spyOn(console, 'info').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -55,7 +59,7 @@ beforeEach(() => {
   backend.auth.currentUser = user('guest');
   backend.getDoc.mockReset().mockResolvedValue(snapshot(null));
   backend.getDocs.mockResolvedValue({ empty: true });
-  backend.setDoc.mockResolvedValue(undefined);
+  backend.setDoc.mockReset().mockResolvedValue(undefined);
   backend.signInAnonymously.mockResolvedValue({ user: user('fresh-guest') });
   generateDynamicEvent.mockResolvedValue({ description: 'Fixture year', choices: [{ text: 'Continue', effects: {} }] });
 });
@@ -1379,5 +1383,370 @@ describe('acknowledged canonical maps after rejected clears', () => {
     expect(restored.result.current.currentEvent).toEqual(offered);
     expect(restored.result.current.currentEvent.source).not.toBe('recovery');
     expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+  });
+});
+
+// These tests catch duplicate tuition, stale closure commits, and feedback from an obsolete life.
+describe('education command commit and lifecycle-scoped receipts', () => {
+  const preserved = { flags: ['opportunity_seen'], activitiesThisYear: { vacation__Staycation: 1 }, currentEvent: null };
+  async function loadEducationLife(fields = {}, options) {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Education Player', {
+      age: 18, bank: 100000, education: { ...INITIAL_EDUCATION, highSchool: true }, ...preserved, ...fields,
+    })));
+    const rendered = await ready(options);
+    await waitFor(() => expect(rendered.result.current.character?.name).toBe('Education Player'));
+    return rendered;
+  }
+
+  it('quotes without writing and confirms exactly once in StrictMode', async () => {
+    const { result } = await loadEducationLife({}, { wrapper: StrictMode });
+    const history = result.current.history;
+    expect(result.current.quoteEducation('bachelor')).toMatchObject({ eligible: true, preview: { firstYearTuition: 20000, bankAfterEnrollment: 80000 } });
+    expect(result.current.history).toBe(history);
+    expect(result.current.bank).toBe(100000);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    let decision;
+    act(() => { decision = result.current.enrollInDegree('bachelor', {
+      actionId: 'first-degree', expectedBasis: result.current.quoteEducation('bachelor').basis,
+    }); });
+    expect(decision.result.status).toBe('committed');
+    expect(result.current.bank).toBe(80000);
+    expect(result.current.education.currentDegree.yearsInProgram).toBe(1);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    const [path, save, options] = backend.setDoc.mock.calls[0];
+    expect(path).toBe('users/guest/saves/currentLife');
+    expect(save).toMatchObject({ bank: 80000, education: result.current.education, history: result.current.history, ...preserved });
+    expect(Object.keys(save).sort()).toEqual([...LIFE_SAVE_KEYS].sort());
+    expect(options).toEqual({ mergeFields: Object.keys(save) });
+    await waitFor(() => expect(result.current.lastEducationAction.saveStatus).toBe('saved'));
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(['education-first', 'career-first'])('serializes %s snapshots while acknowledging each domain independently', async order => {
+    const { result } = await loadEducationLife();
+    const first = deferred(), second = deferred();
+    backend.setDoc.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    let education, career;
+    act(() => {
+      if (order === 'career-first') career = result.current.chooseCareer('barista', { actionId: 'career' });
+      education = result.current.enrollInDegree('bachelor', { actionId: 'education' });
+      if (order === 'education-first') career = result.current.chooseCareer('barista', { actionId: 'career' });
+    });
+    expect(education.result.status).toBe('committed');
+    expect(career.result.status).toBe('committed');
+    expect(result.current.bank).toBe(80000);
+    expect(result.current.career.id).toBe('barista');
+    expect(result.current.history.map(entry => entry.action.id)).toEqual(order === 'education-first' ? ['education', 'career'] : ['career', 'education']);
+    expect(result.current.lastEducationAction.saveStatus).toBe('pending');
+    expect(result.current.lastCareerAction.saveStatus).toBe('pending');
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    const firstDecision = order === 'education-first' ? education : career;
+    await act(async () => { first.resolve(); expect(await firstDecision.persistence).toMatchObject({ status: 'saved' }); });
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+    const [, combined, options] = backend.setDoc.mock.calls[1];
+    expect(combined).toMatchObject({ ...preserved, bank: 80000, education: result.current.education, career: result.current.career, history: result.current.history });
+    expect(options).toEqual({ mergeFields: Object.keys(combined) });
+    expect(result.current.lastEducationAction.saveStatus).toBe(order === 'education-first' ? 'saved' : 'pending');
+    expect(result.current.lastCareerAction.saveStatus).toBe(order === 'career-first' ? 'saved' : 'pending');
+    await act(async () => { second.resolve(); expect(await (order === 'education-first' ? career : education).persistence).toMatchObject({ status: 'saved' }); });
+    expect(result.current.lastEducationAction.saveStatus).toBe('saved');
+    expect(result.current.lastCareerAction.saveStatus).toBe('saved');
+  });
+
+  it.each(['education-first', 'career-first'])('rejects a cross-domain ID conflict for %s without a second write', async order => {
+    const { result } = await loadEducationLife();
+    let committed, conflict;
+    act(() => {
+      committed = order === 'education-first'
+        ? result.current.enrollInDegree('bachelor', { actionId: 'shared-id' })
+        : result.current.chooseCareer('barista', { actionId: 'shared-id' });
+      conflict = order === 'education-first'
+        ? result.current.chooseCareer('barista', { actionId: 'shared-id' })
+        : result.current.enrollInDegree('bachelor', { actionId: 'shared-id' });
+    });
+    expect(conflict.result).toMatchObject({ status: 'rejected', code: 'action_id_conflict' });
+    expect(conflict.persistence).toBeNull();
+    expect(result.current.history).toHaveLength(1);
+    expect(result.current.bank).toBe(order === 'education-first' ? 80000 : 100000);
+    await act(async () => { await committed.persistence; });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a duplicate pending receipt visible without charging or saving twice', async () => {
+    const { result } = await loadEducationLife();
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    let first, duplicate;
+    act(() => { first = result.current.enrollInDegree('bachelor', { actionId: 'once' }); });
+    const feedback = result.current.lastEducationAction;
+    act(() => { duplicate = result.current.enrollInDegree('bachelor', { actionId: 'once' }); });
+    expect(duplicate.result).toMatchObject({ status: 'noop', code: 'duplicate_action' });
+    expect(duplicate.persistence).toBeNull();
+    expect(result.current.lastEducationAction).toBe(feedback);
+    expect(result.current.bank).toBe(80000);
+    expect(result.current.history).toHaveLength(1);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    await act(async () => { pending.resolve(); await first.persistence; });
+    expect(result.current.lastEducationAction.saveStatus).toBe('saved');
+  });
+
+  it('rejects a second fresh ID in the same turn without a second charge, history entry, or write', async () => {
+    const { result } = await loadEducationLife();
+    let first, second;
+    act(() => {
+      first = result.current.enrollInDegree('bachelor', { actionId: 'first' });
+      second = result.current.enrollInDegree('associate', { actionId: 'second' });
+    });
+    expect(second.result).toMatchObject({ status: 'rejected', code: 'already_enrolled' });
+    expect(second.persistence).toBeNull();
+    expect(result.current.lastEducationAction).toMatchObject({ actionId: 'second', saveStatus: 'not_requested' });
+    expect(result.current.bank).toBe(80000);
+    expect(result.current.education.currentDegree.type).toBe('bachelor');
+    expect(result.current.history).toHaveLength(1);
+    await act(async () => { await first.persistence; });
+    expect(result.current.lastEducationAction).toMatchObject({ actionId: 'second', saveStatus: 'not_requested' });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['resolve', 'reject'])('keeps enrollment committed while deferred storage completes by %s', async completion => {
+    const { result } = await loadEducationLife();
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    let decision;
+    act(() => { decision = result.current.enrollInDegree('bachelor', { actionId: 'receipt' }); });
+    const committed = { bank: result.current.bank, education: result.current.education, history: result.current.history };
+    expect(result.current.lastEducationAction).toMatchObject({ actionId: 'receipt', result: { status: 'committed' }, saveStatus: 'pending' });
+    await act(async () => {
+      pending[completion](completion === 'reject' ? new Error('SECRET provider rejection') : undefined);
+      expect(await decision.persistence).toMatchObject({ status: completion === 'resolve' ? 'saved' : 'failed', operationId: expect.any(String) });
+    });
+    expect(result.current).toMatchObject(committed);
+    expect(result.current.lastEducationAction.saveStatus).toBe(completion === 'resolve' ? 'saved' : 'failed');
+    expect(JSON.stringify(result.current.lastEducationAction)).not.toContain('SECRET');
+  });
+
+  it('reports skipped when Firebase is unconfigured without requiring an age gate', async () => {
+    backend.configured = false;
+    const { result } = renderHook(() => useGameState());
+    act(() => result.current.startLife('Offline', 'Female', 'US'));
+    act(() => result.current.debugGrantDegree('highSchool'));
+    act(() => result.current.debugModifyBank(100000));
+    let decision;
+    act(() => { decision = result.current.enrollInDegree('bachelor'); });
+    expect(decision.result.status).toBe('committed');
+    await act(async () => { expect(await decision.persistence).toMatchObject({ status: 'skipped' }); });
+    expect(result.current.lastEducationAction.saveStatus).toBe('skipped');
+    expect(result.current.bank).toBe(80000);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { fields: { bank: 19999 }, target: 'bachelor', code: 'insufficient_funds' },
+    { fields: { education: { ...INITIAL_EDUCATION } }, target: 'bachelor', code: 'prerequisite_required' },
+    { fields: {}, target: 'highSchool', code: 'unknown_degree' },
+    { fields: { isDead: true }, target: 'bachelor', code: 'dead' },
+  ])('rejects $code without history or persistence', async ({ fields, target, code }) => {
+    const { result } = await loadEducationLife(fields);
+    const before = { bank: result.current.bank, education: result.current.education, history: result.current.history };
+    let decision;
+    act(() => { decision = result.current.enrollInDegree(target); });
+    expect(decision.result).toMatchObject({ status: 'rejected', code });
+    expect(decision.persistence).toBeNull();
+    expect(result.current).toMatchObject(before);
+    expect(result.current.lastEducationAction.saveStatus).toBe('not_requested');
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('rejects a captured stale quote and commits only after explicit refreshed confirmation', async () => {
+    const { result } = await loadEducationLife();
+    const quote = result.current.quoteEducation('bachelor');
+    act(() => result.current.debugModifyBank(100));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    backend.setDoc.mockClear();
+    let stale, fresh;
+    act(() => { stale = result.current.enrollInDegree('bachelor', { actionId: 'stale', expectedBasis: quote.basis }); });
+    expect(stale.result).toMatchObject({ status: 'rejected', code: 'stale_quote' });
+    expect(stale.persistence).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    act(() => { fresh = result.current.enrollInDegree('bachelor', { actionId: 'fresh', expectedBasis: result.current.quoteEducation('bachelor').basis }); });
+    await act(async () => { await fresh.persistence; });
+    expect(result.current.bank).toBe(80100);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['startLife', 'resetLife', 'hydration', 'switch', 'signout', 'unmount'])('invalidates both pending domain receipts across %s', async boundary => {
+    if (boundary === 'signout') backend.auth.currentUser = user('signed-in', false);
+    const { result, unmount } = await loadEducationLife();
+    const first = deferred(), second = deferred();
+    backend.setDoc.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    let education, career;
+    act(() => {
+      education = result.current.enrollInDegree('bachelor', { actionId: 'old-education' });
+      career = result.current.chooseCareer('barista', { actionId: 'old-career' });
+    });
+    const before = { education: result.current.lastEducationAction, career: result.current.lastCareerAction };
+    expect(before.education.saveStatus).toBe('pending');
+    expect(before.career.saveStatus).toBe('pending');
+    async function settleOldReceipts() {
+      await act(async () => { first.resolve(); await education.persistence; });
+      await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+      await act(async () => { second.resolve(); await career.persistence; });
+    }
+    if (boundary === 'startLife' || boundary === 'resetLife') act(() => result.current[boundary]('New', 'Female', 'US'));
+    if (boundary === 'switch' || boundary === 'hydration') {
+      const load = deferred();
+      backend.getDoc.mockReturnValueOnce(load.promise);
+      backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('other', false) });
+      let switching;
+      await act(async () => { switching = result.current.signInWithEmail('other@example.com', 'fixture-password', 'signin'); });
+      expect(result.current.character).toBeNull();
+      expect(result.current.lastEducationAction).toBeNull();
+      expect(result.current.lastCareerAction).toBeNull();
+      if (boundary === 'hydration') {
+        await settleOldReceipts();
+        expect(result.current.lastEducationAction).toBeNull();
+        expect(result.current.lastCareerAction).toBeNull();
+      }
+      // Reach hydration through a genuine clear/load, never an inaccessible product setter.
+      await act(async () => { load.resolve(snapshot(savedLife('Other life'))); await switching; });
+      expect(result.current.character.name).toBe('Other life');
+    }
+    if (boundary === 'signout') await act(async () => { await result.current.signOutAccount(); });
+    if (boundary === 'unmount') unmount();
+    else {
+      expect(result.current.lastEducationAction).toBeNull();
+      expect(result.current.lastCareerAction).toBeNull();
+    }
+    if (boundary !== 'hydration') await settleOldReceipts();
+    expect(result.current.lastEducationAction).toBe(boundary === 'unmount' ? before.education : null);
+    expect(result.current.lastCareerAction).toBe(boundary === 'unmount' ? before.career : null);
+  });
+
+  it('boot hydration clears rejected pre-hydration domain feedback without manufacturing a valid blank life', async () => {
+    const boot = deferred();
+    backend.getDoc.mockReturnValueOnce(boot.promise);
+    const { result } = await ready();
+    act(() => {
+      expect(result.current.enrollInDegree('bachelor').result).toMatchObject({ status: 'rejected', code: 'invalid_state' });
+      expect(result.current.chooseCareer('barista').result.status).toBe('rejected');
+    });
+    expect(result.current.lastEducationAction.saveStatus).toBe('not_requested');
+    expect(result.current.lastCareerAction.saveStatus).toBe('not_requested');
+    await act(async () => { boot.resolve(snapshot(savedLife('Hydrated life'))); });
+    expect(result.current.character.name).toBe('Hydrated life');
+    expect(result.current.lastEducationAction).toBeNull();
+    expect(result.current.lastCareerAction).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('remounts the actual acknowledged enrollment once and replays without a save', async () => {
+    const legacy = { age: 17, text: 'Finished school' };
+    const { result, unmount } = await loadEducationLife({ history: [legacy] });
+    let decision;
+    act(() => { decision = result.current.enrollInDegree('bachelor', { actionId: 'restore-education' }); });
+    await act(async () => { await decision.persistence; });
+    const acknowledged = structuredClone(backend.setDoc.mock.calls[0][1]);
+    unmount();
+    const reloaded = await loadEducationLife(acknowledged);
+    expect(reloaded.result.current.bank).toBe(80000);
+    expect(reloaded.result.current.education.currentDegree.yearsInProgram).toBe(1);
+    expect(reloaded.result.current.history).toEqual([legacy, decision.result.patch.history[1]]);
+    expect(reloaded.result.current.lastEducationAction).toBeNull();
+    expect(reloaded.result.current.lastCareerAction).toBeNull();
+    expect(reloaded.result.current.flags).toEqual(preserved.flags);
+    expect(reloaded.result.current.activitiesThisYear).toEqual(preserved.activitiesThisYear);
+    backend.setDoc.mockClear();
+    let replay;
+    act(() => { replay = reloaded.result.current.enrollInDegree('bachelor', { actionId: 'restore-education' }); });
+    expect(replay.result).toMatchObject({ status: 'noop', code: 'duplicate_action' });
+    expect(replay.persistence).toBeNull();
+    expect(reloaded.result.current.bank).toBe(80000);
+    expect(reloaded.result.current.history).toHaveLength(2);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('rejects education during the annual await and unresolved offer, including the same tick', async () => {
+    const { result } = await loadEducationLife();
+    const pending = deferred();
+    generateDynamicEvent.mockReturnValueOnce(pending.promise);
+    let aging, locked;
+    act(() => {
+      aging = result.current.ageUp();
+      locked = result.current.enrollInDegree('bachelor');
+    });
+    expect(locked.result).toMatchObject({ status: 'rejected', code: 'action_locked' });
+    expect(locked.persistence).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    act(() => expect(result.current.enrollInDegree('bachelor').result.code).toBe('action_locked'));
+    await act(async () => { pending.resolve({ description: 'Continue', choices: [{ text: 'OK', effects: {} }] }); await aging; });
+    const writes = backend.setDoc.mock.calls.length;
+    act(() => {
+      const blocked = result.current.enrollInDegree('bachelor');
+      expect(blocked.result).toMatchObject({ status: 'rejected', code: 'action_locked' });
+      expect(blocked.persistence).toBeNull();
+    });
+    expect(backend.setDoc).toHaveBeenCalledTimes(writes);
+    expect(result.current.education.currentDegree).toBeNull();
+  });
+
+  it('honors an event installed before the same act has rendered', async () => {
+    const { result } = await loadEducationLife();
+    let blocked;
+    await act(async () => {
+      await result.current.triggerActivityEvent('A new opportunity');
+      blocked = result.current.enrollInDegree('bachelor');
+    });
+    expect(blocked.result).toMatchObject({ status: 'rejected', code: 'action_locked' });
+    expect(blocked.persistence).toBeNull();
+    expect(result.current.education.currentDegree).toBeNull();
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the eager choice lock and commits against the latest post-choice bank and history', async () => {
+    const { result } = await loadEducationLife({ currentEvent: {
+      version: 1, id: 'tuition-gift', age: 18, source: 'annual', description: 'A tuition gift',
+      choices: [{ text: 'Accept gift', effects: { bank: 20000, flags: ['gift_received'] } }],
+    } });
+    const first = deferred(), second = deferred();
+    backend.setDoc.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    let choice, education;
+    act(() => {
+      choice = result.current.handleChoice('tuition-gift', 0);
+      const quote = result.current.quoteEducation('bachelor');
+      expect(quote.preview.bankBefore).toBe(120000);
+      education = result.current.enrollInDegree('bachelor', { actionId: 'after-choice', expectedBasis: quote.basis });
+    });
+    expect(education.result.status).toBe('committed');
+    expect(result.current.bank).toBe(100000);
+    expect(result.current.history).toHaveLength(2);
+    expect(result.current.history[0].text).toContain('Accept gift');
+    expect(result.current.history[1].action.beforeBank).toBe(120000);
+    expect(result.current.lastContinuitySave).toBeNull();
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    await act(async () => { first.resolve(); await choice.persistence; });
+    expect(result.current.lastContinuitySave).toBeNull();
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+    expect(backend.setDoc.mock.calls[1][1]).toMatchObject({ bank: 100000, currentEvent: null, flags: ['opportunity_seen', 'gift_received'], history: result.current.history });
+    await act(async () => { second.resolve(); await education.persistence; });
+  });
+
+  it.each(['pending', 'saved'])('enrollment supersedes %s continuity feedback and obsolete receipts cannot restore it', async status => {
+    const { result } = await loadEducationLife();
+    const first = deferred(), second = deferred();
+    backend.setDoc.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    act(() => result.current.consumeYearlyActivity('health', 'Run', 1));
+    if (status === 'saved') await act(async () => first.resolve());
+    expect(result.current.lastContinuitySave.saveStatus).toBe(status);
+    let education;
+    act(() => { education = result.current.enrollInDegree('bachelor'); });
+    expect(result.current.lastEducationAction.saveStatus).toBe('pending');
+    expect(result.current.lastContinuitySave).toBeNull();
+    if (status === 'pending') await act(async () => first.resolve());
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+    expect(result.current.lastContinuitySave).toBeNull();
+    expect(backend.setDoc.mock.calls[1][1]).toMatchObject({ flags: preserved.flags, activitiesThisYear: { ...preserved.activitiesThisYear, health__Run: 1 }, currentEvent: null });
+    await act(async () => { second.resolve(); await education.persistence; });
+    expect(result.current.lastEducationAction.saveStatus).toBe('saved');
+    expect(result.current.lastContinuitySave).toBeNull();
   });
 });
