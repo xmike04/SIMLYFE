@@ -16,8 +16,10 @@ Life strategy first: planning, trade-offs, and lasting consequences, with AI mak
 
 Does it create a meaningful planning decision or clarify an existing trade-off? Do its consequences carry forward? Can the player understand what happened and why? Can its engine rules, persistence, and failure behavior be verified? Does AI add personal context while preserving the facts?
 
-## First proving ground
+## Completed proving grounds
 
-Standard career selection, switching, and quitting now follow quote → confirm → resolve → commit → save → acknowledge. Players see base/city-adjusted annual salary, requirements, annual role effects, and what replacing or leaving employment means. The reusable contract is proven through this domain; other commands remain on their existing paths.
+Standard career selection, switching, and quitting now follow quote → confirm → resolve → commit → save → acknowledge. Players see base/city-adjusted annual salary, requirements, annual role effects, and what replacing or leaving employment means.
 
-This slice prepares bounded factual input for future narration. It adds no new inference calls and leaves the annual interactive event intact. Interviews, negotiation, rejection cooldowns, autonomous NPCs, long-term generated-story continuity, and new strategic systems require separate plans and playtesting. Pricing and market claims are not part of this product promise.
+Higher-degree enrollment now follows that workflow through a separate education contract. Players review exact prerequisites, first-year and future tuition, balance after enrollment, later Age clicks, projected completion age, bonuses, and the PhD annual happiness effect before confirming. Enrollment commits bank, education, and one consequence record together; its outcome separates session progress from an acknowledged save, and reloading restores the last acknowledged life. Stored program terms drive the enrolled progress display. Other commands retain their existing paths.
+
+These two proving grounds prepare bounded factual input for future narration. They add no new AI calls and leave the annual interactive event intact. Interviews, negotiation, rejection cooldowns, autonomous NPCs, long-term generated-story continuity, and new strategic systems require separate plans and playtesting. Pricing and market claims are not part of this product promise.

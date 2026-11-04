@@ -109,9 +109,9 @@ Firestore `{ merge: true }` would recursively merge nonempty maps. After a faile
 
 `lifeSnapshotRef` tracks the current life on render and is updated eagerly by `persistLife`. React state updates have not necessarily flushed when a handler writes. Every field changed by that handler must therefore appear in its persistence overrides.
 
-### Career decision workflow
+### Career and education decision workflows
 
-Standard career selection, switching, and voluntary quitting use a shared action boundary:
+Standard career selection, switching, voluntary quitting, and higher-degree enrollment use an explicit action boundary:
 
 `read-only quote → confirm → pure resolution → commit → request save → acknowledge save`
 
@@ -120,6 +120,12 @@ Standard career selection, switching, and voluntary quitting use a shared action
 Committed decisions append `{ age, text, action }` to existing history. `action.version = 1` carries the command ID, action type, target, before/after career IDs and salaries, and outcome code. Legacy `{ age, text }` entries remain valid. No top-level save fields are added. Metadata records the historical decision; current `career` and `careerMeta` remain authoritative.
 
 `quoteCareer` exposes requirements and trade-offs without mutation. `lastCareerAction` is transient and reports the engine outcome separately from `saveStatus`: `pending`, `saved`, `failed`, `skipped`, or `not_requested`. Start/reset/hydration/account changes invalidate feedback; an older receipt cannot replace a newer decision's feedback. `chooseCareer(jobId, { actionId, expectedBasis })` returns `{ result, persistence }`. A deterministic quote basis covers age, employment/progress, education/stats/networking, city, and selected catalog terms. Changed circumstances reject a confirmation; the player must review a refreshed quote and explicitly confirm again. Reusing a committed ID with a different target rejects with `action_id_conflict`. A rejected or no-op action requests no save. A save failure leaves the already committed session state intact.
+
+[educationActions.js](../src/engine/actions/educationActions.js) provides the read-only enrollment quote and pure resolver. `quoteEducation(degreeType)` reads the latest eager snapshot; `enrollInDegree(degreeType, { actionId, expectedBasis })` returns `{ result, persistence }`. The captured quote covers the selected terms, character, age, living state, education, bank, and stats; reordered keys and history-only changes do not invalidate it. Confirming stale circumstances refreshes the preview and requires another explicit confirmation. A matching validated prior ID, type, and target is a no-op; reusing an ID across types or targets rejects. `actionResult.js` dispatches only the explicit `career.choose` and `education.enroll` contracts, rather than accepting arbitrary action types or patches.
+
+An education commitment applies exactly bank, education, and history, then calls `persistLife` once outside React updaters. Its version-1 `history[].action` stores the ID, type, target, before/after bank, first-year and annual tuition, total years, initial paid-year counter, and outcome code. Existing text-only history and career records remain valid. The current education and bank remain authoritative; enrollment adds no top-level save fields and preserves continuity fields and ordinary-save mask semantics.
+
+[EducationActionPanel.jsx](../src/components/sheets/EducationActionPanel.jsx) previews prerequisites, tuition, balance, timing, and completion effects before commitment. Cancel requests no write. Enrollment leaves the sheet open with `lastEducationAction` feedback: session commitment first, then the command's acknowledged receipt. Failed/unavailable saves retain session enrollment and explain that reload uses the last acknowledged save. Education and career feedback have separate receipt ownership within the same lifecycle revision; a receipt cannot replace a newer result or feedback from another life. Start/reset, hydration, account clearing, and unmount invalidate both. JobSheet shows the applicable domain outcome, keeps Continue/close available, and disables consequential career/education selection while either save is pending. Progress is read from stored enrollment terms through `summarizeDegreeProgress`, without migrating saves.
 
 `syncToCloud` returns `{ status, operationId, errorClass }`, where status is `saved`, `failed`, or `skipped` (unavailable configuration). Only an acknowledged `setDoc` produces `saved`. Calls capture their payload, write options and target account; [saveQueue.js](../src/engine/cloud/saveQueue.js) provides per-account queues that serialize local merges and life-boundary replacements, and a failed write does not block later writes. This establishes ordering in this mounted client, not cross-device conflict safety or durable offline storage. Pending reads are scoped to the account generation and life revision.
 

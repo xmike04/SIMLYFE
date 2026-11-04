@@ -121,16 +121,22 @@ A surviving startup pays a dividend of 10% of its new equity, rounded down, and 
 
 High school is granted automatically at age 18 or the next annual tick for an older life missing the diploma. The higher-degree prerequisites form two branches after high school; an associate degree is not required before a bachelor degree.
 
-| Degree | Required completion | Program years | Annual tuition | Completion smarts bonus |
-|---|---|---:|---:|---:|
-| Associate | High school | 2 | $10,000 | +3 |
-| Bachelor | High school | 4 | $20,000 | +10 |
-| Master | Bachelor | 2 | $30,000 | +5 |
-| PhD | Master | 4 | $0 | +3 |
+| Degree | Required completion | Program years | Pay now / annual tuition | Remaining tuition | Total tuition | Later Age clicks | Completion smarts bonus |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Associate | High school | 2 | $10,000 | $10,000 | $20,000 | 1 | +3 |
+| Bachelor | High school | 4 | $20,000 | $60,000 | $80,000 | 3 | +10 |
+| Master | Bachelor | 2 | $30,000 | $30,000 | $60,000 | 1 | +5 |
+| PhD | Master | 4 | $0 | $0 | $0 | 3 | +3 |
 
-Enrollment charges the first year's tuition and initializes `yearsInProgram` to 1. Subsequent ticks charge and increment until `totalYears`; an N-year program costs exactly N annual payments. The paid-year counter means completion can occur after N−1 subsequent age clicks. Legacy saves at counter zero advance to one without paying the already-prepaid first year again.
+Job → Education opens a read-only degree preview. It shows the specific prerequisite, tuition commitment, balance after enrollment, later Age-click count, projected completion age, and bonuses. Cancel changes nothing. Confirm rechecks the captured quote against current circumstances before charging the first year's tuition and initializing `yearsInProgram` to 1. A changed quote requires review and another confirmation. There is no new admissions, loan, cancellation, or refund mechanic. Already-earned selectable degrees are hidden and another program cannot be enrolled in while one is active; high school remains automatic and Trade/Vocational School retains its existing narrative action.
 
-Completion adds 3 happiness as well as the smarts bonus. PhD study deducts 20 happiness on each enrolled annual tick. Career degree requirements use minimum rank, so higher completed degrees satisfy lower requirements; enrollment prerequisites use the specific prerequisite flags in [education.js](../src/engine/mechanics/education.js).
+Subsequent ticks charge and increment until `totalYears`; an N-year program costs exactly N annual payments. The paid-year counter means completion can occur after N−1 subsequent Age clicks. Projected age assumes uninterrupted annual progression in this life. Enrollment requires enough bank for the first payment, including a nonnegative bank for a $0 PhD; later tuition can make the balance negative. Annual tuition still runs before income and lifestyle costs.
+
+The enrolled progress display uses stored `annualCost` and `totalYears`. Legacy saves at counter zero show one prepaid year and advance to one without paying that year again, but still need `totalYears` later Age clicks. A saved final-year program completes on its next annual tick. Missing or malformed progress gets no summary and is not migrated.
+
+Completion adds 3 happiness as well as the smarts bonus. PhD enrollment has no immediate happiness debit. Each later enrolled annual tick deducts 20 happiness, including the completion tick; the +3 completion bonus follows that deduction. A normal PhD has three such ticks, while a legacy counter-zero PhD has four. Existing 0–100 clamping means the net change depends on current happiness. Career degree requirements use minimum rank, so higher completed degrees satisfy lower requirements; enrollment prerequisites use the specific prerequisite flags in [education.js](../src/engine/mechanics/education.js). A completed PhD alone does not substitute for a missing master flag when enrolling in a PhD.
+
+The education outcome distinguishes session commitment from cloud acknowledgment. Saving or failed enrollment can reload an older bank/program state; only an acknowledged save guarantees this client's reload result. Enrollment records one versioned `education.enroll` consequence in existing history without generating an AI event.
 
 ## Assets and markets
 
