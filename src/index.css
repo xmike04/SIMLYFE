@@ -193,6 +193,8 @@ p { color: var(--text-secondary); line-height: 1.5; }
 .mt-auto { margin-top: auto; }
 .text-center { text-align: center; }
 .flex-center { display: flex; justify-content: center; align-items: center; }
+/* Keep the beginning of an overflowing death summary inside its scroll range. */
+.death-screen { align-items: safe center; }
 .flex-column { display: flex; flex-direction: column; gap: 1rem; }
 
 .career-decision,

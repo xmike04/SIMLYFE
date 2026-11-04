@@ -43,7 +43,7 @@ export default function DeathScreen({ engine }) {
   const epitaph = EPITAPH_MAP[dominantStat] ?? 'They lived. That was enough.';
 
   return (
-    <div className="flex-center animate-fade-in" style={{ height: '100%', padding: '20px', overflowY: 'auto' }}>
+    <div className="flex-center death-screen animate-fade-in" style={{ height: '100%', padding: '20px', overflowY: 'auto' }}>
       <div className="glass-panel text-center" style={{ width: '100%', border: '1px solid var(--health-color)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--health-color)' }} />
         <h2 className="mb-4 mt-2" style={{ color: 'var(--health-color)', fontSize: '2rem' }}>The End.</h2>

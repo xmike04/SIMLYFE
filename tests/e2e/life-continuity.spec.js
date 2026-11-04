@@ -84,6 +84,33 @@ function noNetworkGeneration(fixture) {
   expect(fixture.firebaseRequests.filter(request => request.type === 'firestore')).toHaveLength(0);
 }
 
+async function expectInsideScrollport(locator) {
+  await locator.scrollIntoViewIfNeeded();
+  const bounds = await locator.evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    let top = 0, bottom = innerHeight, left = 0, right = innerWidth;
+    for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      const box = parent.getBoundingClientRect();
+      if (/auto|scroll|hidden|clip/.test(style.overflowY)) {
+        top = Math.max(top, box.top + parent.clientTop);
+        bottom = Math.min(bottom, box.top + parent.clientTop + parent.clientHeight);
+      }
+      if (/auto|scroll|hidden|clip/.test(style.overflowX)) {
+        left = Math.max(left, box.left + parent.clientLeft);
+        right = Math.min(right, box.left + parent.clientLeft + parent.clientWidth);
+      }
+    }
+    return {
+      element: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+      scrollport: { top, bottom, left, right },
+      fullyInside: rect.top >= top - 0.5 && rect.bottom <= bottom + 0.5 && rect.left >= left - 0.5 && rect.right <= right + 0.5,
+    };
+  });
+  expect(bounds, JSON.stringify(bounds)).toMatchObject({ fullyInside: true });
+  return bounds;
+}
+
 test('A: acknowledged ordinary choice restores unchanged and resolves once', async ({ page }, testInfo) => {
   const fixture = await bootContinuity(page, { currentEvent: event });
   await page.reload();
@@ -301,6 +328,40 @@ test('F: actual annual death exposes pending, failed and acknowledged year saves
   expect(await page.evaluate(() => globalThis.__continuityCloud.writes)).toBe(0);
   noNetworkGeneration(fixture);
 });
+
+for (const childCount of [0, 3]) {
+  test(`F: rich annual-death summary with ${childCount} child bequests keeps the failed receipt and Live Again reachable`, async ({ page }, testInfo) => {
+    const fixture = await bootContinuity(page, {
+      age: 99, bank: 500000,
+      career: { title: 'Software Engineer', salary: 100000 },
+      properties: [{ currentValue: 100000 }],
+      belongings: [{ subType: 'stock', currentValue: 50000 }],
+      will: { allocations: [], draftedAtAge: 99 },
+      relationships: Array.from({ length: childCount }, (_, i) => ({
+        id: `child-${i}`, name: `Child ${i + 1}`, type: 'Child', status: 'family', age: 30, relation: 70, isAlive: true,
+      })),
+    });
+    await page.getByRole('button', { name: /^\+ Age$/ }).click();
+    await expect(page.getByRole('heading', { name: 'The End.' })).toBeVisible();
+    await expect(status(page)).toHaveText('Saving year progress…');
+    await expect.poll(() => page.evaluate(() => globalThis.__continuityCloud.pending.length)).toBe(1);
+    await page.evaluate(() => globalThis.__continuityCloud.fail());
+    await expect(status(page)).toHaveCount(1);
+    await expect(status(page)).toHaveText('Year progress remains in this session, but saving failed. Reloading may restore an older save.');
+    const receipt = await expectInsideScrollport(status(page));
+    await evidence(page, testInfo, `rich-estate-${childCount}-failed-receipt`);
+    const liveAgain = page.getByRole('button', { name: 'Live Again', exact: true });
+    const restart = await expectInsideScrollport(liveAgain);
+    await testInfo.attach('rich-estate-reachable-bounds', { body: JSON.stringify({ receipt, restart }, null, 2), contentType: 'application/json' });
+    await evidence(page, testInfo, `rich-estate-${childCount}-live-again`);
+    await liveAgain.click();
+    const enter = page.getByRole('button', { name: 'Begin Your Life', exact: true });
+    if (await enter.count()) await enter.click();
+    await expect(page.getByRole('heading', { name: 'Start a Life', exact: true })).toBeVisible();
+    await expect(status(page)).toHaveCount(0);
+    noNetworkGeneration(fixture);
+  });
+}
 
 test('F: actual Live Again and newborn replacement leave no prior continuity or history after reload', async ({ page }, testInfo) => {
   const fixture = await bootContinuity(page, { isDead: true, currentEvent: event, activitiesThisYear: { vacation__Staycation: 1 } });

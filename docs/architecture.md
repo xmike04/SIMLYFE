@@ -127,7 +127,7 @@ Committed decisions append `{ age, text, action }` to existing history. `action.
 
 ### Death restart flow
 
-1. A death result sets `isDead: true` and persists the final life. DeathScreen shows the tracked annual save status; a pending or failed write can reload the previously acknowledged living year.
+1. A death result sets `isDead: true` and persists the final life. DeathScreen shows the tracked annual save status; a pending or failed write can reload the previously acknowledged living year. Its summary stays centered when it fits and starts at the reachable top edge when it overflows, keeping the receipt and Live Again accessible by scrolling.
 2. **Live Again** calls `resetLife()`.
 3. Reset clears local state and replaces the cloud document with a blank `buildLifeSave` payload, including `career: null`, `pets: []`, and `isDead: false`.
 4. `App` routes to character creation; `startLife` replaces the document again with the newborn life.
