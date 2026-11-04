@@ -2333,6 +2333,48 @@ describe('owned account recovery readiness', () => {
     expect(backend.getDoc).toHaveBeenCalledTimes(1);
   });
 
+  it('an abandoned Google collision cannot switch the remounted owner or bypass its pending read', async () => {
+    const first = await ready();
+    const popup = deferred(), remountRead = deferred();
+    backend.linkWithPopup.mockReturnValueOnce(popup.promise);
+    backend.signInWithCredential.mockImplementation(async () => {
+      backend.auth.currentUser = user('unexpected-owner', false);
+      return { user: backend.auth.currentUser };
+    });
+    let signingIn;
+    await act(async () => { signingIn = first.result.current.signInWithGoogle(); });
+    expect(backend.linkWithPopup).toHaveBeenCalledTimes(1);
+    first.unmount();
+    backend.getDoc.mockReturnValueOnce(remountRead.promise);
+    const second = renderHook(() => useGameState());
+    await waitFor(() => expect(backend.unsubscribe).toHaveBeenCalledTimes(2));
+    expect(second.result.current.cloudLoadState).toEqual({ status: 'loading', accountId: null, reason: null });
+    expect(backend.getDoc).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      popup.reject({ code: 'auth/credential-already-in-use', credential: 'fixture-credential' });
+      expect(await signingIn).toEqual({ ok: false, reason: 'stale' });
+    });
+    await waitFor(() => expect(backend.getDoc).toHaveBeenCalledTimes(2));
+    expect({ fallbackCalls: backend.signInWithCredential.mock.calls.length, adoptedUid: second.result.current.authAccount.uid })
+      .toEqual({ fallbackCalls: 0, adoptedUid: 'guest' });
+    expect(backend.auth.currentUser.uid).toBe('guest');
+    expect(backend.getDoc.mock.calls).toEqual([
+      ['users/guest/saves/currentLife'], ['users/guest/saves/currentLife'],
+    ]);
+    expect(second.result.current.cloudLoadState).toEqual({ status: 'loading', accountId: 'guest', reason: null });
+    act(() => {
+      expect(second.result.current.startLife('New', 'Female', 'US').code).toBe('account_load_blocked');
+      expect(second.result.current.resetLife().code).toBe('account_load_blocked');
+    });
+    expect(second.result.current.character).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    await act(async () => remountRead.resolve(snapshot(null)));
+    expect(second.result.current.cloudLoadState).toEqual({ status: 'missing', accountId: 'guest', reason: null });
+    expect(second.result.current.authAccount.uid).toBe('guest');
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    expect(backend.signInAnonymously).not.toHaveBeenCalled();
+  });
+
   it.each(['null', 'error'])('unmounted/abandoned StrictMode observer %s never mutates providers', async completion => {
     const observers = [];
     backend.observe = (_auth, next, error) => { observers.push({ next, error }); return backend.unsubscribe; };

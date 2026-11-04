@@ -48,9 +48,9 @@ retirement dates, and required live verification are tracked in
 
 ## View routing
 
-[App.jsx](../src/App.jsx) selects one of three routes:
+[App.jsx](../src/App.jsx) shows the initial session splash for a blank life until dismissed, unless a life was already visible. It then gates loading or failed account reads with `CloudLoadScreen` before selecting one of three ready-life routes:
 
-1. No character and not dead: session splash, then `CharacterCreation`.
+1. No character and not dead: `CharacterCreation`.
 2. Dead: `DeathScreen`.
 3. Living character: `MainGame`, plus `EventModal` when an event is open.
 

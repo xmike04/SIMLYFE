@@ -292,7 +292,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     }
   };
 
-  const signInWithGoogle = () => changeSession(async (backend, adopt) => {
+  const signInWithGoogle = () => changeSession(async (backend, adopt, owns) => {
     const { auth, authApi } = backend;
     const { GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential } = authApi;
     const provider = new GoogleAuthProvider();
@@ -303,6 +303,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       else if (current) { user = (await linkWithPopup(current, provider)).user; mode = 'linked'; }
       else { user = (await signInWithPopup(auth, provider)).user; mode = 'signed_in'; }
     } catch (error) {
+      if (!owns()) return { outcome: stale() };
       if (error?.code === 'auth/credential-already-in-use') {
         const credential = GoogleAuthProvider.credentialFromError(error);
         if (!credential) return { outcome: { ok: false, reason: 'error' } };
