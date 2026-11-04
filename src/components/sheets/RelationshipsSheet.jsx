@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ActionSheet from '../ActionSheet';
 import { getWealthTier } from '../../config/wealthTiers';
+import { giftRelationshipGain } from '../../engine/mechanics/relationships';
 
 const getMood = (relation) => {
   if (relation >= 75) return { emoji: '😊', label: 'Happy',   color: '#4ade80' };
@@ -83,9 +84,9 @@ export default function RelationshipsSheet({
 
               {/* Gifts — amounts scale with wealth tier */}
               <div style={{ display: 'flex', gap: '6px' }}>
-                {tier.giftAmounts.map((amt, gi) => {
+                {tier.giftAmounts.map(amt => {
                   const canAfford = bank >= amt;
-                  const relGain = gi === 2 ? 20 : gi === 1 ? 10 : 5;
+                  const relGain = giftRelationshipGain(amt);
                   return (
                     <button key={amt} className="glass-panel" disabled={!canAfford}
                       onClick={() => { giftRelationship(selectedRel.id, amt); close(); }}

@@ -16,7 +16,7 @@ import { quoteEducationEnrollment, resolveEducationEnrollment } from './actions/
 import { makeActionResult } from './actions/actionResult';
 
 import { INITIAL_STATS, INITIAL_EDUCATION, INITIAL_CAREER_META, INITIAL_ECONOMY, buildLifeSave } from './lifeSave';
-import { NAMES, pickParentName, markAsEx, normalizeRelationshipNpc, prepareWillDraft } from './mechanics/relationships';
+import { NAMES, pickParentName, markAsEx, normalizeRelationshipNpc, prepareWillDraft, giftRelationshipGain } from './mechanics/relationships';
 import { HEADHUNTER_COST, STARTUP_COST, MILITARY_ENLIST_CAREER_ID, canAffordHeadhunter, computeStartupLaunch, pickHeadhunterPlacement } from './mechanics/careers';
 import { prepareInvestmentPurchase, computeInvestmentSale } from './mechanics/investments';
 import { yearlyActivityTrackId, canConsumeYearlyActivity, computeGambleResult, executeTradePure } from './mechanics/activities';
@@ -934,11 +934,11 @@ export function useGameState() {
   };
 
   const giftRelationship = (id, amount) => {
-    if (isActionLocked()) return 'blocked';
+    const relationGain = giftRelationshipGain(amount);
+    if (!relationGain || isActionLocked()) return 'blocked';
     const snap = lifeSnapshotRef.current;
     const rel = snap.relationships.find(r => r.id === id);
     if (!rel || snap.bank < amount) return 'blocked';
-    const relationGain = amount >= 1000 ? 20 : amount >= 200 ? 10 : 5;
     const newBank = snap.bank - amount;
     const nextRelationships = snap.relationships.map(r => r.id === id
       ? { ...r, relation: Math.min(100, r.relation + relationGain) } : r);

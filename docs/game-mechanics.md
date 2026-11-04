@@ -181,6 +181,8 @@ Dating-app additions are normalized with `status: 'dating'` and `isAlive: true`.
 
 Divorce with living children commits the divorce fee, happiness loss, ex relationship, history, and a pending custody choice together. The fee is 15% of bank rounded down, with a $5,000 minimum and $50,000 maximum; happiness falls by 15. Fighting costs another $10,000 with the existing 80% win chance; negotiation costs $3,000 and sets the ex's annual support to $2,400; surrender costs 20 happiness and assigns custody to the ex. Reloading an acknowledged custody offer retains its references and outcomes. Negotiation adds its fee and legal history once when the current choice is resolved.
 
+Gifts retain wealth-tier prices, but relation gains use absolute amounts: positive finite amounts below $200 grant 5, $200–$999.99 grant 10, and $1,000 or more grant 20, capped at relation 100. `giftRelationshipGain` supplies both the preview and command; malformed, nonpositive, and nonfinite amounts are rejected without saving. The gift debit, relation, interaction marker, and memory share one save.
+
 Living pets age, charge the species' annual upkeep, and grant its happiness bonus. Death chance begins rising at the minimum lifespan and is certain at the maximum; each pet death costs 5 happiness. Species rules live in [petCatalog.js](../src/config/petCatalog.js).
 
 ## Activity limits and content

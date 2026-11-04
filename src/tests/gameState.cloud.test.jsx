@@ -9,6 +9,7 @@ import { applyFirestoreSave } from '../../tests/e2e/support/firestoreWrites.js';
 import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 import MainGame from '../components/MainGame';
 import { ACTIVITY_MENUS } from '../config/activities';
+import { WEALTH_TIERS } from '../config/wealthTiers';
 
 const backend = vi.hoisted(() => ({
   configured: true, auth: { currentUser: null }, db: {},
@@ -1903,5 +1904,64 @@ describe('coherent relationship milestone outcomes', () => {
     expect(random).toHaveBeenCalledTimes(5);
     await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(3));
     expect(backend.setDoc.mock.calls[2][1]).toMatchObject({ stats: { happiness: 60 }, relationships: result.current.relationships, history: result.current.history });
+  });
+});
+
+
+describe('truthful gift previews and command admission', () => {
+  const examples = [
+    ['broke', 500, [5, 5, 5]], ['struggling', 1000, [5, 5, 10]],
+    ['working', 10000, [5, 10, 20]], ['middle', 50000, [5, 10, 20]],
+    ['upper_middle', 250000, [10, 20, 20]], ['wealthy', 1000000, [20, 20, 20]],
+    ['rich', 10000000, [20, 20, 20]], ['ultra', 100000000, [20, 20, 20]],
+  ].flatMap(([tierId, balance, gains]) => gains.map((gain, index) => [tierId, balance, index, gain]));
+  it.each(examples)('%s gift %i index %i advertises the gain actually acknowledged and reloaded', async (tierId, balance, index, gain) => {
+    const amount = WEALTH_TIERS.find(tier => tier.id === tierId).giftAmounts[index];
+    let acknowledged = savedLife('Gift Player', { bank: balance, history: [], relationships: [{ id: 'friend', name: 'Gift Friend', type: 'Friend', status: 'friend', age: 30, isAlive: true, relation: 40 }] });
+    backend.getDoc.mockImplementation(async () => snapshot(structuredClone(acknowledged)));
+    backend.setDoc.mockImplementation(async (_path, save, options) => { acknowledged = applyFirestoreSave(acknowledged, save, options); });
+    let engine;
+    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    const ui = render(<StrictMode><Connected /></StrictMode>);
+    await screen.findByText('Gift Player');
+    fireEvent.click(screen.getByRole('button', { name: /Relationships/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Gift Friend/ }));
+    const gift = screen.getByRole('button', { name: name => name.startsWith(`Gift $${amount.toLocaleString()} `) });
+    expect(gift).toHaveTextContent(`+${gain} rel`);
+    fireEvent.click(gift);
+    await waitFor(() => expect(acknowledged.history).toHaveLength(1));
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(acknowledged.bank).toBe(balance - amount);
+    expect(acknowledged.relationships[0].relation).toBe(40 + gain);
+    expect(acknowledged.activitiesThisYear).toEqual({ rel_interact__friend: 1 });
+    expect(acknowledged.history[0].text).toContain(`+${gain} Relation.`);
+    expect(engine.lastContinuitySave.saveStatus).toBe('saved');
+    ui.unmount();
+    const reload = await ready();
+    await waitFor(() => expect(reload.result.current.character?.name).toBe('Gift Player'));
+    expect(reload.result.current.bank).toBe(balance - amount);
+    expect(reload.result.current.relationships[0].relation).toBe(40 + gain);
+    expect(reload.result.current.history).toEqual(acknowledged.history);
+  });
+
+  it.each([NaN, Infinity, -Infinity, 0, -1, null, undefined, '200', {}, []].map(amount => [amount]))('rejects invalid gift %s before any mutation or save', async amount => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Gift Player', { bank: 1000, history: [], relationships: [{ id: 'friend', relation: 40 }] })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Gift Player'));
+    act(() => expect(result.current.giftRelationship('friend', amount)).toBe('blocked'));
+    expect(result.current.bank).toBe(1000);
+    expect(result.current.relationships).toEqual([{ id: 'friend', relation: 40 }]);
+    expect(result.current.activitiesThisYear).toEqual({});
+    expect(result.current.history).toEqual([]);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('caps a valid threshold gift at 100 while preserving the charged amount and advertised gain', async () => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Gift Player', { bank: 1000, relationships: [{ id: 'friend', name: 'Friend', relation: 95 }] })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Gift Player'));
+    act(() => result.current.giftRelationship('friend', 200));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: 800, relationships: [{ relation: 100 }], history: [{ text: 'Relationships: You gifted Friend $200. +10 Relation.' }] });
   });
 });
