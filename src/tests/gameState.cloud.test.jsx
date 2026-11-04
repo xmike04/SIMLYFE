@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameState } from '../engine/gameState';
 import { buildLifeSave, LIFE_SAVE_KEYS, INITIAL_EDUCATION } from '../engine/lifeSave';
@@ -10,6 +10,7 @@ import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 import MainGame from '../components/MainGame';
 import { ACTIVITY_MENUS } from '../config/activities';
 import { WEALTH_TIERS } from '../config/wealthTiers';
+import { ASSET_CATALOG } from '../config/assetCatalog';
 
 const backend = vi.hoisted(() => ({
   configured: true, auth: { currentUser: null }, db: {},
@@ -1963,5 +1964,52 @@ describe('truthful gift previews and command admission', () => {
     act(() => result.current.giftRelationship('friend', 200));
     await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
     expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: 800, relationships: [{ relation: 100 }], history: [{ text: 'Relationships: You gifted Friend $200. +10 Relation.' }] });
+  });
+});
+
+
+describe('coherent asset purchase memories', () => {
+  it.each([
+    ['vehicles', 'used_clunker', 6000, 3000, 'belongings', 'Shopping: Bought a Used Clunker for $3,000.'],
+    ['property', 'studio_apt', 120000, 70000, 'properties', 'Real Estate: Purchased a Studio Apartment for $50,000.'],
+  ])('%s commits one holding, debit and memory and restores its acknowledged save', async (category, catalogId, balance, after, field, memory) => {
+    let acknowledged = savedLife('Asset Player', { bank: balance, history: [{ age: 0, text: 'Born' }], flags: ['kept'], activitiesThisYear: { kept: 1 } });
+    backend.getDoc.mockImplementation(async () => snapshot(structuredClone(acknowledged)));
+    backend.setDoc.mockImplementation(async (_path, save, options) => { acknowledged = applyFirestoreSave(acknowledged, save, options); });
+    const hook = await ready({ wrapper: StrictMode });
+    await waitFor(() => expect(hook.result.current.character?.name).toBe('Asset Player'));
+    const item = Object.values(ASSET_CATALOG).flat().find(item => item.id === catalogId);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.25);
+    act(() => hook.result.current.buyAsset(category, item));
+    await waitFor(() => expect(acknowledged[field]).toHaveLength(1));
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(random).toHaveBeenCalledTimes(1);
+    expect(acknowledged).toMatchObject({ bank: after, flags: ['kept'], activitiesThisYear: { kept: 1 }, currentEvent: null });
+    expect(acknowledged[field][0]).toMatchObject({ catalogId, currentValue: item.cost, purchasePrice: item.cost, yearsOwned: 0 });
+    expect(acknowledged.history).toEqual([{ age: 0, text: 'Born' }, { age: 33, text: memory }]);
+    const assetId = acknowledged[field][0].id;
+    hook.unmount();
+    const reload = await ready({ wrapper: StrictMode });
+    await waitFor(() => expect(reload.result.current.character?.name).toBe('Asset Player'));
+    expect(reload.result.current.bank).toBe(after);
+    expect(reload.result.current[field]).toHaveLength(1);
+    expect(reload.result.current[field][0].id).toBe(assetId);
+    expect(reload.result.current.history).toEqual(acknowledged.history);
+  });
+
+  it('saves the actual shop listing price and visible purchase memory from a native Buy button', async () => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Shop Player', { bank: 120000, history: [] })));
+    let engine;
+    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    render(<StrictMode><Connected /></StrictMode>);
+    await screen.findByText('Shop Player');
+    fireEvent.click(screen.getByRole('button', { name: /Assets/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Shopping/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Prestige Realty/ }));
+    const listing = screen.getByText('Studio Loft (412 Maple Ave)').closest('.glass-panel');
+    fireEvent.click(within(listing).getByRole('button', { name: 'Buy' }));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: 71500, properties: [{ name: 'Studio Loft (412 Maple Ave)', purchasePrice: 48500 }], history: [{ text: 'Real Estate: Purchased a Studio Loft (412 Maple Ave) for $48,500.' }] });
+    expect(engine.history).toHaveLength(1);
   });
 });

@@ -113,6 +113,8 @@ Special-skill activities use `performSkillTraining` in the state owner: it insta
 
 Child, friend, and non-custody breakup commands also read the eager snapshot and persist happiness, relationships, bank, and history once outside React updater callbacks. Same-tick milestones retain preceding outcomes. Custody continues to use its pending-choice save contract.
 
+Asset purchases calculate their debit, new holding, and purchase memory from the latest eager snapshot, then save all three together once outside React updaters. Listing prices and item schemas remain catalog-owned.
+
 ### Career and education decision workflows
 
 Standard career selection, switching, voluntary quitting, and higher-degree enrollment use an explicit action boundary:

@@ -1087,10 +1087,9 @@ export function useGameState() {
 
   const buyAsset = (category, item) => {
     if (isActionLocked()) return;
-    if (bank < item.cost) return;
-    const newBank = bank - item.cost;
-    setBank(newBank);
-
+    const snap = lifeSnapshotRef.current;
+    if (snap.bank < item.cost) return;
+    const newBank = snap.bank - item.cost;
     const newAsset = {
       ...item,
       id: `${category}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -1099,22 +1098,18 @@ export function useGameState() {
       purchasePrice: item.cost,
       yearsOwned: 0
     };
-
-    if (category === 'property') {
-      setProperties(prev => {
-        const next = [...prev, newAsset];
-        persistLife({ properties: next, bank: newBank });
-        return next;
-      });
-      setHistory(prev => [...prev, { age, text: `Real Estate: Purchased a ${item.name} for $${item.cost.toLocaleString()}.` }]);
-    } else {
-      setBelongings(prev => {
-        const next = [...prev, newAsset];
-        persistLife({ belongings: next, bank: newBank });
-        return next;
-      });
-      setHistory(prev => [...prev, { age, text: `Shopping: Bought a ${item.name} for $${item.cost.toLocaleString()}.` }]);
-    }
+    const isProperty = category === 'property';
+    const field = isProperty ? 'properties' : 'belongings';
+    const nextAssets = [...snap[field], newAsset];
+    const text = isProperty
+      ? `Real Estate: Purchased a ${item.name} for $${item.cost.toLocaleString()}.`
+      : `Shopping: Bought a ${item.name} for $${item.cost.toLocaleString()}.`;
+    const updatedHistory = [...snap.history, { age: snap.age, text }];
+    setBank(newBank);
+    if (isProperty) setProperties(nextAssets);
+    else setBelongings(nextAssets);
+    setHistory(updatedHistory);
+    persistLife({ bank: newBank, [field]: nextAssets, history: updatedHistory });
   };
 
   const sellAsset = (category, id) => {
