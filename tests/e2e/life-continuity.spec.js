@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { buildLifeSave, INITIAL_STATS } from '../../src/engine/lifeSave.js';
 import { createFirebaseIdToken, mockFirebase } from './support/firebase.js';
+import { applyFirestoreSave } from './support/firestoreWrites.js';
 
 const MEMORY = 'A text-only memory from an older life save.';
 const event = {
@@ -42,12 +43,12 @@ const firestoreSource = `
   };
 `;
 async function bootContinuity(page, fields = {}) {
-  let acknowledged = structuredClone({ ...adult, ...fields });
+  let acknowledged = structuredClone({ ...adult, schemaVersion: 1, narrativeMode: true, ...fields });
   // undefined intentionally represents absent fields in an older replacement.
   for (const key of Object.keys(acknowledged)) if (acknowledged[key] === undefined) delete acknowledged[key];
   await page.exposeFunction('__readAcknowledgedContinuitySave', () => structuredClone(acknowledged));
   await page.exposeFunction('__commitAcknowledgedContinuitySave', (save, options) => {
-    acknowledged = structuredClone(options?.merge ? { ...acknowledged, ...save } : save);
+    acknowledged = applyFirestoreSave(acknowledged, save, options);
   });
   const firebaseRequests = await mockFirebase(page, createFirebaseIdToken(), { firestoreSource });
   const aiRequests = [];
@@ -103,6 +104,7 @@ test('A: acknowledged ordinary choice restores unchanged and resolves once', asy
   await expect(offer(page)).toHaveCount(0);
   const saved = await acknowledgedSave(page);
   expect(saved.bank).toBe(20250);
+  expect(saved).toMatchObject({ schemaVersion: 1, narrativeMode: true });
   expect(saved.flags).toEqual(['legacy_memory', 'project_done']);
   expect(saved.currentEvent).toBeNull();
   const line = `Event: ${event.description} -> You chose: ${event.choices[0].text}`;
@@ -266,6 +268,8 @@ test('F: actual Live Again and newborn replacement leave no prior continuity or 
   if (await enter.count()) await enter.click();
   await acknowledge(page);
   expect(await acknowledgedSave(page)).toMatchObject({ character: null, flags: [], activitiesThisYear: {}, currentEvent: null, history: [] });
+  expect(await acknowledgedSave(page)).not.toHaveProperty('schemaVersion');
+  expect(await acknowledgedSave(page)).not.toHaveProperty('narrativeMode');
   await page.getByLabel('First and Last Name').fill('Newborn Continuity');
   await page.getByRole('button', { name: 'Start Life', exact: true }).click();
   await acknowledge(page);
@@ -273,6 +277,8 @@ test('F: actual Live Again and newborn replacement leave no prior continuity or 
   await expect(page.getByRole('heading', { name: 'Newborn Continuity' })).toBeVisible();
   const saved = await acknowledgedSave(page);
   expect(saved).toMatchObject({ age: 0, flags: [], activitiesThisYear: {}, currentEvent: null });
+  expect(saved).not.toHaveProperty('schemaVersion');
+  expect(saved).not.toHaveProperty('narrativeMode');
   expect(saved.history.some(entry => entry.text === MEMORY || entry.text.includes(event.description))).toBe(false);
   await expect(page.getByText(MEMORY, { exact: true })).toHaveCount(0);
   await evidence(page, testInfo, 'newborn-reloaded');
@@ -310,4 +316,42 @@ test('long valid legacy offer stays bounded and final choice is reachable by scr
   expect(saved.currentEvent).toBeNull();
   expect(saved.history.filter(entry => entry.text.includes(finalLabel))).toHaveLength(1);
   noNetworkGeneration(fixture);
+});
+
+test('failed custody clear and activity base write cannot contaminate the next acknowledged ordinary offer', async ({ page }, testInfo) => {
+  const custody = { ...event, id: 'old-custody', source: 'custody', description: 'A saved custody hearing.', isCustodyBattle: true, exId: 'ex', childIds: ['child'],
+    meta: { requestId: 'old-custody-meta', model: 'old-model', latencyMs: 1, usage: { inputTokens: 12 } },
+    choices: [
+      { text: 'Fight for custody', effects: { bank: -10000 }, custodyOutcome: 'fight' },
+      { text: 'Negotiate joint custody', effects: { bank: -3000 }, custodyOutcome: 'negotiate' },
+      { text: 'Surrender custody', effects: { happiness: -20 }, custodyOutcome: 'surrender' },
+    ],
+  };
+  const fixture = await bootContinuity(page, { currentEvent: custody, relationships: [
+    { id: 'ex', name: 'Alex', type: 'Ex', status: 'ex', age: 30, relation: 30, isAlive: true },
+    { id: 'child', name: 'Sam', type: 'Child', status: 'family', age: 7, relation: 70, isAlive: true },
+  ] });
+  await page.getByRole('button', { name: 'Negotiate joint custody', exact: true }).click();
+  await page.evaluate(() => globalThis.__continuityCloud.fail());
+  await expect(status(page)).toContainText('saving failed');
+  expect((await acknowledgedSave(page)).currentEvent).toEqual(custody);
+  await (await openStaycation(page)).click();
+  await expect.poll(() => page.evaluate(() => globalThis.__continuityCloud.pending.length)).toBe(1);
+  await page.evaluate(() => globalThis.__continuityCloud.fail()); // avoid a successful intermediate null clear
+  await expect.poll(() => page.evaluate(() => globalThis.__continuityCloud.pending.length)).toBe(1);
+  const offered = await page.evaluate(() => globalThis.__continuityCloud.pending[0].save.currentEvent);
+  expect(offered.source).toBe('activity');
+  await acknowledge(page);
+  await expect(status(page)).toContainText('saved to the cloud');
+  const saved = await acknowledgedSave(page);
+  expect(saved.currentEvent).toEqual(offered);
+  expect(saved).toMatchObject({ bank: 17000, schemaVersion: 1, narrativeMode: true });
+  expect(await page.evaluate(() => globalThis.__continuityCloud.writes)).toBe(3);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Controlled opportunity 1.', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear unavailable choice', exact: true })).toHaveCount(0);
+  expect((await acknowledgedSave(page)).currentEvent).toEqual(offered);
+  expect(fixture.aiRequests).toHaveLength(1);
+  expect(fixture.firebaseRequests.filter(request => request.type === 'firestore')).toHaveLength(0);
+  await evidence(page, testInfo, 'ordinary-after-rejected-custody-clear');
 });

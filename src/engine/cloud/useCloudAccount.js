@@ -176,9 +176,11 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       return Promise.resolve(receipt('skipped'));
     }
 
-    let payload;
+    let payload, writeOptions;
     try {
       payload = structuredClone(stateData);
+      // Replace supplied top-level maps; preserve omitted legacy fields.
+      writeOptions = { mergeFields: Object.keys(payload) };
     } catch (error) {
       emitDiagnostic('save_sync', {
         operationId, status: 'failed', durationMs: diagnosticNow() - saveStartedAt,
@@ -197,7 +199,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
         const saveRef = transport.doc(transport.db, 'users', transport.userId, 'saves', 'currentLife');
         return replace
           ? transport.setDoc(saveRef, payload)
-          : transport.setDoc(saveRef, payload, { merge: true });
+          : transport.setDoc(saveRef, payload, writeOptions);
       },
     }).then(saved => {
       emitDiagnostic('save_sync', {

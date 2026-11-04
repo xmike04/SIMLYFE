@@ -5,6 +5,7 @@ import { useGameState } from '../engine/gameState';
 import { buildLifeSave, LIFE_SAVE_KEYS } from '../engine/lifeSave';
 import { generateDynamicEvent } from '../engine/llmService';
 import { getFirebaseIdToken } from '../engine/firebaseToken';
+import { applyFirestoreSave } from '../../tests/e2e/support/firestoreWrites.js';
 import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 
 const backend = vi.hoisted(() => ({
@@ -100,7 +101,7 @@ describe('cloud lifecycle contract through the game hook', () => {
     act(() => result.current.performGig('Fixture gig', 500));
     const [path, save, options] = backend.setDoc.mock.calls.at(-1);
     expect(path).toBe('users/guest/saves/currentLife');
-    expect(options).toEqual({ merge: true });
+    expect(options).toEqual({ mergeFields: Object.keys(save) });
     expect(save.bank).toBe(12500);
     expect(save.character.name).toBe('Saved Player');
     expect(save.history.at(-1).text).toContain('Fixture gig');
@@ -1286,5 +1287,97 @@ describe('canonical pending choice resolution', () => {
     expect(backend.setDoc).toHaveBeenCalledTimes(1);
     expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: fixture.bank, currentEvent: null, relationships: result.current.relationships, history: result.current.history, stats: result.current.stats });
     await act(async () => { await resolution.persistence; });
+  });
+});
+
+
+describe('acknowledged canonical maps after rejected clears', () => {
+  function storage(initial) {
+    let acknowledged = structuredClone(initial);
+    const pending = [];
+    backend.getDoc.mockImplementation(async () => snapshot(structuredClone(acknowledged)));
+    backend.setDoc.mockImplementation((_path, payload, options) => {
+      const receipt = deferred();
+      pending.push({ payload, options, ...receipt });
+      return receipt.promise;
+    });
+    return {
+      read: () => structuredClone(acknowledged),
+      async settle(success) {
+        await waitFor(() => expect(pending).toHaveLength(1));
+        const write = pending.shift();
+        await act(async () => {
+          if (success) { acknowledged = applyFirestoreSave(acknowledged, write.payload, write.options); write.resolve(); }
+          else write.reject(new Error('expected rejected canonical-map clear'));
+        });
+      },
+    };
+  }
+  const initial = fields => ({ ...savedLife('Map Player', { age: 30, ...fields }), schemaVersion: 1, narrativeMode: true });
+  async function restore() {
+    const rendered = await ready();
+    await waitFor(() => expect(rendered.result.current.character?.name).toBe('Map Player'));
+    return rendered;
+  }
+
+  it('a later acknowledged counter map removes old-year keys after failed annual and event clears', async () => {
+    const cloud = storage(initial({ activitiesThisYear: { health__Run: 1, vacation__Staycation: 1 } }));
+    const { result, unmount } = await restore();
+    await act(async () => { await result.current.ageUp(); });
+    expect(result.current.activitiesThisYear).toEqual({});
+    await cloud.settle(false); // annual reset failed; backend retains both old counters
+    act(() => result.current.handleChoice(result.current.currentEvent.id, 0));
+    await cloud.settle(false); // unlock the offer without an intervening successful empty reset
+    expect(cloud.read().activitiesThisYear).toEqual({ health__Run: 1, vacation__Staycation: 1 });
+    act(() => expect(result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(true));
+    await cloud.settle(true);
+    expect(backend.setDoc).toHaveBeenCalledTimes(3);
+    expect(cloud.read()).toMatchObject({ age: 31, activitiesThisYear: { health__Run: 1 }, schemaVersion: 1, narrativeMode: true });
+    expect(cloud.read().activitiesThisYear).toEqual({ health__Run: 1 });
+    unmount();
+    const restored = await restore();
+    expect(restored.result.current.activitiesThisYear).toEqual({ health__Run: 1 });
+    act(() => expect(restored.result.current.consumeYearlyActivity('health', 'Run', 1)).toBe(false));
+    act(() => expect(restored.result.current.consumeYearlyActivity('vacation', 'Staycation', 1)).toBe(true));
+    await cloud.settle(true);
+  });
+
+  it.each(['custody', 'ordinary-meta'])('a later ordinary offer replaces %s fields after a failed event clear', async previous => {
+    const custody = {
+      version: 1, id: 'old-custody', age: 30, source: 'custody', description: 'A saved custody hearing',
+      isCustodyBattle: true, exId: 'ex', childIds: ['child'],
+      choices: [
+        { text: 'Fight', effects: { bank: -10000 }, custodyOutcome: 'fight' },
+        { text: 'Negotiate', effects: { bank: -3000 }, custodyOutcome: 'negotiate' },
+        { text: 'Surrender', effects: { happiness: -20 }, custodyOutcome: 'surrender' },
+      ],
+      meta: { requestId: 'old-request', model: 'old-model', latencyMs: 1, usage: { inputTokens: 4 } },
+    };
+    const oldEvent = previous === 'custody' ? custody : { ...offeredEvent, meta: custody.meta };
+    const cloud = storage(initial({ currentEvent: oldEvent, relationships: [
+      { id: 'ex', name: 'Alex', age: 30, type: 'Ex', status: 'ex', isAlive: true, relation: 50 },
+      { id: 'child', name: 'Sam', age: 7, type: 'Child', status: 'family', isAlive: true, relation: 70 },
+    ] }));
+    const { result, unmount } = await restore();
+    act(() => result.current.handleChoice(oldEvent.id, previous === 'custody' ? 1 : 0));
+    await cloud.settle(false);
+    expect(cloud.read().currentEvent).toEqual(oldEvent);
+    generateDynamicEvent.mockResolvedValueOnce({ description: 'New ordinary opportunity', choices: [{ text: 'Continue', effects: {} }] });
+    await act(async () => { await result.current.triggerActivityEvent('A new activity'); });
+    const offered = structuredClone(result.current.currentEvent);
+    expect(offered.source).toBe('activity');
+    expect(offered).not.toHaveProperty('meta');
+    await cloud.settle(true);
+    expect(backend.setDoc).toHaveBeenCalledTimes(2);
+    expect(cloud.read().currentEvent).toEqual(offered);
+    expect(cloud.read()).toMatchObject({ bank: previous === 'custody' ? 9000 : 12010, schemaVersion: 1, narrativeMode: true });
+    expect(cloud.read().relationships).toEqual(result.current.relationships);
+    expect(cloud.read().history).toEqual(result.current.history);
+    if (previous === 'custody') expect(cloud.read().relationships[0].childSupport).toBe(2400);
+    unmount();
+    const restored = await restore();
+    expect(restored.result.current.currentEvent).toEqual(offered);
+    expect(restored.result.current.currentEvent.source).not.toBe('recovery');
+    expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
   });
 });

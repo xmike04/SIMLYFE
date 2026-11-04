@@ -84,10 +84,27 @@ describe('acknowledged cloud save receipts', () => {
     expect(backend.setDoc.mock.calls[0]).toEqual([
       'users/first/saves/currentLife',
       { career: { id: 'artist', salary: 40000 }, history: [{ age: 20, text: 'Hired' }] },
-      { merge: true },
+      { mergeFields: ['career', 'history'] },
     ]);
     pending.resolve();
     expect(await writing).toEqual({ status: 'saved', operationId: expect.any(String), errorClass: null });
+  });
+
+  it('captures a literal top-level mask for every supplied partial payload field', async () => {
+    const { result } = await ready();
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    const payload = { bank: 50, activitiesThisYear: { Run: 1 }, currentEvent: { id: 'ordinary', choices: [{ text: 'Continue', effects: {} }] } };
+    const writing = result.current.syncToCloud(payload);
+    payload.activitiesThisYear.Staycation = 1;
+    payload.laterField = 'must not enter the captured payload/mask';
+    expect(backend.setDoc.mock.calls[0]).toEqual([
+      'users/first/saves/currentLife',
+      { bank: 50, activitiesThisYear: { Run: 1 }, currentEvent: { id: 'ordinary', choices: [{ text: 'Continue', effects: {} }] } },
+      { mergeFields: ['bank', 'activitiesThisYear', 'currentEvent'] },
+    ]);
+    pending.resolve();
+    expect((await writing).status).toBe('saved');
   });
 
   it('returns skipped without writing when storage is unconfigured', async () => {
@@ -113,6 +130,15 @@ describe('acknowledged cloud save receipts', () => {
       status: 'failed', operationId: expect.any(String), errorClass: 'UnknownError',
     });
     expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it.each([null, undefined])('returns a failed receipt rather than throwing while capturing keys for %s', async payload => {
+    const { result } = await ready();
+    backend.setDoc.mockImplementation(async (_path, value) => {
+      if (value == null) throw new TypeError('Invalid save root');
+    });
+    expect(await result.current.syncToCloud(payload)).toMatchObject({ status: 'failed', operationId: expect.any(String), errorClass: 'TypeError' });
+    expect((await result.current.syncToCloud({ bank: 50 })).status).toBe('saved');
   });
 
   it('emits started at enqueue and matches final diagnostic and receipt operation IDs', async () => {
@@ -144,7 +170,7 @@ describe('acknowledged cloud save receipts', () => {
     pending.resolve();
     expect((await Promise.all([oldSave, reset, newborn])).map(receipt => receipt.status)).toEqual(['saved', 'saved', 'saved']);
     expect(backend.setDoc.mock.calls).toEqual([
-      ['users/first/saves/currentLife', { character: { name: 'Old' }, bank: 500 }, { merge: true }],
+      ['users/first/saves/currentLife', { character: { name: 'Old' }, bank: 500 }, { mergeFields: ['character', 'bank'] }],
       ['users/first/saves/currentLife', { character: null, bank: 0 }],
       ['users/first/saves/currentLife', { character: { name: 'New' }, bank: 0 }],
     ]);
@@ -172,11 +198,11 @@ describe('acknowledged cloud save receipts', () => {
     backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('second') });
     await act(async () => { await result.current.signInWithEmail('fixture@example.com', 'fixture-password', 'signin'); });
     const other = result.current.syncToCloud({ bank: 900 });
-    expect(backend.setDoc.mock.calls[1]).toEqual(['users/second/saves/currentLife', { bank: 900 }, { merge: true }]);
+    expect(backend.setDoc.mock.calls[1]).toEqual(['users/second/saves/currentLife', { bank: 900 }, { mergeFields: ['bank'] }]);
     expect((await other).status).toBe('saved');
     pending.resolve();
     await Promise.all([old, queued]);
-    expect(backend.setDoc.mock.calls[2]).toEqual(['users/first/saves/currentLife', { bank: 200 }, { merge: true }]);
+    expect(backend.setDoc.mock.calls[2]).toEqual(['users/first/saves/currentLife', { bank: 200 }, { mergeFields: ['bank'] }]);
   });
 });
 
@@ -246,8 +272,8 @@ it('detaches transport immediately after sign-out while preserving already captu
   expect((await result.current.syncToCloud({ bank: 999 })).status).toBe('skipped');
   await act(async () => { first.resolve(); await writing; await queued; });
   expect(backend.setDoc.mock.calls).toEqual([
-    ['users/first/saves/currentLife', { bank: 10 }, { merge: true }],
-    ['users/first/saves/currentLife', { bank: 20 }, { merge: true }],
+    ['users/first/saves/currentLife', { bank: 10 }, { mergeFields: ['bank'] }],
+    ['users/first/saves/currentLife', { bank: 20 }, { mergeFields: ['bank'] }],
   ]);
   await act(async () => { anonymous.resolve({ user: { ...user('new-guest'), isAnonymous: true } }); await signingOut; });
   expect(clearLocalLife).toHaveBeenCalledTimes(1);
