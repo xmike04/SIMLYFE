@@ -5,13 +5,17 @@
 
 The engine orchestrates player actions in [gameState.js](../src/engine/gameState.js), calculates domain outcomes in `src/engine/mechanics/`, and composes annual changes in [advanceLifeYear.js](../src/engine/annual/advanceLifeYear.js). Values below describe game rules, including preserved legacy behavior.
 
+## Character creation
+
+New names are trimmed and must contain 1–80 UTF-16 code units, as counted by JavaScript string length. `prepareCharacterName` is shared by the creation form and `startLife`; invalid input is rejected before life invalidation, randomness, or replacement saving. After name admission, creation and reset also require a loaded, confirmed-missing, or confirmed-unconfigured local account destination. Pending/failed reads reject replacement without randomness, life changes, or writes; explicit retry restores the acknowledged life or confirms absence. Existing saved names are retained unchanged. Unicode names and mature content remain allowed; this is an input length bound, not a byte-size validator.
+
 ## Core loop
 
 1. The player selects **+Age**. Mutating actions and sheets lock while the transition runs.
 2. The annual calculation advances grades and economy, grants the high-school diploma when due, charges degree tuition, applies aging, income, lifestyle costs, and career review, then processes assets, family obligations, pets, and relationships.
 3. The engine commits the calculated life state and checks death.
-4. A surviving life requests one dynamic event. The player chooses, `handleChoice` applies effects, and the history/save update.
-5. Annual activity counters reset for the new year. An open event continues to lock other mutations until resolved.
+4. A surviving life requests one dynamic event. The complete calculated year, reset counters, history, and offered choice share one save. Acknowledged offers restore unchanged on reload without another AI request.
+5. The player chooses a stored option through `handleChoice(eventId, choiceIndex)`. Effects, history, and clearing the offer share one save. An open event continues to lock other mutations until resolved; duplicate or stale callbacks apply nothing.
 
 Calculation order affects outcomes. For example, tuition changes the balance before income tax is calculated; income changes the balance before lifestyle costs are chosen. This order is part of the current behavior.
 
@@ -121,16 +125,22 @@ A surviving startup pays a dividend of 10% of its new equity, rounded down, and 
 
 High school is granted automatically at age 18 or the next annual tick for an older life missing the diploma. The higher-degree prerequisites form two branches after high school; an associate degree is not required before a bachelor degree.
 
-| Degree | Required completion | Program years | Annual tuition | Completion smarts bonus |
-|---|---|---:|---:|---:|
-| Associate | High school | 2 | $10,000 | +3 |
-| Bachelor | High school | 4 | $20,000 | +10 |
-| Master | Bachelor | 2 | $30,000 | +5 |
-| PhD | Master | 4 | $0 | +3 |
+| Degree | Required completion | Program years | Pay now / annual tuition | Remaining tuition | Total tuition | Later Age clicks | Completion smarts bonus |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Associate | High school | 2 | $10,000 | $10,000 | $20,000 | 1 | +3 |
+| Bachelor | High school | 4 | $20,000 | $60,000 | $80,000 | 3 | +10 |
+| Master | Bachelor | 2 | $30,000 | $30,000 | $60,000 | 1 | +5 |
+| PhD | Master | 4 | $0 | $0 | $0 | 3 | +3 |
 
-Enrollment charges the first year's tuition and initializes `yearsInProgram` to 1. Subsequent ticks charge and increment until `totalYears`; an N-year program costs exactly N annual payments. The paid-year counter means completion can occur after N−1 subsequent age clicks. Legacy saves at counter zero advance to one without paying the already-prepaid first year again.
+Job → Education opens a read-only degree preview. It shows the specific prerequisite, tuition commitment, balance after enrollment, later Age-click count, projected completion age, and bonuses. Cancel changes nothing. Confirm rechecks the captured quote against current circumstances before charging the first year's tuition and initializing `yearsInProgram` to 1. A changed quote requires review and another confirmation. There is no new admissions, loan, cancellation, or refund mechanic. Already-earned selectable degrees are hidden and another program cannot be enrolled in while one is active; high school remains automatic and Trade/Vocational School retains its existing narrative action.
 
-Completion adds 3 happiness as well as the smarts bonus. PhD study deducts 20 happiness on each enrolled annual tick. Career degree requirements use minimum rank, so higher completed degrees satisfy lower requirements; enrollment prerequisites use the specific prerequisite flags in [education.js](../src/engine/mechanics/education.js).
+Subsequent ticks charge and increment until `totalYears`; an N-year program costs exactly N annual payments. The paid-year counter means completion can occur after N−1 subsequent Age clicks. Projected age assumes uninterrupted annual progression in this life. Enrollment requires enough bank for the first payment, including a nonnegative bank for a $0 PhD; later tuition can make the balance negative. Annual tuition still runs before income and lifestyle costs.
+
+The enrolled progress display uses stored `annualCost` and `totalYears`. Legacy saves at counter zero show one prepaid year and advance to one without paying that year again, but still need `totalYears` later Age clicks. A saved final-year program completes on its next annual tick. Missing or malformed progress gets no summary and is not migrated.
+
+Completion adds 3 happiness as well as the smarts bonus. PhD enrollment has no immediate happiness debit. Each later enrolled annual tick deducts 20 happiness, including the completion tick; the +3 completion bonus follows that deduction. A normal PhD has three such ticks, while a legacy counter-zero PhD has four. Existing 0–100 clamping means the net change depends on current happiness. Career degree requirements use minimum rank, so higher completed degrees satisfy lower requirements; enrollment prerequisites use the specific prerequisite flags in [education.js](../src/engine/mechanics/education.js). A completed PhD alone does not substitute for a missing master flag when enrolling in a PhD.
+
+The education outcome distinguishes session commitment from cloud acknowledgment. Saving or failed enrollment can reload an older bank/program state; only an acknowledged save guarantees this client's reload result. Enrollment records one versioned `education.enroll` consequence in existing history without generating an AI event.
 
 ## Assets and markets
 
@@ -173,12 +183,20 @@ Family-status elders have a death roll from age 70, rising to certainty at 130. 
 
 Dating-app additions are normalized with `status: 'dating'` and `isAlive: true`. Explicit and automatic breakup both clear the romantic type/status so an ex cannot remain the current spouse in UI summaries.
 
+Divorce with living children commits the divorce fee, happiness loss, ex relationship, history, and a pending custody choice together. The fee is 15% of bank rounded down, with a $5,000 minimum and $50,000 maximum; happiness falls by 15. Fighting costs another $10,000 with the existing 80% win chance; negotiation costs $3,000 and sets the ex's annual support to $2,400; surrender costs 20 happiness and assigns custody to the ex. Reloading an acknowledged custody offer retains its references and outcomes. Negotiation adds its fee and legal history once when the current choice is resolved.
+
+Gifts retain wealth-tier prices, but relation gains use absolute amounts: positive finite amounts below $200 grant 5, $200–$999.99 grant 10, and $1,000 or more grant 20, capped at relation 100. `giftRelationshipGain` supplies both the preview and command; malformed, nonpositive, and nonfinite amounts are rejected without saving. The gift debit, relation, interaction marker, and memory share one save.
+
 Living pets age, charge the species' annual upkeep, and grant its happiness bonus. Death chance begins rising at the minimum lifespan and is certain at the maximum; each pet death costs 5 happiness. Species rules live in [petCatalog.js](../src/config/petCatalog.js).
 
 ## Activity limits and content
 
-[activities.js](../src/config/activities.js) owns menu categories, age/bank gates, special actions, and yearly limits. Limited activities share tracker IDs `categoryId__itemText`. Gym/run consume that tracker before training and show “Done this year” after use.
+[activities.js](../src/config/activities.js) owns menu categories, age/bank gates, special actions, and yearly limits. Limited activities share tracker IDs `categoryId__itemText`. Gym/run consume their separate trackers with training and show “Done this year” after use.
 
-Yearly counters are transient and reset on annual progression; they are not written in the current cloud-save payload. The refactor preserves that persistence behavior.
+Yearly counters and relationship interaction markers are saved with each affected activity or relationship command and restored on reload. Cost, base effects, and the counter share one coherent save. Acknowledged counters retain the current year’s allowance; annual progression resets them for the new year. Activity progress feedback reports the acknowledgement of that command’s save; reload before acknowledgement can restore an older snapshot.
+
+Ordinary Staycation costs $0, grants +8 happiness and +4 health (subject to existing stat bounds), and consumes `vacation__Staycation` once per year. Its base-effect/counter save precedes the separately generated offer save. The engine-owned `performSkillTraining` commits the yearly counter, lesson cost, and one 3–8 point skill gain (capped at 100) in one base save before requesting the existing activity event. Gym/run are free; acting, voice, and modeling lessons retain their catalog prices and guards. The insufficient-funds path retains slot consumption before its existing error event. Legacy `trainHiddenSkill` remains available for direct callers.
+
+A restored invalid or unsupported choice stays locked behind explicit recovery: “This saved choice is unavailable. Clearing it applies no outcome and keeps your loaded life.” Clearing it changes no stats, money, flags, or relationships. Missing legacy fields use defaults. Progress messages distinguish session commitment from cloud acknowledgment; a failed or pending save may reload an older event and balance. See [supported-client limits](./architecture.md#supported-clients-and-rollback).
 
 The game intentionally includes mature themes such as crime, violence, adult relationships, and drugs. Do not sanitize them without an explicit instruction.

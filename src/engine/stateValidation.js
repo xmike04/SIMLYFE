@@ -1,4 +1,5 @@
 import { validateActionRecord } from './actions/actionResult';
+import { restoreLifeContinuity } from './lifeContinuity';
 
 export const KNOWN_SAVE_FIELDS = new Set([
   'character', 'age', 'stats', 'flags', 'isDead', 'career', 'bank', 'history',
@@ -126,8 +127,9 @@ export function validateHydratedSave(saveData) {
   if (Object.hasOwn(saveData, 'isDead') && typeof saveData.isDead !== 'boolean') {
     addWarning('invalid_type', 'isDead');
   }
-  if (Object.hasOwn(saveData, 'flags') && !Array.isArray(saveData.flags)) {
-    addWarning('invalid_type', 'flags');
+  // Reuse continuity checks observationally: the normalized result is discarded.
+  for (const { code, field } of restoreLifeContinuity(saveData, { newEventId: 'validation-only' }).issues) {
+    addWarning(code, field);
   }
   if (Object.hasOwn(saveData, 'narrativeMode') && typeof saveData.narrativeMode !== 'boolean') {
     addWarning('invalid_type', 'narrativeMode');

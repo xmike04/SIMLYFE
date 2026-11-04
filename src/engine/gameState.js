@@ -1,4 +1,5 @@
 import { useCloudAccount } from './cloud/useCloudAccount';
+import { preparePendingEvent, restoreLifeContinuity } from './lifeContinuity';
 import { advanceLifeYear } from './annual/advanceLifeYear';
 import { checkCareerEligibility as evaluateCareerEligibility } from './mechanics/careers';
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -11,14 +12,15 @@ import { createDiagnosticId, diagnosticNow, emitDiagnostic, emitLlmDiagnostic, g
 
 import staticCareers from './careers.json';
 import { quoteCareerChange, resolveCareerChange } from './actions/careerActions';
+import { quoteEducationEnrollment, resolveEducationEnrollment } from './actions/educationActions';
 import { makeActionResult } from './actions/actionResult';
 
 import { INITIAL_STATS, INITIAL_EDUCATION, INITIAL_CAREER_META, INITIAL_ECONOMY, buildLifeSave } from './lifeSave';
-import { DEGREE_CONFIG, DEGREE_LABELS, enrollDegree } from './mechanics/education';
-import { NAMES, pickParentName, markAsEx, normalizeRelationshipNpc, prepareWillDraft } from './mechanics/relationships';
+import { NAMES, pickParentName, markAsEx, normalizeRelationshipNpc, prepareWillDraft, giftRelationshipGain } from './mechanics/relationships';
 import { HEADHUNTER_COST, STARTUP_COST, MILITARY_ENLIST_CAREER_ID, canAffordHeadhunter, computeStartupLaunch, pickHeadhunterPlacement } from './mechanics/careers';
 import { prepareInvestmentPurchase, computeInvestmentSale } from './mechanics/investments';
 import { yearlyActivityTrackId, canConsumeYearlyActivity, computeGambleResult, executeTradePure } from './mechanics/activities';
+import { prepareCharacterName } from './mechanics/character';
 import { applyEffectsPure, checkDeathPure, generateInitialStats } from './mechanics/life';
 
 // Historical named exports remain available; new callers should import their domain directly.
@@ -49,6 +51,7 @@ export function useGameState() {
   const currentEventRef = useRef(null);
   const setCurrentEvent = useCallback((event) => {
     currentEventRef.current = event;
+    lifeSnapshotRef.current = { ...lifeSnapshotRef.current, currentEvent: event };
     setCurrentEventState(event);
   }, []);
   const [activitiesThisYear, setActivitiesThisYear] = useState({});
@@ -64,40 +67,64 @@ export function useGameState() {
   const [pets, setPets] = useState([]);
   const [will, setWill] = useState(null);
   const [lastCareerAction, setLastCareerAction] = useState(null);
+  const [lastEducationAction, setLastEducationAction] = useState(null);
+  const [lastContinuitySave, setLastContinuitySave] = useState(null);
   // Transient lifecycle identity: never persisted or sent to narration.
   const lifeRevisionRef = useRef(0);
   const careerFeedbackRef = useRef(null);
+  const educationFeedbackRef = useRef(null);
   const agingInFlightRef = useRef(false);
-  const invalidateCareerFeedback = useCallback(() => {
+  const continuityFeedbackRef = useRef(null);
+  const activeEventRequestRef = useRef(null);
+  const ownsEventRequest = useCallback(request => (
+    activeEventRequestRef.current === request && lifeRevisionRef.current === request.revision
+  ), []);
+  const invalidateLifeFeedback = useCallback(() => {
     lifeRevisionRef.current += 1;
     careerFeedbackRef.current = null;
     setLastCareerAction(null);
+    educationFeedbackRef.current = null;
+    setLastEducationAction(null);
+    continuityFeedbackRef.current = null;
+    setLastContinuitySave(null);
+    activeEventRequestRef.current = null;
+    agingInFlightRef.current = false;
+    setIsAging(false);
   }, []);
   useEffect(() => () => {
     lifeRevisionRef.current += 1;
     careerFeedbackRef.current = null;
+    educationFeedbackRef.current = null;
+    continuityFeedbackRef.current = null;
+    activeEventRequestRef.current = null;
+    agingInFlightRef.current = false;
   }, []);
-  /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
+  /** Ready-life start/reset boundaries suppress obsolete cloud hydration; unread destinations are guarded. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
   const lifeSnapshotRef = useRef(buildLifeSave());
   lifeSnapshotRef.current = {
-    character, age, stats, bank, history, isDead, flags, career, careerMeta,
+    character, age, stats, bank, history, isDead, flags, currentEvent, activitiesThisYear, career, careerMeta,
     relationships, belongings, properties, education, networking, economyCycle, pets, will,
   };
 
   /** Apply a cloud save document to local state — used at boot and on account switch. */
   const hydrateFromSave = useCallback((data) => {
-    invalidateCareerFeedback();
+    invalidateLifeFeedback();
+    const continuity = restoreLifeContinuity(data, { newEventId: createDiagnosticId('pending-event') });
     lifeSnapshotRef.current = buildLifeSave({
       ...lifeSnapshotRef.current, ...data,
       stats: data.stats ? { grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats } : lifeSnapshotRef.current.stats,
       education: { ...INITIAL_EDUCATION, ...data.education },
       careerMeta: { ...INITIAL_CAREER_META, ...data.careerMeta },
       economyCycle: { ...INITIAL_ECONOMY, ...data.economyCycle },
-      // Preserve the existing flags hydration contract for this slice.
-      flags: lifeSnapshotRef.current.flags,
+      flags: continuity.flags,
+      activitiesThisYear: continuity.activitiesThisYear,
+      currentEvent: continuity.currentEvent,
     });
+    setFlags(continuity.flags);
+    setActivitiesThisYear(continuity.activitiesThisYear);
+    setCurrentEvent(continuity.currentEvent);
     if (data.character) setCharacter(data.character);
     if (data.age !== undefined) setAge(data.age);
     if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
@@ -114,11 +141,11 @@ export function useGameState() {
     if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
     if (data.pets) setPets(data.pets);
     if (data.will !== undefined) setWill(data.will);
-  }, [invalidateCareerFeedback]);
+  }, [invalidateLifeFeedback, setCurrentEvent]);
 
   /** Clear the in-memory life only — no cloud write. Shared by resetLife and account changes. */
   const clearLocalLife = useCallback(() => {
-    invalidateCareerFeedback();
+    invalidateLifeFeedback();
     lifeSnapshotRef.current = buildLifeSave();
     agingInFlightRef.current = false;
     setCharacter(null);
@@ -141,9 +168,9 @@ export function useGameState() {
     setEconomyCycle({ ...INITIAL_ECONOMY });
     setPets([]);
     setWill(null);
-  }, [invalidateCareerFeedback, setCurrentEvent]);
+  }, [invalidateLifeFeedback, setCurrentEvent]);
 
-  const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
+  const { syncToCloud, authAccount, cloudLoadState, retryCloudLoad, canReplaceLife, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
     hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData, lifeRevisionRef,
   });
 
@@ -154,10 +181,32 @@ export function useGameState() {
    * See docs/architecture.md — mid-life sync.
    */
   const persistLife = useCallback((overrides = {}) => {
+    // A newer write supersedes domain feedback even when it has no status UI.
+    // Guard the setter: legacy callers can persist inside a React updater.
+    if (continuityFeedbackRef.current !== null) {
+      continuityFeedbackRef.current = null;
+      setLastContinuitySave(null);
+    }
     const next = { ...lifeSnapshotRef.current, ...overrides };
     lifeSnapshotRef.current = next;
     return syncToCloud(buildLifeSave(next));
   }, [syncToCloud]);
+
+  /** Track only the latest continuity write in this life; transport owns acknowledgement. */
+  const persistContinuity = useCallback((overrides, kind) => {
+    const revision = lifeRevisionRef.current;
+    const feedback = { id: createDiagnosticId('continuity-save'), kind, saveStatus: 'pending', operationId: null };
+    const persistence = persistLife(overrides);
+    continuityFeedbackRef.current = feedback;
+    setLastContinuitySave(feedback);
+    persistence.then(receipt => {
+      if (lifeRevisionRef.current !== revision || continuityFeedbackRef.current !== feedback) return;
+      const acknowledged = { ...feedback, saveStatus: receipt.status, operationId: receipt.operationId };
+      continuityFeedbackRef.current = acknowledged;
+      setLastContinuitySave(acknowledged);
+    });
+    return persistence;
+  }, [persistLife]);
 
   const isActionLocked = () => lifeSnapshotRef.current.isDead || agingInFlightRef.current || !!currentEventRef.current;
 
@@ -167,13 +216,18 @@ export function useGameState() {
    * See docs/architecture.md#death-restart-flow.
    */
   const resetLife = () => {
+    if (!canReplaceLife()) return { status: 'rejected', code: 'account_load_blocked', persistence: null };
     ignoreCloudLoadRef.current = true;
     clearLocalLife();
     syncToCloud(buildLifeSave({ character: null, isDead: false }), { replace: true });
   };
 
-  const startLife = (name, gender, country, cityId) => {
-    invalidateCareerFeedback();
+  const startLife = (rawName, gender, country, cityId) => {
+    const prepared = prepareCharacterName(rawName);
+    if (!prepared.ok) return { status: 'rejected', code: prepared.reason, persistence: null };
+    if (!canReplaceLife()) return { status: 'rejected', code: 'account_load_blocked', persistence: null };
+    const { name } = prepared;
+    invalidateLifeFeedback();
     agingInFlightRef.current = false;
     ignoreCloudLoadRef.current = true;
     const city = getCityById(cityId);
@@ -241,31 +295,26 @@ export function useGameState() {
     checkDeathPure(currentStats, currentAge, Math.random())
   ), []);
 
-  const applyEffects = (effects) => {
-    const applied = applyEffectsPure(stats, bank, flags, effects);
-    setStats(applied.stats);
-    setBank(applied.bank);
-    setFlags(applied.flags);
-    return applied;
-  };
-
-  const handleChoice = (choice) => {
-    let nextStats = stats;
-    let nextBank = bank;
-    let nextFlags = flags;
-    let nextRelationships = relationships;
-
-    if (choice.effects) {
-      const applied = applyEffects(choice.effects);
-      nextStats = applied.stats;
-      nextBank = applied.bank;
-      nextFlags = applied.flags;
+  const handleChoice = (eventId, choiceIndex) => {
+    const snap = lifeSnapshotRef.current;
+    const event = snap.currentEvent;
+    if (!event) return { status: 'noop', code: 'no_pending_event', persistence: null };
+    if (event.id !== eventId || event.age !== snap.age) {
+      return { status: 'rejected', code: 'stale_event', persistence: null };
     }
+    if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= event.choices.length) {
+      return { status: 'rejected', code: 'invalid_choice', persistence: null };
+    }
+    const choice = event.choices[choiceIndex];
+    const recovery = event.source === 'recovery';
+    const applied = recovery ? { stats: snap.stats, bank: snap.bank, flags: snap.flags }
+      : applyEffectsPure(snap.stats, snap.bank, snap.flags, choice.effects);
+    let nextRelationships = snap.relationships;
 
     const historyLines = [];
 
-    if (currentEvent?.isCustodyBattle && choice.custodyOutcome) {
-      const { exId, childIds } = currentEvent;
+    if (event.isCustodyBattle && choice.custodyOutcome) {
+      const { exId, childIds } = event;
       const childLabel = childIds.length > 1 ? 'children' : 'child';
 
       if (choice.custodyOutcome === 'fight') {
@@ -285,24 +334,29 @@ export function useGameState() {
       }
     }
 
-    historyLines.push(`Event: ${currentEvent.description} -> You chose: ${choice.text}`);
-    const updatedHistory = [...history, ...historyLines.map(text => ({ age, text }))];
+    historyLines.push(recovery
+      ? 'Recovery: Cleared an unavailable saved choice without applying an outcome.'
+      : `Event: ${event.description} -> You chose: ${choice.text}`);
+    const updatedHistory = [...snap.history, ...historyLines.map(text => ({ age: snap.age, text }))];
+    const patch = { ...applied, relationships: nextRelationships, history: updatedHistory, currentEvent: null };
 
-    if (nextRelationships !== relationships) setRelationships(nextRelationships);
-    setHistory(updatedHistory);
+    // Clear the eager event lock before another callback can resolve this identity.
     setCurrentEvent(null);
-    persistLife({
-      history: updatedHistory,
-      stats: nextStats,
-      bank: nextBank,
-      flags: nextFlags,
-      relationships: nextRelationships,
-    });
+    setStats(applied.stats);
+    setBank(applied.bank);
+    setFlags(applied.flags);
+    setRelationships(nextRelationships);
+    setHistory(updatedHistory);
+    const persistence = persistContinuity(patch, 'event_resolved');
+    return { status: 'committed', code: recovery ? 'event_cleared' : 'event_resolved', persistence };
   };
 
   const ageUp = useCallback(async () => {
-    if (isDead || currentEvent || isAging || agingInFlightRef.current) return;
+    const snap = lifeSnapshotRef.current;
+    if (snap.isDead || currentEventRef.current || agingInFlightRef.current) return;
 
+    const request = { revision: lifeRevisionRef.current };
+    activeEventRequestRef.current = request;
     agingInFlightRef.current = true;
     setIsAging(true);
     const transitionOperationId = createDiagnosticId('age-transition');
@@ -311,15 +365,12 @@ export function useGameState() {
       operationId: transitionOperationId,
       status: 'started',
       durationMs: 0,
-      fromAge: age,
-      toAge: age + 1,
+      fromAge: snap.age,
+      toAge: snap.age + 1,
     });
 
     try {
-      const annual = advanceLifeYear({
-        age, stats, bank, career, economyCycle, education, character, careerMeta,
-        networking, belongings, properties, relationships, pets, activitiesThisYear,
-      }, { careersData });
+      const annual = advanceLifeYear(snap, { careersData });
       const {
         age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer,
         careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy,
@@ -327,6 +378,8 @@ export function useGameState() {
         properties: nextProperties, belongings: nextBelongings, pets: petUpdates,
       } = annual.state;
 
+      // Commit eagerly for same-tick readers, without a pre-inference cloud checkpoint.
+      lifeSnapshotRef.current = { ...snap, ...annual.state, activitiesThisYear: {}, currentEvent: null };
       setAge(nextAge);
       setStats(nextStats);
       setBank(nextBank);
@@ -342,95 +395,64 @@ export function useGameState() {
       setRelationships(nextRelationships);
 
       const died = checkDeath(nextStats, nextAge);
-
-      let updatedHistory = [...history];
       if (died) {
+        const updatedHistory = [...snap.history, { age: nextAge, text: `You passed away peacefully at age ${nextAge}.` }];
         setIsDead(true);
-        updatedHistory.push({ age: nextAge, text: `You passed away peacefully at age ${nextAge}.` });
         setHistory(updatedHistory);
-        persistLife({
-          age: nextAge,
-          stats: nextStats,
-          bank: nextBank,
-          isDead: true,
-          history: updatedHistory,
-          belongings: nextBelongings,
-          properties: nextProperties,
-          career: nextCareer,
-          careerMeta: nextCareerMeta,
-          networking: nextNetworking,
-          economyCycle: nextEconomy,
-          education: nextEducation,
-          relationships: nextRelationships,
-          pets: petUpdates,
-        });
+        setCurrentEvent(null);
+        persistContinuity({ ...annual.state, isDead: true, activitiesThisYear: {}, currentEvent: null, history: updatedHistory }, 'year');
         emitDiagnostic('age_transition', {
           operationId: transitionOperationId,
           status: 'death',
           durationMs: diagnosticNow() - transitionStartedAt,
-          fromAge: age,
+          fromAge: snap.age,
           toAge: nextAge,
         });
         return;
       }
 
-      let eventTriggered = false;
       const dynamicEvent = await generateDynamicEvent({
-        character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory,
-        narrativeMode, relationships, pets, city: getCityById(character?.city)?.name ?? null, education: nextEducation,
+        character: snap.character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: snap.history,
+        // Preserve the existing request timing: family/pets and history precede their annual tick.
+        narrativeMode, relationships: snap.relationships, pets: snap.pets, city: getCityById(snap.character?.city)?.name ?? null, education: nextEducation,
         economyPhase: nextEconomy?.phase,
       });
+      if (!ownsEventRequest(request)) return;
 
-      if (dynamicEvent && dynamicEvent.description && dynamicEvent.choices) {
-        // Re-map format if necessary to ensure stability with UI
-        const safeEvent = {
-          description: dynamicEvent.description,
-          choices: dynamicEvent.choices.map(c => ({
-            text: c.text || "Continue",
-            effects: c.effects || {}
-          }))
-        };
-        setCurrentEvent(safeEvent);
-        eventTriggered = true;
-      } else {
-        setCurrentEvent({
-          description: 'LLM ERROR: Dynamic event generation returned no event.',
-          choices: [{ text: 'Understood', effects: {} }],
-        });
-        eventTriggered = true;
-      }
-
-      if (!eventTriggered) {
-        updatedHistory.push({ age: nextAge, text: `Age ${nextAge}: An uneventful year passed.` });
-      }
-
-      updatedHistory.push(...annual.history);
-
+      const event = preparePendingEvent(dynamicEvent || {
+        description: 'LLM ERROR: Dynamic event generation returned no event.',
+        choices: [{ text: 'Understood', effects: {} }],
+      }, { id: createDiagnosticId('pending-event'), age: nextAge, source: 'annual', relationships: nextRelationships });
+      const updatedHistory = [...snap.history, ...annual.history];
+      setCurrentEvent(event);
       setHistory(updatedHistory);
-
-      persistLife({ age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
+      persistContinuity({ ...annual.state, activitiesThisYear: {}, currentEvent: event, history: updatedHistory }, 'year');
       emitDiagnostic('age_transition', {
         operationId: transitionOperationId,
         status: 'completed',
         durationMs: diagnosticNow() - transitionStartedAt,
-        fromAge: age,
+        fromAge: snap.age,
         toAge: nextAge,
       });
     } catch (error) {
+      if (!ownsEventRequest(request)) return;
       emitDiagnostic('age_transition', {
         operationId: transitionOperationId,
         status: 'failed',
         durationMs: diagnosticNow() - transitionStartedAt,
-        fromAge: age,
-        toAge: age + 1,
+        fromAge: snap.age,
+        toAge: snap.age + 1,
         errorClass: getErrorClass(error),
       });
       throw error;
     } finally {
-      agingInFlightRef.current = false;
-      setIsAging(false);
+      if (ownsEventRequest(request)) {
+        activeEventRequestRef.current = null;
+        agingInFlightRef.current = false;
+        setIsAging(false);
+      }
     }
-  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, careersData, pets, activitiesThisYear, narrativeMode, setCurrentEvent]);
+  }, [checkDeath, persistContinuity, careersData, narrativeMode, setCurrentEvent, ownsEventRequest]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
 
@@ -438,20 +460,32 @@ export function useGameState() {
     return evaluateCareerEligibility(careerEntry, education, stats, networking, age);
   }, [age, education, networking, stats]);
 
-  const enrollInDegree = (degreeType) => {
-    if (isActionLocked()) return;
-    const result = enrollDegree(degreeType, education, bank);
-    if (result.error) {
-      setHistory(prev => [...prev, { age, text: `Education: ${result.error}.` }]);
-      return;
-    }
-    setBank(result.newBank);
-    setEducation(result.newEducation);
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Education: You enrolled in a ${DEGREE_LABELS[degreeType]} program (Year 1/${DEGREE_CONFIG[degreeType].years}).` }];
-      persistLife({ education: result.newEducation, history: updated, bank: result.newBank });
-      return updated;
+  const quoteEducation = (degreeType) => quoteEducationEnrollment(lifeSnapshotRef.current, degreeType);
+
+  /** Commit enrollment locally once; only the transport receipt reports saved. */
+  const enrollInDegree = (degreeType, { actionId = createDiagnosticId('education-action'), expectedBasis = null } = {}) => {
+    const result = agingInFlightRef.current || currentEventRef.current
+      ? makeActionResult({ status: 'rejected', actionId, actionType: 'education.enroll', targetId: degreeType, code: 'action_locked' })
+      : resolveEducationEnrollment(lifeSnapshotRef.current, { actionId, targetId: degreeType, expectedBasis });
+    const feedback = { actionId, result, saveStatus: result.status === 'committed' ? 'pending' : 'not_requested' };
+    // A repeated command must leave its committed decision's pending receipt visible.
+    if (result.status === 'noop' && educationFeedbackRef.current?.saveStatus === 'pending') return { result, persistence: null };
+    educationFeedbackRef.current = feedback;
+    setLastEducationAction(feedback);
+    if (result.status !== 'committed') return { result, persistence: null };
+
+    const revision = lifeRevisionRef.current;
+    setBank(result.patch.bank);
+    setEducation(result.patch.education);
+    setHistory(result.patch.history);
+    const persistence = persistLife(result.patch);
+    persistence.then(receipt => {
+      if (lifeRevisionRef.current !== revision || educationFeedbackRef.current !== feedback) return;
+      const acknowledged = { ...feedback, saveStatus: receipt.status };
+      educationFeedbackRef.current = acknowledged;
+      setLastEducationAction(acknowledged);
     });
+    return { result, persistence };
   };
 
   const quoteCareer = (jobId) => quoteCareerChange(lifeSnapshotRef.current, jobId, careerCatalogRef.current);
@@ -492,63 +526,52 @@ export function useGameState() {
    */
   const performActivity = (item, categoryId) => {
     if (isActionLocked()) return 'blocked_busy';
+    const snap = lifeSnapshotRef.current;
     const trackId = yearlyActivityTrackId(categoryId, item.text);
-
-    // 1. Per-year limit gate
-    if (item.yearlyLimit && !canConsumeYearlyActivity(activitiesThisYear, categoryId, item.text, item.yearlyLimit)) {
+    if (item.yearlyLimit && !canConsumeYearlyActivity(snap.activitiesThisYear, categoryId, item.text, item.yearlyLimit)) {
       return 'blocked_yearly';
     }
-
-    // 2. Stat guard
     if (item.statGuard) {
       const { stat, op, value } = item.statGuard;
-      const actual = stats[stat] ?? 0;
+      const actual = snap.stats[stat] ?? 0;
       if (op === 'gte' && actual < value) return 'blocked_guard';
       if (op === 'lte' && actual > value) return 'blocked_guard';
     }
-
-    // 3. Cost deduction + base effects (compute synchronously for cloud persist)
     const cost = item.cost ?? 0;
-    if (cost > 0 && bank < cost) return 'blocked_cost';
-
-    let nextBank = bank;
-    let nextStats = stats;
-    let nextFlags = flags;
-    if (cost > 0) nextBank = bank - cost;
+    if (cost > 0 && snap.bank < cost) return 'blocked_cost';
+    let nextBank = cost > 0 ? snap.bank - cost : snap.bank;
+    let nextStats = snap.stats;
+    let nextFlags = snap.flags;
     if (item.baseEffects) {
       const applied = applyEffectsPure(nextStats, nextBank, nextFlags, item.baseEffects);
       nextStats = applied.stats;
       nextBank = applied.bank;
       nextFlags = applied.flags;
     }
-    if (nextBank !== bank) setBank(nextBank);
+    if (nextBank !== snap.bank) setBank(nextBank);
     if (item.baseEffects) {
       setStats(nextStats);
       setFlags(nextFlags);
     }
-
-    // 5. Track usage
-    if (item.yearlyLimit) {
-      setActivitiesThisYear(prev => ({ ...prev, [trackId]: (prev[trackId] ?? 0) + 1 }));
+    const nextActivities = item.yearlyLimit
+      ? { ...snap.activitiesThisYear, [trackId]: (snap.activitiesThisYear[trackId] ?? 0) + 1 }
+      : snap.activitiesThisYear;
+    if (item.yearlyLimit) setActivitiesThisYear(nextActivities);
+    if (nextBank !== snap.bank || item.baseEffects || item.yearlyLimit) {
+      persistContinuity({ bank: nextBank, stats: nextStats, flags: nextFlags, activitiesThisYear: nextActivities }, 'activity');
     }
-
-    if (nextBank !== bank || item.baseEffects) {
-      persistLife({ bank: nextBank, stats: nextStats, flags: nextFlags });
-    }
-
-    // 6. Fire LLM event
     triggerActivityEvent(item.context);
     return 'ok';
   };
 
   const modifyRelationship = (id, delta) => {
     if (isActionLocked()) return;
-    setRelationships(prev => {
-      const next = prev.map(r => r.id === id ? { ...r, relation: Math.max(0, Math.min(100, r.relation + delta)) } : r);
-      persistLife({ relationships: next });
-      return next;
-    });
-    if (delta > 0) setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${id}`]: 1 }));
+    const snap = lifeSnapshotRef.current;
+    const next = snap.relationships.map(r => r.id === id ? { ...r, relation: Math.max(0, Math.min(100, r.relation + delta)) } : r);
+    const nextActivities = delta > 0 ? { ...snap.activitiesThisYear, [`rel_interact__${id}`]: 1 } : snap.activitiesThisYear;
+    setRelationships(next);
+    if (delta > 0) setActivitiesThisYear(nextActivities);
+    persistContinuity({ relationships: next, activitiesThisYear: nextActivities }, 'activity');
   };
 
   const modifyProperty = (id, valueDelta) => {
@@ -560,10 +583,58 @@ export function useGameState() {
     });
   };
 
+  /** Accepted training owns its complete base save before the event acquires the lock. */
+  const performSkillTraining = (item, categoryId) => {
+    if (isActionLocked()) return { status: 'blocked_busy' };
+    const skills = {
+      gym: ['athleticism', 'Athleticism', 0],
+      run: ['athleticism', 'Athleticism', 0],
+      act_lesson: ['acting', 'Acting Skill', 50],
+      voice_lesson: ['voice', 'Vocal Skill', 50],
+      model_lesson: ['modeling', 'Modeling Skill', 50],
+    };
+    const training = skills[item?.specialAction];
+    if (!training) return { status: 'blocked_skill' };
+    const snap = lifeSnapshotRef.current;
+    if (item.yearlyLimit && !canConsumeYearlyActivity(snap.activitiesThisYear, categoryId, item.text, item.yearlyLimit)) {
+      return { status: 'blocked_yearly' };
+    }
+    if (item.statGuard) {
+      const { stat, op, value } = item.statGuard;
+      const actual = snap.stats[stat] ?? 0;
+      if ((op === 'gte' && actual < value) || (op === 'lte' && actual > value)) return { status: 'blocked_guard' };
+    }
+    const [skill, displayName, defaultCost] = training;
+    const cost = item.cost ?? defaultCost;
+    const nextActivities = item.yearlyLimit
+      ? { ...snap.activitiesThisYear, [yearlyActivityTrackId(categoryId, item.text)]: (snap.activitiesThisYear[yearlyActivityTrackId(categoryId, item.text)] ?? 0) + 1 }
+      : snap.activitiesThisYear;
+    // Preserve the existing slot-before-affordability ordering and insufficient-funds event.
+    if (snap.bank < cost) {
+      if (item.yearlyLimit) {
+        setActivitiesThisYear(nextActivities);
+        persistContinuity({ activitiesThisYear: nextActivities }, 'activity');
+      }
+      triggerActivityEvent("Tried to train skills, but couldn't afford the lessons.");
+      return { status: 'blocked_cost' };
+    }
+    const gain = Math.floor(Math.random() * 6) + 3;
+    const previous = snap.stats[skill] || 0;
+    const nextStats = { ...snap.stats, [skill]: Math.min(100, previous + gain) };
+    const nextBank = snap.bank - cost;
+    setStats(nextStats);
+    setBank(nextBank);
+    setActivitiesThisYear(nextActivities);
+    persistContinuity({ stats: nextStats, bank: nextBank, activitiesThisYear: nextActivities }, 'activity');
+    triggerActivityEvent(item.context);
+    return { status: 'ok', gain, previous, skill, displayName };
+  };
+
   const trainHiddenSkill = (skill) => {
     if (isActionLocked()) return 0;
     let gain = Math.floor(Math.random() * 6) + 3;
-    const nextStats = { ...stats, [skill]: Math.min(100, (stats[skill] || 0) + gain) };
+    const currentStats = lifeSnapshotRef.current.stats;
+    const nextStats = { ...currentStats, [skill]: Math.min(100, (currentStats[skill] || 0) + gain) };
     setStats(nextStats);
     persistLife({ stats: nextStats });
     return gain;
@@ -727,29 +798,33 @@ export function useGameState() {
 
   const addRelationship = (npc) => {
     if (isActionLocked()) return;
+    const snap = lifeSnapshotRef.current;
     const normalized = normalizeRelationshipNpc(npc, { asDating: true });
-    const updatedRels = [...relationships, normalized];
-    const updatedHistory = [...history, { age, text: `Relationships: You are now dating ${normalized.name}.` }];
+    const updatedRels = [...snap.relationships, normalized];
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You are now dating ${normalized.name}.` }];
+    const nextActivities = { ...snap.activitiesThisYear, [`rel_interact__${normalized.id}`]: 1 };
     setRelationships(updatedRels);
     setHistory(updatedHistory);
-    setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${normalized.id}`]: 1 }));
-    persistLife({ relationships: updatedRels, history: updatedHistory });
+    setActivitiesThisYear(nextActivities);
+    persistContinuity({ relationships: updatedRels, history: updatedHistory, activitiesThisYear: nextActivities }, 'activity');
   };
 
-  /** Returns false if yearlyLimit already reached; otherwise increments the slot. */
+  /** Returns false while locked or exhausted; unrestricted activities need no counter save. */
   const consumeYearlyActivity = (categoryId, itemText, yearlyLimit) => {
-    if (!canConsumeYearlyActivity(activitiesThisYear, categoryId, itemText, yearlyLimit)) return false;
+    if (isActionLocked()) return false;
+    const snap = lifeSnapshotRef.current;
+    if (!canConsumeYearlyActivity(snap.activitiesThisYear, categoryId, itemText, yearlyLimit)) return false;
     if (!yearlyLimit) return true;
     const trackId = yearlyActivityTrackId(categoryId, itemText);
-    setActivitiesThisYear(prev => ({ ...prev, [trackId]: (prev[trackId] ?? 0) + 1 }));
+    const nextActivities = { ...snap.activitiesThisYear, [trackId]: (snap.activitiesThisYear[trackId] ?? 0) + 1 };
+    setActivitiesThisYear(nextActivities);
+    persistContinuity({ activitiesThisYear: nextActivities }, 'activity');
     return true;
   };
 
   // ─── Relationship engine functions ───────────────────────────────────────────
 
-  const markRelInteraction = (id) => {
-    setActivitiesThisYear(prev => ({ ...prev, [`rel_interact__${id}`]: 1 }));
-  };
+  const markRelInteraction = (id, counters) => ({ ...counters, [`rel_interact__${id}`]: 1 });
 
   const proposeMarriage = (id) => {
     if (isActionLocked()) return 'blocked';
@@ -770,20 +845,21 @@ export function useGameState() {
 
   const breakUp = (id) => {
     if (isActionLocked()) return 'blocked';
-    const rel = relationships.find(r => r.id === id);
+    const snap = lifeSnapshotRef.current;
+    const rel = snap.relationships.find(r => r.id === id);
     if (!rel || (rel.status !== 'dating' && rel.status !== 'married')) return 'blocked';
     const wasMarried = rel.status === 'married';
     let divorceCostAmount = 0;
-    let newBank = bank;
+    let newBank = snap.bank;
     if (wasMarried) {
-      divorceCostAmount = Math.min(50000, Math.max(5000, Math.floor(bank * 0.15)));
-      newBank = bank - divorceCostAmount;
+      divorceCostAmount = Math.min(50000, Math.max(5000, Math.floor(snap.bank * 0.15)));
+      newBank = snap.bank - divorceCostAmount;
 
-      const playerChildren = relationships.filter(r => r.isAlive && r.type === 'Child');
+      const playerChildren = snap.relationships.filter(r => r.isAlive && r.type === 'Child');
       if (playerChildren.length > 0) {
         const childNamesStr = playerChildren.map(c => c.name).join(', ');
-        setCurrentEvent({
-          id: 'custody_battle',
+        const nextRelationships = snap.relationships.map(r => r.id === rel.id ? markAsEx(r) : r);
+        const event = preparePendingEvent({
           isCustodyBattle: true,
           exId: rel.id,
           childIds: playerChildren.map(c => c.id),
@@ -805,46 +881,43 @@ export function useGameState() {
               custodyOutcome: 'surrender',
             },
           ],
-        });
+        }, { id: createDiagnosticId('pending-event'), age: snap.age, source: 'custody', relationships: nextRelationships });
+        if (event?.source !== 'custody') return 'blocked';
+        const nextStats = { ...snap.stats, happiness: Math.max(0, snap.stats.happiness - 15) };
+        const updatedHistory = [...snap.history, {
+          age: snap.age,
+          text: `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.`,
+        }];
         setBank(newBank);
-        setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
-        setRelationships(prev => {
-          const next = prev.map(r => r.id === rel.id ? markAsEx(r) : r);
-          persistLife({ relationships: next, bank: newBank });
-          return next;
-        });
-        setHistory(prev => {
-          const updated = [...prev, { age, text: `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.` }];
-          persistLife({ history: updated });
-          return updated;
-        });
+        setStats(nextStats);
+        setRelationships(nextRelationships);
+        setHistory(updatedHistory);
+        setCurrentEvent(event);
+        persistContinuity({ bank: newBank, stats: nextStats, relationships: nextRelationships, history: updatedHistory, currentEvent: event }, 'event_offered');
         return 'ok';
       }
 
-      setBank(newBank);
     }
-    setStats(prev => ({ ...prev, happiness: Math.max(0, prev.happiness - 15) }));
-    setRelationships(prev => {
-      const next = prev.map(r => r.id === id ? markAsEx(r) : r);
-      persistLife({ relationships: next, ...(wasMarried ? { bank: newBank } : {}) });
-      return next;
-    });
-    setHistory(prev => {
-      const msg = wasMarried
-        ? `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.`
-        : `Relationships: You broke up with ${rel.name}. -15 Happiness.`;
-      const updated = [...prev, { age, text: msg }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    const nextStats = { ...snap.stats, happiness: Math.max(0, snap.stats.happiness - 15) };
+    const nextRelationships = snap.relationships.map(r => r.id === id ? markAsEx(r) : r);
+    const msg = wasMarried
+      ? `Relationships: You divorced ${rel.name}. It cost $${divorceCostAmount.toLocaleString()} and left you heartbroken.`
+      : `Relationships: You broke up with ${rel.name}. -15 Happiness.`;
+    const updatedHistory = [...snap.history, { age: snap.age, text: msg }];
+    setBank(newBank);
+    setStats(nextStats);
+    setRelationships(nextRelationships);
+    setHistory(updatedHistory);
+    persistLife({ bank: newBank, stats: nextStats, relationships: nextRelationships, history: updatedHistory });
     return 'ok';
   };
 
   const haveChild = (partnerId) => {
     if (isActionLocked()) return 'blocked_busy';
-    const partner = relationships.find(r => r.id === partnerId);
+    const snap = lifeSnapshotRef.current;
+    const partner = snap.relationships.find(r => r.id === partnerId);
     if (!partner || (partner.status !== 'married' && partner.status !== 'dating')) return 'blocked_partner';
-    if (age < 18 || age > 55) return 'blocked_age';
+    if (snap.age < 18 || snap.age > 55) return 'blocked_age';
     const childNames = ['Ava', 'Liam', 'Mia', 'Noah', 'Zoe', 'Ethan', 'Luna', 'Leo', 'Isla', 'Owen'];
     const childName = childNames[Math.floor(Math.random() * childNames.length)];
     const child = {
@@ -856,68 +929,56 @@ export function useGameState() {
       status: 'family',
       isAlive: true,
     };
-    setRelationships(prev => {
-      const next = [...prev, child];
-      persistLife({ relationships: next });
-      return next;
-    });
-    setStats(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 20) }));
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Relationships: You and ${partner.name} welcomed a child, ${childName}! +20 Happiness. 👶` }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    const nextRelationships = [...snap.relationships, child];
+    const nextStats = { ...snap.stats, happiness: Math.min(100, snap.stats.happiness + 20) };
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You and ${partner.name} welcomed a child, ${childName}! +20 Happiness. 👶` }];
+    setRelationships(nextRelationships);
+    setStats(nextStats);
+    setHistory(updatedHistory);
+    persistLife({ relationships: nextRelationships, stats: nextStats, history: updatedHistory, bank: snap.bank });
     return 'ok';
   };
 
   const giftRelationship = (id, amount) => {
-    if (isActionLocked()) return 'blocked';
-    const rel = relationships.find(r => r.id === id);
-    if (!rel || bank < amount) return 'blocked';
-    const relationGain = amount >= 1000 ? 20 : amount >= 200 ? 10 : 5;
-    const newBank = bank - amount;
+    const relationGain = giftRelationshipGain(amount);
+    if (!relationGain || isActionLocked()) return 'blocked';
+    const snap = lifeSnapshotRef.current;
+    const rel = snap.relationships.find(r => r.id === id);
+    if (!rel || snap.bank < amount) return 'blocked';
+    const newBank = snap.bank - amount;
+    const nextRelationships = snap.relationships.map(r => r.id === id
+      ? { ...r, relation: Math.min(100, r.relation + relationGain) } : r);
+    const nextActivities = markRelInteraction(id, snap.activitiesThisYear);
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You gifted ${rel.name} $${amount.toLocaleString()}. +${relationGain} Relation.` }];
     setBank(newBank);
-    setRelationships(prev => {
-      const next = prev.map(r => r.id === id
-        ? { ...r, relation: Math.min(100, r.relation + relationGain) }
-        : r
-      );
-      persistLife({ relationships: next, bank: newBank });
-      return next;
-    });
-    markRelInteraction(id);
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Relationships: You gifted ${rel.name} $${amount.toLocaleString()}. +${relationGain} Relation.` }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    setRelationships(nextRelationships);
+    setActivitiesThisYear(nextActivities);
+    setHistory(updatedHistory);
+    persistContinuity({ relationships: nextRelationships, bank: newBank, activitiesThisYear: nextActivities, history: updatedHistory }, 'activity');
     return 'ok';
   };
 
   const meetFriend = () => {
     if (isActionLocked()) return;
+    const snap = lifeSnapshotRef.current;
     const friendNames = ['Jordan', 'Casey', 'Morgan', 'Alex', 'Riley', 'Taylor', 'Sam', 'Drew', 'Quinn', 'Blake'];
     const friendName = friendNames[Math.floor(Math.random() * friendNames.length)];
     const friend = {
       id: `rel_${Date.now()}_friend`,
       type: 'Friend',
       name: friendName,
-      age: age + Math.floor(Math.random() * 10) - 5,
+      age: snap.age + Math.floor(Math.random() * 10) - 5,
       relation: 40 + Math.floor(Math.random() * 30),
       status: 'friend',
       isAlive: true,
     };
-    setRelationships(prev => {
-      const next = [...prev, friend];
-      persistLife({ relationships: next });
-      return next;
-    });
-    setStats(prev => ({ ...prev, happiness: Math.min(100, prev.happiness + 5) }));
-    setHistory(prev => {
-      const updated = [...prev, { age, text: `Relationships: You met a new friend, ${friendName}. +5 Happiness.` }];
-      persistLife({ history: updated });
-      return updated;
-    });
+    const nextRelationships = [...snap.relationships, friend];
+    const nextStats = { ...snap.stats, happiness: Math.min(100, snap.stats.happiness + 5) };
+    const updatedHistory = [...snap.history, { age: snap.age, text: `Relationships: You met a new friend, ${friendName}. +5 Happiness.` }];
+    setRelationships(nextRelationships);
+    setStats(nextStats);
+    setHistory(updatedHistory);
+    persistLife({ relationships: nextRelationships, stats: nextStats, history: updatedHistory, bank: snap.bank });
   };
 
   const surrender = () => {
@@ -946,35 +1007,45 @@ export function useGameState() {
 
   const triggerActivityEvent = async (context) => {
     if (isActionLocked()) return;
+    const request = { revision: lifeRevisionRef.current };
+    activeEventRequestRef.current = request;
     agingInFlightRef.current = true;
     setIsAging(true);
+    const installOffer = raw => {
+      const snap = lifeSnapshotRef.current;
+      const event = preparePendingEvent(raw, {
+        id: createDiagnosticId('pending-event'), age: snap.age, source: 'activity', relationships: snap.relationships,
+      });
+      setCurrentEvent(event);
+      persistContinuity({ currentEvent: event }, 'event_offered');
+    };
     try {
-      const cityName = getCityById(character?.city)?.name ?? null;
       const snap = lifeSnapshotRef.current;
       const stateDump = {
         character: snap.character, age: snap.age, bank: snap.bank, stats: snap.stats,
         career: snap.career, history: snap.history, narrativeMode, relationships: snap.relationships,
-        pets: snap.pets, city: cityName, education: snap.education, economyPhase: snap.economyCycle?.phase,
+        pets: snap.pets, city: getCityById(snap.character?.city)?.name ?? null, education: snap.education, economyPhase: snap.economyCycle?.phase,
       };
       const parsed = await generateDynamicEvent(stateDump, context);
+      if (!ownsEventRequest(request)) return;
 
-      if (parsed && parsed.choices && parsed.description) {
-        setCurrentEvent(parsed);
-      } else {
-        setCurrentEvent({
-          description: 'LLM ERROR: Dynamic activity event generation returned no event.',
-          choices: [{ text: 'Understood', effects: {} }],
-        });
-      }
+      installOffer(parsed || {
+        description: 'LLM ERROR: Dynamic activity event generation returned no event.',
+        choices: [{ text: 'Understood', effects: {} }],
+      });
     } catch {
+      if (!ownsEventRequest(request)) return;
       emitLlmDiagnostic({ type: 'failure', code: 'service' });
-      setCurrentEvent({
+      installOffer({
         description: 'LLM ERROR: Dynamic activity event generation failed. Please try again.',
         choices: [{ text: 'Understood', effects: {} }],
       });
     } finally {
-      agingInFlightRef.current = false;
-      setIsAging(false);
+      if (ownsEventRequest(request)) {
+        activeEventRequestRef.current = null;
+        agingInFlightRef.current = false;
+        setIsAging(false);
+      }
     }
   };
 
@@ -1022,10 +1093,9 @@ export function useGameState() {
 
   const buyAsset = (category, item) => {
     if (isActionLocked()) return;
-    if (bank < item.cost) return;
-    const newBank = bank - item.cost;
-    setBank(newBank);
-
+    const snap = lifeSnapshotRef.current;
+    if (snap.bank < item.cost) return;
+    const newBank = snap.bank - item.cost;
     const newAsset = {
       ...item,
       id: `${category}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -1034,22 +1104,18 @@ export function useGameState() {
       purchasePrice: item.cost,
       yearsOwned: 0
     };
-
-    if (category === 'property') {
-      setProperties(prev => {
-        const next = [...prev, newAsset];
-        persistLife({ properties: next, bank: newBank });
-        return next;
-      });
-      setHistory(prev => [...prev, { age, text: `Real Estate: Purchased a ${item.name} for $${item.cost.toLocaleString()}.` }]);
-    } else {
-      setBelongings(prev => {
-        const next = [...prev, newAsset];
-        persistLife({ belongings: next, bank: newBank });
-        return next;
-      });
-      setHistory(prev => [...prev, { age, text: `Shopping: Bought a ${item.name} for $${item.cost.toLocaleString()}.` }]);
-    }
+    const isProperty = category === 'property';
+    const field = isProperty ? 'properties' : 'belongings';
+    const nextAssets = [...snap[field], newAsset];
+    const text = isProperty
+      ? `Real Estate: Purchased a ${item.name} for $${item.cost.toLocaleString()}.`
+      : `Shopping: Bought a ${item.name} for $${item.cost.toLocaleString()}.`;
+    const updatedHistory = [...snap.history, { age: snap.age, text }];
+    setBank(newBank);
+    if (isProperty) setProperties(nextAssets);
+    else setBelongings(nextAssets);
+    setHistory(updatedHistory);
+    persistLife({ bank: newBank, [field]: nextAssets, history: updatedHistory });
   };
 
   const sellAsset = (category, id) => {
@@ -1263,6 +1329,8 @@ export function useGameState() {
     will,
     draftWill,
     authAccount,
+    cloudLoadState,
+    retryCloudLoad,
     signInWithGoogle,
     signInWithEmail,
     resetPassword,
@@ -1284,6 +1352,9 @@ export function useGameState() {
     chooseCareer,
     quoteCareer,
     lastCareerAction,
+    quoteEducation,
+    lastEducationAction,
+    lastContinuitySave,
     checkCareerEligibility,
     enrollInDegree,
     attendNetworkingEvent,
@@ -1292,6 +1363,7 @@ export function useGameState() {
     modifyRelationship,
     modifyProperty,
     trainHiddenSkill,
+    performSkillTraining,
     performGig,
     executeTrade,
     startStartup,

@@ -3,6 +3,8 @@ import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 import { advanceBelongingsYear } from '../engine/annual/belongings';
 import { advanceRelationshipsYear } from '../engine/annual/relationships';
 import { buildLifeSave } from '../engine/lifeSave';
+import { resolveEducationEnrollment } from '../engine/actions/educationActions';
+import { INITIAL_EDUCATION, INITIAL_STATS } from '../engine/lifeSave';
 import { resolveCareerChange } from '../engine/actions/careerActions';
 import { computeCareerYearIncome } from '../engine/mechanics/careers';
 import { findActionRecord } from '../engine/actions/actionResult';
@@ -15,13 +17,40 @@ function freezeTree(value) {
   return value;
 }
 const holding = fields => ({ type: 'investment', yearsOwned: 0, currentValue: 1000, purchasePrice: 1000, ...fields });
-const life = fields => ({ ...buildLifeSave({ character: { name: 'Fixture', gender: 'Female', country: 'US' }, ...fields }), activitiesThisYear: {} });
+const life = fields => ({ ...buildLifeSave({ character: { name: 'Fixture', gender: 'Female', country: 'US' }, ...fields }), activitiesThisYear: fields.activitiesThisYear ?? {} });
 const rolls = (...values) => vi.fn(() => {
   if (!values.length) throw new Error('Unexpected extra random draw');
   return values.shift();
 });
 
 describe('annual simulation boundary', () => {
+  it('keeps the age-30 request input unchanged while calculating post-tick arrays and marked decay', () => {
+    const input = freezeTree(life({
+      age: 30, bank: 12000, history: [{ age: 30, text: 'Prior memory' }],
+      relationships: [{ id: 'friend', name: 'Alex', age: 30, status: 'friend', relation: 60, isAlive: true }],
+      pets: [{ id: 'pet', speciesId: 'dog', name: 'Pup', age: 1, isAlive: true }],
+      activitiesThisYear: { rel_interact__friend: 1 },
+    }));
+    const randomFn = rolls(.999, .999, .999, .999, .999);
+    const year = advanceLifeYear(input, { randomFn });
+    expect(year.state).toMatchObject({ age: 31, bank: 10700, stats: { health: 79, happiness: 85 } });
+    expect(year.state.relationships[0]).toMatchObject({ age: 31, relation: 60 });
+    expect(year.state.pets[0]).toMatchObject({ age: 2, isAlive: true });
+    expect(input.relationships[0].age).toBe(30);
+    expect(input.pets[0].age).toBe(1);
+    expect(input.history).toEqual([{ age: 30, text: 'Prior memory' }]);
+    expect(year.history.map(entry => entry.text.split(':')[0])).toEqual(['Lifestyle', 'Education', 'Pets']);
+    expect(randomFn).toHaveBeenCalledTimes(5);
+  });
+
+  it('retains a restored positive interaction for annual decay while the same unmarked friend loses two points', () => {
+    const relationship = { id: 'friend', name: 'Alex', age: 30, status: 'friend', relation: 60, isAlive: true };
+    const marked = advanceLifeYear(life({ relationships: [relationship], activitiesThisYear: { rel_interact__friend: 1 } }), { randomFn: () => .999 });
+    const unmarked = advanceLifeYear(life({ relationships: [relationship] }), { randomFn: () => .999 });
+    expect(marked.state.relationships[0].relation).toBe(60);
+    expect(unmarked.state.relationships[0].relation).toBe(58);
+  });
+
   it('does not mutate frozen life data, even across catalog returns and family changes', () => {
     const input = freezeTree(life({
       age: 17,
@@ -167,5 +196,24 @@ describe('committed career actions continue through the unchanged annual simulat
     const unemployed = { ...input, ...quit.patch };
     expect(unemployed.bank).toBe(12000);
     expect(advanceLifeYear(unemployed, { careersData: catalog, randomFn: () => .9 }).state).toMatchObject({ bank: 11500, career: null, careerMeta: { unemploymentYearsLeft: 0, yearsInRole: 0 }, stats: { health: 79, happiness: 80 } });
+  });
+});
+
+
+describe('committed education continues through the unchanged annual simulation', () => {
+  it('charges the next prepaid-program year before the existing zero-upkeep lifestyle tier and preserves its record', () => {
+    const state = freezeTree(life({ age: 18, bank: 45000, stats: { ...INITIAL_STATS, smarts: 50, happiness: 70 }, education: { ...INITIAL_EDUCATION, highSchool: true }, career: null, belongings: [], properties: [], relationships: [], pets: [] }));
+    const actionId = 'education-annual-continuity';
+    const result = resolveEducationEnrollment(state, { actionId, targetId: 'bachelor' });
+    expect(result.status).toBe('committed');
+    const committed = { ...state, ...result.patch };
+    expect(committed).toMatchObject({ bank: 25000, education: { currentDegree: { yearsInProgram: 1 } } });
+    const output = advanceLifeYear(committed, { randomFn: () => .9 });
+    expect(output.state).toMatchObject({ age: 19, bank: 5000, education: { currentDegree: { yearsInProgram: 2 } } });
+    const tuition = output.history.filter(entry => entry.text.startsWith('Education:') && entry.text.includes('$20,000 paid'));
+    expect(tuition).toHaveLength(1);
+    const history = [...committed.history, ...output.history];
+    expect(findActionRecord(history, actionId)).toEqual(result.record);
+    expect(history.filter(entry => entry.action)).toHaveLength(1);
   });
 });

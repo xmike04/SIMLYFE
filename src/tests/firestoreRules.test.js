@@ -3,7 +3,7 @@
  *
  * Guards firestore.rules against drifting from the app's save schema.
  * The rules' hasOnly([...]) write allowlist must stay in sync with
- * LIFE_SAVE_KEYS (gameState.js) and KNOWN_SAVE_FIELDS (stateValidation.js):
+ * LIFE_SAVE_KEYS (lifeSave.js) and KNOWN_SAVE_FIELDS (stateValidation.js):
  * a field the app persists but the rules don't list would make every cloud
  * write fail once the rules are deployed.
  */
@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { LIFE_SAVE_KEYS } from '../engine/gameState';
+import { LIFE_SAVE_KEYS } from '../engine/lifeSave';
 import { KNOWN_SAVE_FIELDS } from '../engine/stateValidation';
 
 // Vitest runs with cwd at the repo root (where vite.config.js lives).
@@ -44,6 +44,13 @@ describe('firestore.rules', () => {
     // every persisted life key is writable.
     expect(new Set(ruleKeys).size).toBe(ruleKeys.length);
     expect([...ruleKeys].sort()).toEqual([...KNOWN_SAVE_FIELDS].sort());
+    expect([...ruleKeys].sort()).toEqual([
+      'character', 'age', 'stats', 'flags', 'isDead', 'career', 'bank', 'history',
+      'currentEvent', 'activitiesThisYear', 'relationships', 'belongings',
+      'properties', 'education', 'careerMeta', 'networking', 'economyCycle',
+      'narrativeMode', 'pets', 'will', 'schemaVersion',
+    ].sort());
+    expect(LIFE_SAVE_KEYS).toEqual(expect.arrayContaining(['currentEvent', 'activitiesThisYear']));
     for (const key of LIFE_SAVE_KEYS) {
       expect(ruleKeys).toContain(key);
     }

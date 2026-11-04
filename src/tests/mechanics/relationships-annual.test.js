@@ -1,6 +1,7 @@
 /** relationships annual mechanics, grouped from the original engine regression suite. */
 import { describe, it, expect } from 'vitest';
 import { advanceRelationshipsYear } from '../../engine/annual/relationships';
+import { restoreLifeContinuity } from '../../engine/lifeContinuity';
 import { advancePetsYear } from '../../engine/annual/pets';
 import { calcDivorceCost as divorceCost } from './support/relationships.js';
 
@@ -340,4 +341,13 @@ describe('NPC autonomy (production annual pass)', () => {
     expect(npcYear(60, { npcSick: false }, 0.08).npcSick).toBe(false);
     expect(npcYear(80, { npcSick: false }, 0.08).npcSick).toBe(true);
   });
+});
+
+it('restored interaction counters suppress the existing base decay for each relationship status', () => {
+  for (const [status, decay] of [['family', 1], ['friend', 2], ['dating', 3], ['married', 2]]) {
+    const rel = makeRel({ status });
+    const restored = restoreLifeContinuity({ character: { name: 'Player' }, age: 30, activitiesThisYear: { rel_interact__rel_test: 1 } }, { newEventId: 'unused' });
+    expect(tickRelationship(rel, { activitiesThisYear: restored.activitiesThisYear }).relation).toBe(60);
+    expect(tickRelationship(rel).relation).toBe(60 - decay);
+  }
 });

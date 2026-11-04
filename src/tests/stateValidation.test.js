@@ -55,6 +55,44 @@ function makeValidSave() {
 }
 
 describe('validateHydratedSave', () => {
+  it('observes malformed continuity fields with bounded paths and codes without normalization', () => {
+    const save = makeValidSave();
+    save.flags = ['valid', 'Private flag', 'valid'];
+    save.activitiesThisYear = { 'private-player-tracker': '2' };
+    save.currentEvent = { description: 'Private event', choices: [{ text: 'Private label', effects: { privateEffect: 1 } }] };
+    const before = structuredClone(save);
+    Object.freeze(save.flags);
+    Object.freeze(save.activitiesThisYear);
+    Object.freeze(save.currentEvent);
+    Object.freeze(save);
+    const result = validateHydratedSave(save);
+    expect(result.warnings).toEqual([
+      { code: 'invalid_value', field: 'flags' },
+      { code: 'invalid_value', field: 'activitiesThisYear' },
+      { code: 'invalid_value', field: 'currentEvent' },
+    ]);
+    expect(result.warningFields).toEqual(['activitiesThisYear', 'currentEvent', 'flags']);
+    expect(JSON.stringify(result)).not.toMatch(/Private|private/);
+    expect(save).toEqual(before);
+  });
+
+  it('accepts missing/null continuity defaults, legacy raw choices, and new versioned choices', () => {
+    const save = makeValidSave();
+    const event = { description: 'An opportunity.', choices: [{ text: 'Consider it', effects: { bank: 250 } }] };
+    for (const currentEvent of [undefined, null, event, { ...event, version: 1, id: 'annual-24', age: 24, source: 'annual' }]) {
+      expect(validateHydratedSave({ ...save, flags: null, activitiesThisYear: null, currentEvent }).hasWarnings).toBe(false);
+    }
+    expect(validateHydratedSave({ ...save, flags: ['a', 'b', 'c', 'd', 'e'], activitiesThisYear: { 'vacation__Staycation': 1 } }).hasWarnings).toBe(false);
+  });
+
+  it('warns about malformed metadata without exposing it or discarding the supplied event', () => {
+    const save = makeValidSave();
+    save.currentEvent = { description: 'An opportunity.', choices: [{ text: 'Consider it', effects: {} }], meta: { prompt: 'private prompt' } };
+    const before = structuredClone(save);
+    expect(validateHydratedSave(save).warnings).toEqual([{ code: 'invalid_metadata', field: 'currentEvent' }]);
+    expect(save).toEqual(before);
+  });
+
   it('accepts the current save shape without exposing field values', () => {
     const result = validateHydratedSave(makeValidSave());
     expect(result).toEqual({

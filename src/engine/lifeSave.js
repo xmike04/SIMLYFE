@@ -15,6 +15,7 @@ export const LIFE_SAVE_KEYS = [
   'character', 'age', 'stats', 'bank', 'history', 'isDead', 'flags',
   'career', 'careerMeta', 'relationships', 'belongings', 'properties',
   'education', 'networking', 'economyCycle', 'pets', 'will',
+  'currentEvent', 'activitiesThisYear',
 ];
 
 /**
@@ -31,6 +32,8 @@ export function buildLifeSave(fields = {}) {
     history: fields.history ?? [],
     isDead: fields.isDead ?? false,
     flags: fields.flags ?? [],
+    currentEvent: fields.currentEvent ?? null,
+    activitiesThisYear: fields.activitiesThisYear ?? {},
     career: fields.career ?? null,
     careerMeta: fields.careerMeta ? { ...fields.careerMeta } : { ...INITIAL_CAREER_META },
     relationships: fields.relationships ?? [],

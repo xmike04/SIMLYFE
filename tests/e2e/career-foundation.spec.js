@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { buildLifeSave, INITIAL_EDUCATION, INITIAL_STATS } from '../../src/engine/lifeSave.js';
 import { createFirebaseIdToken, mockFirebase } from './support/firebase.js';
+import { applyFirestoreSave } from './support/firestoreWrites.js';
 
 const LEGACY_MEMORY = 'An existing memory from before career decisions.';
 const catalog = [
@@ -60,10 +61,10 @@ const firestoreSource = `
 `;
 
 async function bootAdult(page, fields = {}) {
-  let acknowledged = structuredClone({ ...adultLife, ...fields });
+  let acknowledged = structuredClone({ ...adultLife, schemaVersion: 1, narrativeMode: true, ...fields });
   await page.exposeFunction('__readAcknowledgedCareerSave', () => structuredClone(acknowledged));
   await page.exposeFunction('__commitAcknowledgedCareerSave', (save, options) => {
-    acknowledged = structuredClone(options?.merge ? { ...acknowledged, ...save } : save);
+    acknowledged = applyFirestoreSave(acknowledged, save, options);
   });
   const firebaseRequests = await mockFirebase(page, createFirebaseIdToken(), { firestoreSource });
   const aiRequests = [];
@@ -131,6 +132,7 @@ test('career previews and acknowledged selection, switch and quit survive reload
   await acknowledge(page);
   let saved = await acknowledgedSave(page);
   expect(saved.career.id).toBe('teacher');
+  expect(saved).toMatchObject({ schemaVersion: 1, narrativeMode: true });
   expect(saved.history.filter(entry => entry.action)).toHaveLength(1);
   expect(saved.history.at(-1).action.version).toBe(1);
   const selectionText = saved.history.at(-1).text;
@@ -165,6 +167,7 @@ test('career previews and acknowledged selection, switch and quit survive reload
   await acknowledge(page);
   saved = await acknowledgedSave(page);
   expect(saved.career).toBeNull();
+  expect(saved).toMatchObject({ schemaVersion: 1, narrativeMode: true });
   expect(saved.careerMeta.unemploymentYearsLeft).toBe(0);
   expect(saved.history.filter(entry => entry.action)).toHaveLength(3);
   const quitText = saved.history.at(-1).text;

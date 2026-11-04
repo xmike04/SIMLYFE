@@ -204,6 +204,22 @@ describe('startLife initial state', () => {
 });
 
 describe('buildLifeSave', () => {
+  it('includes resumable choices and counters with fresh continuity defaults', () => {
+    expect(LIFE_SAVE_KEYS).toEqual(expect.arrayContaining(['currentEvent', 'activitiesThisYear']));
+    const first = buildLifeSave();
+    const second = buildLifeSave();
+    expect(first).toMatchObject({ currentEvent: null, activitiesThisYear: {}, flags: [] });
+    expect(first.activitiesThisYear).not.toBe(second.activitiesThisYear);
+    expect(first.flags).not.toBe(second.flags);
+    first.activitiesThisYear['vacation__Staycation'] = 1;
+    first.flags.push('seen');
+    expect(second).toMatchObject({ activitiesThisYear: {}, flags: [] });
+    const currentEvent = { description: 'Continue?', choices: [{ text: 'Continue', effects: {} }] };
+    const activitiesThisYear = { 'vacation__Staycation': 1 };
+    expect(buildLifeSave({ currentEvent, activitiesThisYear, flags: ['seen'] }))
+      .toMatchObject({ currentEvent, activitiesThisYear, flags: ['seen'] });
+  });
+
   it('always includes every persisted life key', () => {
     const save = buildLifeSave({});
     for (const key of LIFE_SAVE_KEYS) {

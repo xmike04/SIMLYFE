@@ -128,3 +128,10 @@ export function computeEstateDistribution(will, relationships, netWorth) {
   }
   return { mode: 'directed', estateValue: estate, bequests, residualValue: estate - paid };
 }
+
+
+/** Absolute gift thresholds shared by command admission and visible previews. */
+export function giftRelationshipGain(amount) {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return amount >= 1000 ? 20 : amount >= 200 ? 10 : 5;
+}

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import GameHeader from './game/GameHeader';
 import GameSheets from './game/GameSheets';
+import ContinuitySaveStatus from './game/ContinuitySaveStatus';
 
 const ENABLE_DEV_TOOLS = import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true';
 
@@ -17,7 +18,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { age, bank, stats, history, ageUp, isAging, currentEvent, consumeYearlyActivity, triggerActivityEvent, debugModifyBank, trainHiddenSkill } = engine;
+  const { age, stats, history, ageUp, isAging, currentEvent, performSkillTraining } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);
@@ -33,34 +34,11 @@ export default function MainGame({ engine }) {
 
   const handleSpecialSkill = (action, context, opt, categoryId) => {
     if (uiFrozen) return;
-    let cost = 0;
-    let skillName = "";
-    let displayName = "";
-    
-    if (action === 'gym' || action === 'run') { skillName = 'athleticism'; displayName = 'Athleticism'; }
-    if (action === 'act_lesson') { skillName = 'acting'; cost = 50; displayName = 'Acting Skill'; }
-    if (action === 'voice_lesson') { skillName = 'voice'; cost = 50; displayName = 'Vocal Skill'; }
-    if (action === 'model_lesson') { skillName = 'modeling'; cost = 50; displayName = 'Modeling Skill'; }
-
-    // Prefer catalog cost when present (lessons); gym/run have no cost
-    if (opt?.cost != null) cost = opt.cost;
-
-    if (opt?.yearlyLimit && !consumeYearlyActivity(categoryId, opt.text, opt.yearlyLimit)) {
-      return;
-    }
-
-    if (bank < cost) {
-      triggerActivityEvent("Tried to train skills, but couldn't afford the lessons.");
-      closeSheet();
-      return;
-    }
-
-    if (cost > 0) debugModifyBank(-cost);
-    triggerActivityEvent(context);
-    
-    const gain = trainHiddenSkill(skillName);
+    const result = performSkillTraining({ ...opt, specialAction: action, context }, categoryId);
+    if (result.status === 'blocked_cost') { closeSheet(); return; }
+    if (result.status !== 'ok') return;
     if (action !== 'gym' && action !== 'run') {
-      setSkillToast({ name: displayName, prev: stats[skillName] || 0, gain: gain });
+      setSkillToast({ name: result.displayName, prev: result.previous, gain: result.gain });
       setTimeout(() => setSkillToast(null), 3500);
     }
     closeSheet();
@@ -84,6 +62,8 @@ export default function MainGame({ engine }) {
         </div>
       )}
       <GameHeader engine={engine} uiFrozen={uiFrozen} openSheet={openSheet} setActiveSheet={setActiveSheet} enableDevTools={ENABLE_DEV_TOOLS} />
+
+      {!currentEvent && <ContinuitySaveStatus feedback={engine.lastContinuitySave} />}
 
       {/* History Log (Middle) */}
       <div className="glass-panel mb-1" style={{ flexGrow: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column' }}>

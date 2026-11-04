@@ -85,3 +85,19 @@ describe('shared action results and strict durable action records', () => {
     expect(() => makeActionResult(alter(fields()))).toThrow();
   });
 });
+
+describe('explicit cross-domain action dispatch', () => {
+  it('rejects a career commit that reuses a recognized education action ID', () => {
+    const input = fields();
+    input.patch.history.unshift({ age: 18, text: 'Education decision', action: {
+      version: 1, id: input.actionId, type: 'education.enroll', targetId: 'bachelor',
+      beforeBank: 100000, afterBank: 80000, firstYearTuition: 20000,
+      annualTuition: 20000, totalYears: 4, yearsInProgram: 1, code: 'education_enrolled',
+    } });
+    expect(() => makeActionResult(input)).toThrow();
+  });
+
+  it.each(['other.action', 'education.complete', '__proto__', 'constructor'])('rejects unrecognized envelope type %s', actionType => {
+    expect(() => makeActionResult({ actionType, status: 'rejected', code: 'invalid_command' })).toThrow();
+  });
+});

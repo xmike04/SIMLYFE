@@ -1,6 +1,7 @@
 import React from 'react';
 import { getWealthTier } from '../config/wealthTiers';
 import { findSpouse, computeEstateDistribution } from '../engine/gameState';
+import ContinuitySaveStatus from './game/ContinuitySaveStatus';
 
 const STAT_META = [
   { key: 'health',      label: 'Health',      color: 'var(--health-color)' },
@@ -42,13 +43,14 @@ export default function DeathScreen({ engine }) {
   const epitaph = EPITAPH_MAP[dominantStat] ?? 'They lived. That was enough.';
 
   return (
-    <div className="flex-center animate-fade-in" style={{ height: '100%', padding: '20px', overflowY: 'auto' }}>
+    <div className="flex-center death-screen animate-fade-in" style={{ height: '100%', padding: '20px', overflowY: 'auto' }}>
       <div className="glass-panel text-center" style={{ width: '100%', border: '1px solid var(--health-color)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: 'var(--health-color)' }} />
         <h2 className="mb-4 mt-2" style={{ color: 'var(--health-color)', fontSize: '2rem' }}>The End.</h2>
         <h3 className="mb-2" style={{ fontSize: '1.5rem' }}>{character?.name}</h3>
         <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '4px' }}>{epitaph}</p>
         <p className="mb-1" style={{ fontSize: '1.1rem' }}>You died at age <b>{age}</b>.</p>
+        <ContinuitySaveStatus feedback={engine.lastContinuitySave} />
 
         {/* Wealth tier badge */}
         <div style={{ marginBottom: '12px' }}>

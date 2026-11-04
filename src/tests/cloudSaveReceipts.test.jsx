@@ -6,7 +6,7 @@ import { useCloudAccount } from '../engine/cloud/useCloudAccount';
 const backend = vi.hoisted(() => ({
   configured: true, auth: { currentUser: null }, db: {},
   getDoc: vi.fn(), setDoc: vi.fn(), getDocs: vi.fn(),
-  signInWithEmailAndPassword: vi.fn(),
+  signInWithEmailAndPassword: vi.fn(), signOut: vi.fn(), signInAnonymously: vi.fn(),
 }));
 vi.mock('../config/firebase', () => ({
   get auth() { return backend.configured ? backend.auth : null; },
@@ -21,7 +21,7 @@ vi.mock('firebase/auth', () => ({
     queueMicrotask(() => callback(auth.currentUser));
     return () => {};
   },
-  signInAnonymously: vi.fn(),
+  signInAnonymously: backend.signInAnonymously, signOut: backend.signOut,
   EmailAuthProvider: { credential: vi.fn() },
   linkWithCredential: vi.fn(), createUserWithEmailAndPassword: vi.fn(),
   signInWithEmailAndPassword: backend.signInWithEmailAndPassword,
@@ -42,9 +42,15 @@ function mountCloud(options) {
   };
   return { ...renderHook(() => useCloudAccount(callbacks), options), ...callbacks };
 }
-async function ready() {
+async function adopted() {
   const rendered = mountCloud();
   await waitFor(() => expect(rendered.result.current.authAccount?.uid).toBe('first'));
+  return rendered;
+}
+
+async function ready() {
+  const rendered = await adopted();
+  await waitFor(() => expect(['loaded', 'missing', 'local']).toContain(rendered.result.current.cloudLoadState.status));
   return rendered;
 }
 
@@ -65,7 +71,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe('acknowledged cloud save receipts', () => {
   it('adopts storage after a StrictMode effect restart', async () => {
     const { result } = mountCloud({ wrapper: StrictMode });
-    await waitFor(() => expect(result.current.authAccount?.uid).toBe('first'));
+    await waitFor(() => expect(result.current.cloudLoadState.status).toBe('missing'));
     expect((await result.current.syncToCloud({ bank: 50 })).status).toBe('saved');
   });
 
@@ -84,15 +90,33 @@ describe('acknowledged cloud save receipts', () => {
     expect(backend.setDoc.mock.calls[0]).toEqual([
       'users/first/saves/currentLife',
       { career: { id: 'artist', salary: 40000 }, history: [{ age: 20, text: 'Hired' }] },
-      { merge: true },
+      { mergeFields: ['career', 'history'] },
     ]);
     pending.resolve();
     expect(await writing).toEqual({ status: 'saved', operationId: expect.any(String), errorClass: null });
   });
 
+  it('captures a literal top-level mask for every supplied partial payload field', async () => {
+    const { result } = await ready();
+    const pending = deferred();
+    backend.setDoc.mockReturnValueOnce(pending.promise);
+    const payload = { bank: 50, activitiesThisYear: { Run: 1 }, currentEvent: { id: 'ordinary', choices: [{ text: 'Continue', effects: {} }] } };
+    const writing = result.current.syncToCloud(payload);
+    payload.activitiesThisYear.Staycation = 1;
+    payload.laterField = 'must not enter the captured payload/mask';
+    expect(backend.setDoc.mock.calls[0]).toEqual([
+      'users/first/saves/currentLife',
+      { bank: 50, activitiesThisYear: { Run: 1 }, currentEvent: { id: 'ordinary', choices: [{ text: 'Continue', effects: {} }] } },
+      { mergeFields: ['bank', 'activitiesThisYear', 'currentEvent'] },
+    ]);
+    pending.resolve();
+    expect((await writing).status).toBe('saved');
+  });
+
   it('returns skipped without writing when storage is unconfigured', async () => {
     backend.configured = false;
     const { result } = mountCloud();
+    await waitFor(() => expect(result.current.cloudLoadState.status).toBe('local'));
     expect(await result.current.syncToCloud({ bank: 50 })).toEqual({
       status: 'skipped', operationId: expect.any(String), errorClass: null,
     });
@@ -113,6 +137,15 @@ describe('acknowledged cloud save receipts', () => {
       status: 'failed', operationId: expect.any(String), errorClass: 'UnknownError',
     });
     expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it.each([null, undefined])('returns a failed receipt rather than throwing while capturing keys for %s', async payload => {
+    const { result } = await ready();
+    backend.setDoc.mockImplementation(async (_path, value) => {
+      if (value == null) throw new TypeError('Invalid save root');
+    });
+    expect(await result.current.syncToCloud(payload)).toMatchObject({ status: 'failed', operationId: expect.any(String), errorClass: 'TypeError' });
+    expect((await result.current.syncToCloud({ bank: 50 })).status).toBe('saved');
   });
 
   it('emits started at enqueue and matches final diagnostic and receipt operation IDs', async () => {
@@ -144,7 +177,7 @@ describe('acknowledged cloud save receipts', () => {
     pending.resolve();
     expect((await Promise.all([oldSave, reset, newborn])).map(receipt => receipt.status)).toEqual(['saved', 'saved', 'saved']);
     expect(backend.setDoc.mock.calls).toEqual([
-      ['users/first/saves/currentLife', { character: { name: 'Old' }, bank: 500 }, { merge: true }],
+      ['users/first/saves/currentLife', { character: { name: 'Old' }, bank: 500 }, { mergeFields: ['character', 'bank'] }],
       ['users/first/saves/currentLife', { character: null, bank: 0 }],
       ['users/first/saves/currentLife', { character: { name: 'New' }, bank: 0 }],
     ]);
@@ -172,11 +205,11 @@ describe('acknowledged cloud save receipts', () => {
     backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('second') });
     await act(async () => { await result.current.signInWithEmail('fixture@example.com', 'fixture-password', 'signin'); });
     const other = result.current.syncToCloud({ bank: 900 });
-    expect(backend.setDoc.mock.calls[1]).toEqual(['users/second/saves/currentLife', { bank: 900 }, { merge: true }]);
+    expect(backend.setDoc.mock.calls[1]).toEqual(['users/second/saves/currentLife', { bank: 900 }, { mergeFields: ['bank'] }]);
     expect((await other).status).toBe('saved');
     pending.resolve();
     await Promise.all([old, queued]);
-    expect(backend.setDoc.mock.calls[2]).toEqual(['users/first/saves/currentLife', { bank: 200 }, { merge: true }]);
+    expect(backend.setDoc.mock.calls[2]).toEqual(['users/first/saves/currentLife', { bank: 200 }, { mergeFields: ['bank'] }]);
   });
 });
 
@@ -185,7 +218,7 @@ describe('obsolete cloud load protection', () => {
   it('ignores a boot save after the state owner advances its life boundary', async () => {
     const pending = deferred();
     backend.getDoc.mockReturnValueOnce(pending.promise);
-    const { lifeRevisionRef, hydrateFromSave } = await ready();
+    const { lifeRevisionRef, hydrateFromSave } = await adopted();
     lifeRevisionRef.current += 1;
     await act(async () => pending.resolve(snapshot({ character: { name: 'Obsolete' } })));
     expect(hydrateFromSave).not.toHaveBeenCalled();
@@ -195,7 +228,7 @@ describe('obsolete cloud load protection', () => {
     const pending = deferred();
     backend.getDoc.mockReturnValueOnce(pending.promise)
       .mockResolvedValueOnce(snapshot({ character: { name: 'Current account' } }));
-    const { result, hydrateFromSave } = await ready();
+    const { result, hydrateFromSave } = await adopted();
     backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('second') });
     await act(async () => { await result.current.signInWithEmail('fixture@example.com', 'fixture-password', 'signin'); });
     await act(async () => pending.resolve(snapshot({ character: { name: 'Obsolete boot account' } })));
@@ -227,4 +260,70 @@ describe('obsolete cloud load protection', () => {
     await act(async () => { pending.resolve(snapshot({ character: { name: 'Second account' } })); await firstSignin; });
     expect(hydrateFromSave.mock.calls).toEqual([[{ character: { name: 'Third account' } }]]);
   });
+});
+
+
+it('detaches transport immediately after sign-out while preserving already captured queued writes', async () => {
+  const { result, clearLocalLife } = await ready();
+  const first = deferred(), provider = deferred(), anonymous = deferred();
+  backend.setDoc.mockReturnValueOnce(first.promise);
+  const writing = result.current.syncToCloud({ bank: 10 });
+  const queued = result.current.syncToCloud({ bank: 20 });
+  backend.signOut.mockImplementationOnce(async () => { await provider.promise; backend.auth.currentUser = null; });
+  backend.signInAnonymously.mockReturnValueOnce(anonymous.promise);
+  let signingOut;
+  await act(async () => { signingOut = result.current.signOutAccount(); });
+  await act(async () => provider.resolve());
+  expect(clearLocalLife).toHaveBeenCalledTimes(1);
+  expect(result.current.authAccount).toBeNull();
+  expect((await result.current.syncToCloud({ bank: 999 })).status).toBe('skipped');
+  await act(async () => { first.resolve(); await writing; await queued; });
+  expect(backend.setDoc.mock.calls).toEqual([
+    ['users/first/saves/currentLife', { bank: 10 }, { mergeFields: ['bank'] }],
+    ['users/first/saves/currentLife', { bank: 20 }, { mergeFields: ['bank'] }],
+  ]);
+  await act(async () => { anonymous.resolve({ user: { ...user('new-guest'), isAnonymous: true } }); await signingOut; });
+  expect(clearLocalLife).toHaveBeenCalledTimes(1);
+  expect(result.current.authAccount.uid).toBe('new-guest');
+});
+
+
+it('rejects direct legacy writes while the account is unread without enqueue or automatic replay', async () => {
+  const pending = deferred();
+  backend.getDoc.mockReturnValueOnce(pending.promise);
+  const { result } = await adopted();
+  const receipt = await result.current.syncToCloud({ bank: 999 }, { replace: true });
+  expect(receipt).toEqual({ status: 'skipped', operationId: expect.any(String), errorClass: 'AccountLoadBlocked' });
+  expect(backend.setDoc).not.toHaveBeenCalled();
+  await act(async () => pending.resolve(snapshot({ character: { name: 'Acknowledged' } })));
+  expect(backend.setDoc).not.toHaveBeenCalled();
+});
+
+it.each(['resolve', 'reject'])('late read %s after unmount cannot hydrate or publish readiness', async completion => {
+  const pending = deferred();
+  backend.getDoc.mockReturnValueOnce(pending.promise);
+  const { result, unmount, hydrateFromSave } = await adopted();
+  const previous = result.current.cloudLoadState;
+  unmount();
+  await act(async () => pending[completion](completion === 'resolve' ? snapshot({ character: { name: 'Late' } }) : new Error('private')));
+  expect(hydrateFromSave).not.toHaveBeenCalled();
+  expect(result.current.cloudLoadState).toBe(previous);
+});
+
+it.each(['resolve', 'reject'])('signout keeps the new guest unread when an old read has a late %s', async completion => {
+  const old = deferred(), guest = deferred();
+  backend.getDoc.mockReturnValueOnce(old.promise).mockReturnValueOnce(guest.promise);
+  const { result, hydrateFromSave } = await adopted();
+  backend.signOut.mockImplementationOnce(async () => { backend.auth.currentUser = null; });
+  backend.signInAnonymously.mockResolvedValueOnce({ user: { ...user('guest'), isAnonymous: true } });
+  let signingOut;
+  await act(async () => { signingOut = result.current.signOutAccount(); });
+  expect(result.current.cloudLoadState).toEqual({ status: 'loading', accountId: 'guest', reason: null });
+  expect((await result.current.syncToCloud({ bank: 99 })).errorClass).toBe('AccountLoadBlocked');
+  await act(async () => old[completion](completion === 'resolve' ? snapshot({ character: { name: 'Old owner' } }) : new Error('private')));
+  expect(result.current.cloudLoadState.status).toBe('loading');
+  expect(hydrateFromSave).not.toHaveBeenCalled();
+  await act(async () => { guest.resolve(snapshot(null)); expect(await signingOut).toEqual({ ok: true, mode: 'signed_out' }); });
+  expect(result.current.cloudLoadState).toEqual({ status: 'missing', accountId: 'guest', reason: null });
+  expect(backend.setDoc).not.toHaveBeenCalled();
 });

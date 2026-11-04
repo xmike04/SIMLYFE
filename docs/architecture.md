@@ -48,9 +48,9 @@ retirement dates, and required live verification are tracked in
 
 ## View routing
 
-[App.jsx](../src/App.jsx) selects one of three routes:
+[App.jsx](../src/App.jsx) shows the initial session splash for a blank life until dismissed, unless a life was already visible. It then gates loading or failed account reads with `CloudLoadScreen` before selecting one of three ready-life routes:
 
-1. No character and not dead: session splash, then `CharacterCreation`.
+1. No character and not dead: `CharacterCreation`.
 2. Dead: `DeathScreen`.
 3. Living character: `MainGame`, plus `EventModal` when an event is open.
 
@@ -65,28 +65,59 @@ The current life is stored at `users/{uid}/saves/currentLife`. [lifeSave.js](../
 ```text
 character, age, stats, bank, history, isDead, flags,
 career, careerMeta, relationships, belongings, properties,
-education, networking, economyCycle, pets, will
+education, networking, economyCycle, pets, will,
+currentEvent, activitiesThisYear
 ```
 
-`buildLifeSave` emits every key, including intentional nulls and empty arrays. It supplies defaults; it is not a full validator or migration engine. [stateValidation.js](../src/engine/stateValidation.js) observes loaded saves and emits warnings containing field paths and codes. It does not reject, coerce, or migrate the document.
+`buildLifeSave` emits every key, including intentional nulls and empty arrays. It supplies defaults; it is not a full validator or migration engine. [stateValidation.js](../src/engine/stateValidation.js) observes loaded saves and emits warnings containing field paths and codes. It does not coerce or migrate the document. Before validation/hydration, the cloud owner admits only an existing record with a record-valued `character`, or an explicit cleared life with `character: null` and `isDead: false`; other existing roots fail as `invalid_save`.
 
-Transient state includes `currentEvent`, `isAging`, `activitiesThisYear`, `narrativeMode`, cloud connection status, account summary, and the loaded career catalog. These fields are not part of current life writes. The validation and Firestore allowlists also tolerate specific legacy fields; tolerating a field does not make it part of the current save contract.
+The continuity defaults are `flags: []`, `activitiesThisYear: {}`, and `currentEvent: null`. Default collections are fresh for every payload. Supplied continuity fields are retained by the builder; normalization belongs at the hydration boundary.
 
-One preserved hydration gap is explicit: `flags` is written in the save payload, but `hydrateFromSave` currently does not restore it. Treat correcting that behavior as a separate tested change rather than assuming the refactor fixed it.
+[lifeContinuity.js](../src/engine/lifeContinuity.js) provides pure preparation, validation, and restoration of these three fields. It filters/deduplicates lowercase flags and retains own counter keys with nonnegative safe-integer values, excluding reserved prototype keys. Version-1 pending events retain instance ID, saved age, source, description, choices, bounded effects, and projected safe metadata. Unversioned valid events receive a caller-supplied instance ID and `legacy` source. Custody events additionally retain the ex/child references and exactly the three canonical outcome/effect pairs. Invalid semantic events become a fixed, explicit recovery choice that applies no outcome; missing events remain null. Dead or blank lives restore no event or yearly counters. No helper changes the loaded save, generates IDs, draws randomness, requests AI, or writes storage.
+
+`validateHydratedSave` observes these continuity checks and reports bounded field/code warnings while discarding normalized output. Other save validation remains observational; the helpers do not repair malformed core life state. Missing/null optional continuity fields are compatible defaults. The existing Firestore allowlist already permits both newly canonical names; this contract adds no permissions.
+
+Transient state includes `isAging`, `narrativeMode`, cloud connection status, account summary, `cloudLoadState`, and the loaded career catalog. These fields are not part of current life writes. The validation and Firestore allowlists also tolerate specific legacy fields; tolerating a field does not make it part of the current save contract.
+
+Boot and explicit account loads normalize these continuity fields through `restoreLifeContinuity`, installing the same restored values in React state and the eager life snapshot. Event installation also updates the action-lock ref synchronously. Missing fields restore their defaults rather than retaining another account's values. Hydration requests no inference and performs no write. Both load paths emit the same sanitized, observational `save_load` diagnostics.
+
+### Pending choice contract
+
+A canonical `currentEvent` is null or a flat version-1 envelope with `id`, `age`, `source`, `description`, and `choices`. Sources are `annual`, `activity`, `custody`, `legacy`, and fixed `recovery`. Identity is an instance token of at most 128 characters; age must equal the loaded life. Saved descriptions allow 4,096 characters, with one to three choices whose labels allow 160 characters. The restored panel scrolls within the game viewport and wraps unbroken text so every accepted choice remains reachable. Generated responses retain their stricter service limits.
+
+Each choice contains `text` and validated `effects`: supported stats bounded to ±100, bank to ±100,000, and up to four valid flags. Optional `meta` projects only request ID, model, nonnegative latency, and allowlisted token counts. Custody adds `isCustodyBattle`, `exId`, `childIds`, and per-choice `custodyOutcome`; all references must resolve to the matching ex and living children. Legacy text history and version-1 career action records keep their existing structure.
+
+EventModal calls `onChoice(eventId, choiceIndex)`. The owner resolves only the matching current stored choice at the same age. `handleChoice` returns `{ status, code, persistence }`: a commitment returns `event_resolved` or recovery `event_cleared` with a save-receipt promise; absent, stale, or invalid callbacks return no persistence and change nothing. Effects, custody outcome, history, and clearing the event form one coherent save. Clearing recovery applies no effects and adds only a factual recovery history entry. Synchronous eager clearing prevents a duplicate callback from applying the event again in this client.
+
+### Supported clients and rollback
+
+The reload guarantee covers the latest acknowledged snapshot written and restored by the current supported client. An older writer can merge a new age while retaining an obsolete event; the current client then requires explicit recovery. An older replacement can omit flags, counters, and the event entirely; the current client loads compatible defaults and cannot recover the omitted progress. An older cached client using recursive leaf merges can recreate hybrid events or retain obsolete counter/metadata keys. Current-client masks replace whole canonical maps: any nested children omitted by the current snapshot, including unrecognized fields a command drops, are removed. Older/newer clients adding nested fields are therefore not safely interchangeable. Even a merge can overwrite newer counter/flag information. These compatibility behaviors do not establish safe simultaneous or mixed-version writing.
+
+Existing stale counter keys cannot be distinguished reliably from legitimate consumed counters after reload; this correction cannot reconstruct previously lost history or repair arbitrary old counter state. Invalid hybrid events continue through explicit recovery. Before rollback, assess older write behavior and active cached clients against these fields; rolling back the UI does not reverse already acknowledged documents. Do not describe a rollback to a writer that omits them as preserving continuity. No live migration or rules deployment is part of this implementation. The existing top-level field allowlist already accepts the names; deployed rules provenance and actual service connectivity remain separate release checks. Client validation protects this client's execution boundary, not server-calculated authority.
 
 ### Cloud sync modes
 
 | Operation | Write | Purpose |
 |---|---|---|
 | `startLife`, `resetLife` | `syncToCloud(fullSave, { replace: true })` | Replace the complete document at a life boundary |
-| Mid-life mutation | `persistLife(overrides)` | Build a full current snapshot and merge it into the document |
+| Mid-life mutation | `persistLife(overrides)` | Build a full snapshot; replace every supplied top-level value using an explicit field mask |
 | Account switch or sign-out | Clear local state, then load the selected account | Preserve the previous account's saved life |
+
+Ordinary `syncToCloud` captures a cloned payload and `{ mergeFields: Object.keys(payload) }` at enqueue time. Each mask names a complete top-level field, so a canonical `activitiesThisYear`, `currentEvent`, `stats`, or other map replaces its full previous value, including removal of omitted nested keys/metadata. Omitted allowed legacy top-level fields such as `schemaVersion` and `narrativeMode` survive ordinary saves. Start/reset/newborn writes pass no merge options and replace the whole document, removing those prior-life fields too. The current canonical names contain no field-path syntax.
+
+Firestore `{ merge: true }` would recursively merge nonempty maps. After a failed empty-counter reset or null-event clear, a later successful nonempty map could then retain old-year counters or stale custody/metadata keys. Explicit parent masks prevent that retention for later acknowledged current-client snapshots while preserving queue ordering and rejection continuation. This changes write semantics, not the save schema, conflict policy, rules allowlist, or browser authority.
 
 `lifeSnapshotRef` tracks the current life on render and is updated eagerly by `persistLife`. React state updates have not necessarily flushed when a handler writes. Every field changed by that handler must therefore appear in its persistence overrides.
 
-### Career decision workflow
+Special-skill activities use `performSkillTraining` in the state owner: it installs and saves counter, bank, and stats together before starting generation. MainGame only delegates and displays the returned skill toast; it does not debit through debug commands. The separately saved event always sees the accepted base outcome.
 
-Standard career selection, switching, and voluntary quitting use a shared action boundary:
+Child, friend, and non-custody breakup commands also read the eager snapshot and persist happiness, relationships, bank, and history once outside React updater callbacks. Same-tick milestones retain preceding outcomes. Custody continues to use its pending-choice save contract.
+
+Asset purchases calculate their debit, new holding, and purchase memory from the latest eager snapshot, then save all three together once outside React updaters. Listing prices and item schemas remain catalog-owned.
+
+### Career and education decision workflows
+
+Standard career selection, switching, voluntary quitting, and higher-degree enrollment use an explicit action boundary:
 
 `read-only quote → confirm → pure resolution → commit → request save → acknowledge save`
 
@@ -96,22 +127,30 @@ Committed decisions append `{ age, text, action }` to existing history. `action.
 
 `quoteCareer` exposes requirements and trade-offs without mutation. `lastCareerAction` is transient and reports the engine outcome separately from `saveStatus`: `pending`, `saved`, `failed`, `skipped`, or `not_requested`. Start/reset/hydration/account changes invalidate feedback; an older receipt cannot replace a newer decision's feedback. `chooseCareer(jobId, { actionId, expectedBasis })` returns `{ result, persistence }`. A deterministic quote basis covers age, employment/progress, education/stats/networking, city, and selected catalog terms. Changed circumstances reject a confirmation; the player must review a refreshed quote and explicitly confirm again. Reusing a committed ID with a different target rejects with `action_id_conflict`. A rejected or no-op action requests no save. A save failure leaves the already committed session state intact.
 
-`syncToCloud` returns `{ status, operationId, errorClass }`, where status is `saved`, `failed`, or `skipped` (unavailable configuration). Only an acknowledged `setDoc` produces `saved`. Calls capture their payload and target account; [saveQueue.js](../src/engine/cloud/saveQueue.js) provides per-account queues that serialize local merges and life-boundary replacements, and a failed write does not block later writes. This establishes ordering in this mounted client, not cross-device conflict safety or durable offline storage. Pending reads are scoped to the account generation and life revision.
+[educationActions.js](../src/engine/actions/educationActions.js) provides the read-only enrollment quote and pure resolver. `quoteEducation(degreeType)` reads the latest eager snapshot; `enrollInDegree(degreeType, { actionId, expectedBasis })` returns `{ result, persistence }`. The captured quote covers the selected terms, character, age, living state, education, bank, and stats; reordered keys and history-only changes do not invalidate it. Confirming stale circumstances refreshes the preview and requires another explicit confirmation. A matching validated prior ID, type, and target is a no-op; reusing an ID across types or targets rejects. `actionResult.js` dispatches only the explicit `career.choose` and `education.enroll` contracts, rather than accepting arbitrary action types or patches.
+
+An education commitment applies exactly bank, education, and history, then calls `persistLife` once outside React updaters. Its version-1 `history[].action` stores the ID, type, target, before/after bank, first-year and annual tuition, total years, initial paid-year counter, and outcome code. Existing text-only history and career records remain valid. The current education and bank remain authoritative; enrollment adds no top-level save fields and preserves continuity fields and ordinary-save mask semantics.
+
+[EducationActionPanel.jsx](../src/components/sheets/EducationActionPanel.jsx) previews prerequisites, tuition, balance, timing, and completion effects before commitment. Cancel requests no write. Enrollment leaves the sheet open with `lastEducationAction` feedback: session commitment first, then the command's acknowledged receipt. Failed/unavailable saves retain session enrollment and explain that reload uses the last acknowledged save. Education and career feedback have separate receipt ownership within the same lifecycle revision; a receipt cannot replace a newer result or feedback from another life. Start/reset, hydration, account clearing, and unmount invalidate both. JobSheet shows the applicable domain outcome, keeps Continue/close available, and disables consequential career/education selection while either save is pending. Progress is read from stored enrollment terms through `summarizeDegreeProgress`, without migrating saves.
+
+`syncToCloud` returns `{ status, operationId, errorClass }`, where status is `saved`, `failed`, or `skipped` (unavailable configuration or an unread destination). New calls while account readiness is loading/failed receive `skipped` with `errorClass: 'AccountLoadBlocked'`, before cloning/enqueueing. Such calls are never automatically retried. Only an acknowledged `setDoc` produces `saved`. Calls capture their payload, write options and target account; [saveQueue.js](../src/engine/cloud/saveQueue.js) provides per-account queues that serialize local merges and life-boundary replacements, and a failed write does not block later writes. This establishes ordering in this mounted client, not cross-device conflict safety or durable offline storage. Pending reads are scoped to the account generation and life revision.
 
 `projectActionFacts` projects allowlisted, bounded facts from a validated committed action record for a future narration adapter. This slice makes no new AI calls and does not rerun an action to narrate it. The current annual interactive event remains in place; its history projection continues to include only bounded age/text.
 
 ### Death restart flow
 
-1. A death result sets `isDead: true` and persists the final life.
+1. A death result sets `isDead: true` and persists the final life. DeathScreen shows the tracked annual save status; a pending or failed write can reload the previously acknowledged living year. Its summary stays centered when it fits and starts at the reachable top edge when it overflows, keeping the receipt and Live Again accessible by scrolling.
 2. **Live Again** calls `resetLife()`.
 3. Reset clears local state and replaces the cloud document with a blank `buildLifeSave` payload, including `career: null`, `pets: []`, and `isDead: false`.
 4. `App` routes to character creation; `startLife` replaces the document again with the newborn life.
 
-A page reload is not a reset: it can load the dead save again. `ignoreCloudLoadRef` protects a life started or reset while the initial cloud load is still pending from being overwritten by that late load.
+New-life name admission runs before feedback invalidation, ignore-load flags, RNG, setters, or cloud writes. Invalid `startLife` input returns `{ status: 'rejected', code: 'invalid_name', persistence: null }`, leaving the current life and any pending inference/read intact. CharacterCreation uses the same pure `prepareCharacterName` helper and exposes accessible inline validation with a native maximum length of 80. Hydration does not rename old saves.
+
+A page reload is not a reset: it can load the dead save again. After pure name validation, `startLife` checks the cloud owner's eager readiness before lifecycle invalidation, RNG, flags, setters, or saving; `resetLife` checks the same guard before clearing. An unread or failed destination returns exactly `{ status: 'rejected', code: 'account_load_blocked', persistence: null }`. Loaded, confirmed-missing, and confirmed-unconfigured local destinations retain full replacement behavior. A pending boot read must finish before a life boundary is accepted.
 
 ## Identity and account transitions
 
-Firebase is loaded asynchronously after mount. Boot adopts an existing persisted session through `onAuthStateChanged`; it creates an anonymous session only when no account is present. The token-provider bridge in [firebaseToken.js](../src/engine/firebaseToken.js) supplies a short-lived Firebase ID token to the event client.
+Firebase is loaded asynchronously after mount. Boot adopts an existing persisted session through `onAuthStateChanged`; it creates an anonymous session only after a successful observer callback confirms null. Observer/import/auth failures remain failed and cannot mint a guest. The token-provider bridge in [firebaseToken.js](../src/engine/firebaseToken.js) supplies a short-lived Firebase ID token to the event client.
 
 | Command | Behavior |
 |---|---|
@@ -119,7 +158,15 @@ Firebase is loaded asynchronously after mount. Boot adopts an existing persisted
 | Email sign-up | Validate input, then link the anonymous account. An existing email returns a sanitized code so the UI can offer sign-in. |
 | Email sign-in | Switch accounts, clear the local life, and load the signed-in account's save. |
 | Password reset | Request a reset without revealing whether the account exists. |
-| Sign-out | End the current session, start a fresh anonymous session, and clear local state without writing to the previous account. |
+| Sign-out | After provider sign-out succeeds, immediately clear local life, feedback, request ownership, token provider, transport, and account summary; then start a fresh anonymous session without writing to the previous account. |
+
+Failed provider sign-out retains the origin life and transport. If anonymous creation fails after successful sign-out, the life stays blank and the old transport stays detached. `retryCloudLoad` can restore the provider session or read the adopted UID again; sign-out also permits guest setup retry. Each new guest destination must be read before replacement or new writes. Captured writes already enqueued keep their original destination and ordering. Same-UID linking preserves an already-adopted life and its readiness, including an unresolved/failed reader; provider UID equality before adoption still requires an owned read.
+
+`useCloudAccount` owns `cloudLoadState: { status, accountId, reason }`. Initial `loading` blocks new writes/replacement. An owned existing save publishes `loaded` only after hydration; acknowledged absence publishes `missing`. Read rejection publishes `failed/read_failed`, invalid existing data publishes `failed/invalid_save`, and restoration failure publishes `failed/auth_failed`. Only confirmed unconfigured Firebase publishes `local`. `retryCloudLoad()` is explicit and deduplicated: loading returns busy, failed starts one owned attempt, and loaded/missing/local return idempotent success without auth, read, hydration, or receipt loss. Read success, failure, and cleanup are scoped to the attempt, account generation, life revision, and mounted lifecycle; hydration's own revision increment is expected.
+
+[authOperations.js](../src/engine/cloud/authOperations.js) serializes provider mutation per auth object across hook mounts. Concurrent explicit commands return busy before provider side effects or invalidation. Acquired explicit commands invalidate older pre-adoption boot intents. The mutex releases before awaiting Firestore reads, allowing a newer switch/sign-out while a read remains pending. Boot waits for an abandoned mutation to settle and reconciles actual provider currentUser before adoption. Late obsolete observers cannot mint, adopt, or publish.
+
+[CloudLoadScreen](../src/components/game/CloudLoadScreen.jsx) is routed by App before creation, gameplay, or death whenever readiness is loading/failed. The initial splash remains until dismissed; a life already displayed in this App lifetime bypasses a second splash during account recovery. Loading announces “Saved life loading”; failure announces “Saved life load failed” with fixed reassurance and an explicit native Try again button. Failed controls unmount during retry. Identified accounts can Sign out during either state; the new guest read must confirm readiness before creation. Guest recovery offers no sign-out or discard/reset action, and provider error details never appear. This route owns no persistence or account state.
 
 Account actions share the cloud transport rather than issuing Firebase calls from sheets. `authAccount` contains the UI's sanitized account summary, including provider, name, email, and photo; it is excluded from diagnostics.
 
@@ -133,17 +180,23 @@ App Check initialization is optional and controlled by [appCheck.js](../src/conf
 
 ## Annual transition and action locking
 
-`ageUp` composes the annual calculation, commits the resulting state, checks death, then requests one event for a surviving life. The annual modules keep domain calculations separate from React setters and the asynchronous event request. The order of calculations matters: for example, tuition precedes income tax, while lifestyle costs use the balance after income.
+`ageUp` calculates from the latest eager snapshot, commits the resulting state locally, checks death, then requests one event for a surviving life. The annual modules keep domain calculations separate from React setters and the asynchronous event request. The order of calculations matters: for example, tuition precedes income tax, while lifestyle costs use the balance after income.
 
 While `isAging` is true or an event is open:
 
 - Mutating commands return through the action lock, except `handleChoice`, which resolves the event.
 - MainGame hides open sheets and disables action tabs, Age, and narrative-mode controls.
-- The annual save contains the calculated fields explicitly, protecting them from a stale React closure after the request resolves.
+- The annual save contains the calculated fields, annual history, empty yearly counters, and the same versioned pending event together. There is no extra cloud checkpoint before inference. Death requests its single final save with no event and empty counters, without inference.
 
 The gameplay rules and timing belong in [game mechanics](./game-mechanics.md#core-loop). Extraction must preserve calculation order, random draws, event timing, and save boundaries unless a behavior change is explicitly included and tested.
 
-The annual event request currently receives the pre-tick relationship and pet arrays, while most other request fields use the calculated next state. The saved life receives the updated arrays. This existing request timing is preserved by the extraction.
+Annual and activity requests carry one active request token and the originating life revision. Start, reset, hydration, account clearing, and unmount invalidate ownership. After an await, obsolete success/error results cannot mutate or save, and obsolete cleanup cannot unlock a newer request.
+
+`lastContinuitySave` is transient and cleared with the same lifecycle boundary as career feedback. `ContinuitySaveStatus` renders one polite progress announcement in MainGame when no event is open, inside EventModal while a choice is open, or on the separate DeathScreen route for the final annual save. It distinguishes pending, acknowledged saved, failed, and unavailable saves; failure copy preserves session progress and explains that reload may restore an older save. Reset clears the receipt before character creation, and the newborn life inherits no announcement. Counter/base-effect commits use kind `activity`; annual outcomes use `year`; generated activity/custody offers use `event_offered`; resolution/recovery uses `event_resolved`. Each offer requests one save, including zero-cost activities and sanitized service-error events. A newer `persistLife` call invalidates older continuity feedback, including when the newer command has no status UI; an older pending receipt cannot resurface it. Unrelated commands retain their existing feedback behavior. The tracker delegates exactly once to the existing transport and publishes pending feedback after delegation; revision and latest-feedback guards govern settlement.
+
+The annual event request receives the captured pre-tick relationship and pet arrays and prior history, while most other request fields use the calculated next state. The canonical saved life receives post-tick arrays and appended annual history. Activity requests read the latest snapshot after base effects and counter consumption. Both entry points prepare the pending event through `preparePendingEvent`, retain allowlisted provider metadata, and create instance IDs through the diagnostic ID facility without drawing gameplay randomness. Unexpected annual rejections retain their failure diagnostic and propagate; unexpected activity rejections retain their visible no-effect error offer. Each request releases only its own lock.
+
+The reload guarantee begins with an acknowledged cloud snapshot containing the offered event: hydration restores that event without generating it again. Reload during inference or before save acknowledgment restores the latest acknowledged snapshot and does not resume generation. An activity cost already acknowledged before generation can survive even when its offer has not been acknowledged. There is no persisted generation marker, automatic inference retry, offline durability, cross-device arbitration, or safe mixed-version writing guarantee.
 
 ## Generated event contract
 
