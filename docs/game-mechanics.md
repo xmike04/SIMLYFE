@@ -5,6 +5,10 @@
 
 The engine orchestrates player actions in [gameState.js](../src/engine/gameState.js), calculates domain outcomes in `src/engine/mechanics/`, and composes annual changes in [advanceLifeYear.js](../src/engine/annual/advanceLifeYear.js). Values below describe game rules, including preserved legacy behavior.
 
+## Character creation
+
+New names are trimmed and must contain 1–80 UTF-16 code units, as counted by JavaScript string length. `prepareCharacterName` is shared by the creation form and `startLife`; invalid input is rejected before life invalidation, randomness, or replacement saving. Existing saved names are retained unchanged. Unicode names and mature content remain allowed; this is an input length bound, not a byte-size validator.
+
 ## Core loop
 
 1. The player selects **+Age**. Mutating actions and sheets lock while the transition runs.

@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameState } from '../engine/gameState';
@@ -8,6 +8,7 @@ import { getFirebaseIdToken } from '../engine/firebaseToken';
 import { applyFirestoreSave } from '../../tests/e2e/support/firestoreWrites.js';
 import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 import MainGame from '../components/MainGame';
+import CharacterCreation from '../components/CharacterCreation';
 import { ACTIVITY_MENUS } from '../config/activities';
 import { WEALTH_TIERS } from '../config/wealthTiers';
 import { ASSET_CATALOG } from '../config/assetCatalog';
@@ -1804,7 +1805,11 @@ describe('accepted skill training through MainGame and the real owner', () => {
     if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = () => {};
     const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
     let engine;
-    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    function Connected() {
+      const current = useGameState();
+      useEffect(() => { engine = current; });
+      return current.character ? <MainGame engine={current} /> : null;
+    }
     const ui = render(<StrictMode><Connected /></StrictMode>);
     await screen.findByText('Training Player');
     vi.spyOn(Math, 'random').mockReturnValue(gain === 8 ? 0.999 : 0);
@@ -1857,7 +1862,11 @@ describe('coherent relationship milestone outcomes', () => {
       acknowledged = applyFirestoreSave(acknowledged, save, options);
     });
     let engine;
-    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    function Connected() {
+      const current = useGameState();
+      useEffect(() => { engine = current; });
+      return current.character ? <MainGame engine={current} /> : null;
+    }
     const ui = render(<StrictMode><Connected /></StrictMode>);
     await screen.findByText('Milestone Player');
     fireEvent.click(screen.getByRole('button', { name: /Relationships/ }));
@@ -1922,7 +1931,11 @@ describe('truthful gift previews and command admission', () => {
     backend.getDoc.mockImplementation(async () => snapshot(structuredClone(acknowledged)));
     backend.setDoc.mockImplementation(async (_path, save, options) => { acknowledged = applyFirestoreSave(acknowledged, save, options); });
     let engine;
-    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    function Connected() {
+      const current = useGameState();
+      useEffect(() => { engine = current; });
+      return current.character ? <MainGame engine={current} /> : null;
+    }
     const ui = render(<StrictMode><Connected /></StrictMode>);
     await screen.findByText('Gift Player');
     fireEvent.click(screen.getByRole('button', { name: /Relationships/ }));
@@ -1936,7 +1949,7 @@ describe('truthful gift previews and command admission', () => {
     expect(acknowledged.relationships[0].relation).toBe(40 + gain);
     expect(acknowledged.activitiesThisYear).toEqual({ rel_interact__friend: 1 });
     expect(acknowledged.history[0].text).toContain(`+${gain} Relation.`);
-    expect(engine.lastContinuitySave.saveStatus).toBe('saved');
+    await waitFor(() => expect(engine.lastContinuitySave.saveStatus).toBe('saved'));
     ui.unmount();
     const reload = await ready();
     await waitFor(() => expect(reload.result.current.character?.name).toBe('Gift Player'));
@@ -2000,7 +2013,11 @@ describe('coherent asset purchase memories', () => {
   it('saves the actual shop listing price and visible purchase memory from a native Buy button', async () => {
     backend.getDoc.mockResolvedValue(snapshot(savedLife('Shop Player', { bank: 120000, history: [] })));
     let engine;
-    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    function Connected() {
+      const current = useGameState();
+      useEffect(() => { engine = current; });
+      return current.character ? <MainGame engine={current} /> : null;
+    }
     render(<StrictMode><Connected /></StrictMode>);
     await screen.findByText('Shop Player');
     fireEvent.click(screen.getByRole('button', { name: /Assets/ }));
@@ -2011,5 +2028,113 @@ describe('coherent asset purchase memories', () => {
     await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
     expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: 71500, properties: [{ name: 'Studio Loft (412 Maple Ave)', purchasePrice: 48500 }], history: [{ text: 'Real Estate: Purchased a Studio Loft (412 Maple Ave) for $48,500.' }] });
     expect(engine.history).toHaveLength(1);
+  });
+});
+
+
+describe('new-character name admission before lifecycle mutation', () => {
+  const invalid = [['empty', ''], ['whitespace', ' \n\t '], ['nonstring', null], ['number', 17], ['81 units', 'a'.repeat(81)], ['oversized', 'a'.repeat(300000)]];
+  it.each(invalid)('rejects %s without RNG, save, overwrite or invalidating a pending event', async (_label, name) => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Existing Player', { bank: 12345, stats: { happiness: 50 }, history: [{ age: 0, text: 'Born' }], flags: ['kept'] })));
+    const { result } = await ready({ wrapper: StrictMode });
+    await waitFor(() => expect(result.current.character?.name).toBe('Existing Player'));
+    const event = deferred();
+    generateDynamicEvent.mockReturnValue(event.promise);
+    act(() => { result.current.triggerActivityEvent('Existing request'); });
+    const before = { character: result.current.character, stats: result.current.stats, bank: result.current.bank, history: result.current.history, flags: result.current.flags, relationships: result.current.relationships };
+    const random = vi.spyOn(Math, 'random');
+    let outcome;
+    act(() => { try { outcome = result.current.startLife(name, 'Female', 'United States', 'nyc'); } catch (error) { outcome = error; } });
+    expect(outcome).toMatchObject({ status: 'rejected', code: 'invalid_name' });
+    expect(random).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    expect(result.current.isAging).toBe(true);
+    expect(result.current).toMatchObject(before);
+    await act(async () => event.resolve({ description: 'Original event still installs', choices: [{ text: 'Continue', effects: {} }] }));
+    expect(result.current.currentEvent?.description).toBe('Original event still installs');
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(backend.setDoc.mock.calls[0][1].character.name).toBe('Existing Player');
+  });
+
+  it('trims at the engine boundary and leaves overlong existing saved names untouched on hydration', async () => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('a'.repeat(81))));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('a'.repeat(81)));
+    act(() => result.current.startLife(`  ${'b'.repeat(80)}  `, 'Female', 'United States'));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(result.current.character.name).toBe('b'.repeat(80));
+    expect(backend.setDoc.mock.calls[0][1].character.name).toBe('b'.repeat(80));
+  });
+
+  it('leaves a pending boot read eligible to hydrate after rejection', async () => {
+    const load = deferred();
+    backend.getDoc.mockReturnValue(load.promise);
+    const { result } = await ready();
+    act(() => result.current.startLife('a'.repeat(81), 'Female', 'US'));
+    await act(async () => load.resolve(snapshot(savedLife('Loaded Player'))));
+    expect(result.current.character?.name).toBe('Loaded Player');
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it('accepts a trimmed 80 UTF-16-unit name through creation and saves all existing newborn mechanics', async () => {
+    let acknowledged = null;
+    backend.getDoc.mockImplementation(async () => snapshot(acknowledged));
+    backend.setDoc.mockImplementation(async (_path, save) => { acknowledged = structuredClone(save); });
+    let engine;
+    function Connected() {
+      const current = useGameState();
+      useEffect(() => { engine = current; });
+      return <CharacterCreation onStartLife={current.startLife} />;
+    }
+    const ui = render(<Connected />);
+    await waitFor(() => expect(engine.authAccount).not.toBeNull());
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const name = '🌈'.repeat(40);
+    fireEvent.change(screen.getByLabelText('First and Last Name'), { target: { value: `  ${name}  ` } });
+    fireEvent.submit(screen.getByRole('button', { name: 'Start Life' }).closest('form'));
+    await waitFor(() => expect(acknowledged).not.toBeNull());
+    expect(random).toHaveBeenCalled();
+    expect(engine.character.name).toBe(name);
+    expect(acknowledged).toMatchObject({ character: { name, gender: 'Female', country: 'United States' }, age: 0, bank: 0, isDead: false, flags: [], activitiesThisYear: {}, currentEvent: null, career: null, belongings: [], properties: [], pets: [], will: null });
+    expect(acknowledged.relationships).toHaveLength(2);
+    expect(acknowledged.relationships[0]).toMatchObject({ type: 'Mother', age: 20, relation: 70 });
+    expect(acknowledged.relationships[1]).toMatchObject({ type: 'Father', age: 20, relation: 60 });
+    expect(acknowledged.history).toHaveLength(1);
+    expect(acknowledged.history[0].text).toContain(`named ${name}.`);
+    expect(Object.keys(acknowledged).sort()).toEqual([...LIFE_SAVE_KEYS].sort());
+    expect(backend.setDoc.mock.calls[0]).toHaveLength(2);
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+    ui.unmount();
+    const reload = await ready();
+    await waitFor(() => expect(reload.result.current.character?.name).toBe(name));
+    expect(reload.result.current.history).toEqual(acknowledged.history);
+    expect(reload.result.current.relationships).toEqual(acknowledged.relationships);
+  });
+
+  it('shows accessible validation for a programmatic overlong value without invoking the real start command', async () => {
+    let engine;
+    function Connected() {
+      const current = useGameState();
+      useEffect(() => { engine = current; });
+      return <CharacterCreation onStartLife={current.startLife} />;
+    }
+    render(<Connected />);
+    await waitFor(() => expect(engine.authAccount).not.toBeNull());
+    const input = screen.getByLabelText('First and Last Name');
+    expect(input).toHaveAttribute('maxlength', '80');
+    const random = vi.spyOn(Math, 'random');
+    fireEvent.change(input, { target: { value: 'a'.repeat(300000) } });
+    fireEvent.submit(input.closest('form'));
+    expect(screen.getByRole('alert')).toHaveTextContent('1–80');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAccessibleDescription(/1–80/);
+    expect(engine.character).toBeNull();
+    expect(random).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: ' Zoë 李 ' } });
+    fireEvent.submit(input.closest('form'));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    expect(engine.character.name).toBe('Zoë 李');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

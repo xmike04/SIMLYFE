@@ -144,6 +144,8 @@ An education commitment applies exactly bank, education, and history, then calls
 3. Reset clears local state and replaces the cloud document with a blank `buildLifeSave` payload, including `career: null`, `pets: []`, and `isDead: false`.
 4. `App` routes to character creation; `startLife` replaces the document again with the newborn life.
 
+New-life name admission runs before feedback invalidation, ignore-load flags, RNG, setters, or cloud writes. Invalid `startLife` input returns `{ status: 'rejected', code: 'invalid_name', persistence: null }`, leaving the current life and any pending inference/read intact. CharacterCreation uses the same pure `prepareCharacterName` helper and exposes accessible inline validation with a native maximum length of 80. Hydration does not rename old saves.
+
 A page reload is not a reset: it can load the dead save again. `ignoreCloudLoadRef` protects a life started or reset while the initial cloud load is still pending from being overwritten by that late load.
 
 ## Identity and account transitions

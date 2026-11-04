@@ -20,6 +20,7 @@ import { NAMES, pickParentName, markAsEx, normalizeRelationshipNpc, prepareWillD
 import { HEADHUNTER_COST, STARTUP_COST, MILITARY_ENLIST_CAREER_ID, canAffordHeadhunter, computeStartupLaunch, pickHeadhunterPlacement } from './mechanics/careers';
 import { prepareInvestmentPurchase, computeInvestmentSale } from './mechanics/investments';
 import { yearlyActivityTrackId, canConsumeYearlyActivity, computeGambleResult, executeTradePure } from './mechanics/activities';
+import { prepareCharacterName } from './mechanics/character';
 import { applyEffectsPure, checkDeathPure, generateInitialStats } from './mechanics/life';
 
 // Historical named exports remain available; new callers should import their domain directly.
@@ -220,7 +221,10 @@ export function useGameState() {
     syncToCloud(buildLifeSave({ character: null, isDead: false }), { replace: true });
   };
 
-  const startLife = (name, gender, country, cityId) => {
+  const startLife = (rawName, gender, country, cityId) => {
+    const prepared = prepareCharacterName(rawName);
+    if (!prepared.ok) return { status: 'rejected', code: prepared.reason, persistence: null };
+    const { name } = prepared;
     invalidateLifeFeedback();
     agingInFlightRef.current = false;
     ignoreCloudLoadRef.current = true;

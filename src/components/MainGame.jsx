@@ -18,7 +18,7 @@ const StatBar = ({ label, value, color }) => (
 );
 
 export default function MainGame({ engine }) {
-  const { age, bank, stats, history, ageUp, isAging, currentEvent, performSkillTraining } = engine;
+  const { age, stats, history, ageUp, isAging, currentEvent, performSkillTraining } = engine;
   const historyEndRef = useRef(null);
   
   const [activeSheet, setActiveSheet] = useState(null);

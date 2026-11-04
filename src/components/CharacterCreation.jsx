@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { prepareCharacterName } from '../engine/mechanics/character.js';
 import { getCitiesForCountry } from '../config/cityData.js';
 
 export default function CharacterCreation({ onStartLife }) {
   const [name, setName] = useState('');
+  const [nameError, setNameError] = useState(false);
   const [gender, setGender] = useState('Female');
   const [country, setCountry] = useState('United States');
   const [selectedCity, setSelectedCity] = useState(() => {
@@ -19,8 +21,10 @@ export default function CharacterCreation({ onStartLife }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    onStartLife(name.trim(), gender, country, selectedCity);
+    const prepared = prepareCharacterName(name);
+    setNameError(!prepared.ok);
+    if (!prepared.ok) return;
+    onStartLife(prepared.name, gender, country, selectedCity);
   };
 
   const inputStyle = {
@@ -47,11 +51,15 @@ export default function CharacterCreation({ onStartLife }) {
               id="character-name"
               type="text"
               value={name}
-              onChange={e => setName(e.target.value)}
+              onChange={e => { setName(e.target.value); setNameError(false); }}
+              maxLength={80}
+              aria-invalid={nameError ? 'true' : undefined}
+              aria-describedby={nameError ? 'character-name-error' : undefined}
               placeholder="Alex Morgan"
               style={inputStyle}
               required
             />
+            {nameError && <p id="character-name-error" role="alert" style={{ color: '#fca5a5', fontSize: '0.85rem', marginTop: '6px' }}>Enter a name of 1–80 characters after trimming spaces.</p>}
           </div>
           <div>
             <label htmlFor="character-gender" className="mb-1" style={{ display: 'block', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Gender</label>
