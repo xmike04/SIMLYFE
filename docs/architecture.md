@@ -84,6 +84,22 @@ One preserved hydration gap is explicit: `flags` is written in the save payload,
 
 `lifeSnapshotRef` tracks the current life on render and is updated eagerly by `persistLife`. React state updates have not necessarily flushed when a handler writes. Every field changed by that handler must therefore appear in its persistence overrides.
 
+### Career decision workflow
+
+Standard career selection, switching, and voluntary quitting use a shared action boundary:
+
+`read-only quote → confirm → pure resolution → commit → request save → acknowledge save`
+
+[careerActions.js](../src/engine/actions/careerActions.js) quotes and resolves against the latest life snapshot using existing eligibility and career rules. [actionResult.js](../src/engine/actions/actionResult.js) supplies `committed`, `rejected`, and `noop` results and validates consequence records. `useGameState` commits career, metadata, and history together, then requests persistence once outside React updater callbacks. Same-tick commands read the eager snapshot. Valid prior consequence IDs suppress repeated commands without reinstalling a role.
+
+Committed decisions append `{ age, text, action }` to existing history. `action.version = 1` carries the command ID, action type, target, before/after career IDs and salaries, and outcome code. Legacy `{ age, text }` entries remain valid. No top-level save fields are added. Metadata records the historical decision; current `career` and `careerMeta` remain authoritative.
+
+`quoteCareer` exposes requirements and trade-offs without mutation. `lastCareerAction` is transient and reports the engine outcome separately from `saveStatus`: `pending`, `saved`, `failed`, `skipped`, or `not_requested`. Start/reset/hydration/account changes invalidate feedback; an older receipt cannot replace a newer decision's feedback. `chooseCareer(jobId, { actionId, expectedBasis })` returns `{ result, persistence }`. A deterministic quote basis covers age, employment/progress, education/stats/networking, city, and selected catalog terms. Changed circumstances reject a confirmation; the player must review a refreshed quote and explicitly confirm again. Reusing a committed ID with a different target rejects with `action_id_conflict`. A rejected or no-op action requests no save. A save failure leaves the already committed session state intact.
+
+`syncToCloud` returns `{ status, operationId, errorClass }`, where status is `saved`, `failed`, or `skipped` (unavailable configuration). Only an acknowledged `setDoc` produces `saved`. Calls capture their payload and target account; [saveQueue.js](../src/engine/cloud/saveQueue.js) provides per-account queues that serialize local merges and life-boundary replacements, and a failed write does not block later writes. This establishes ordering in this mounted client, not cross-device conflict safety or durable offline storage. Pending reads are scoped to the account generation and life revision.
+
+`projectActionFacts` projects allowlisted, bounded facts from a validated committed action record for a future narration adapter. This slice makes no new AI calls and does not rerun an action to narrate it. The current annual interactive event remains in place; its history projection continues to include only bounded age/text.
+
 ### Death restart flow
 
 1. A death result sets `isDead: true` and persists the final life.

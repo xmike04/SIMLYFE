@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Record reviewed career-foundation source and passed application gates before verifying deployment admission.",
+  "repository": "xmike04/SIMLYFE",
+  "branch": "codex/shared-engine-career-foundation-cloud",
+  "pullRequest": "https://github.com/xmike04/SIMLYFE/pull/14",
+  "reviewedSourceCommit": "cc2bade97cd780cb5dd1a32ea0b850eda004059c",
+  "sourceCommitSignature": {
+    "verified": false,
+    "reason": "unsigned"
+  },
+  "applicationChecks": {
+    "workflowRun": "https://github.com/xmike04/SIMLYFE/actions/runs/41583435714",
+    "conclusion": "success",
+    "localUnitTests": 931,
+    "localTestFiles": 44,
+    "localBrowserCases": 8,
+    "lint": "passed",
+    "build": "passed",
+    "documentation": "passed"
+  },
+  "deploymentPolicy": {
+    "documentedAt": "docs/operations.md#verified-git-commits",
+    "requirement": "The connected Vercel project requires GitHub-verified commits.",
+    "action": "Use a normal GitHub server-side squash merge of documentation-only evidence into the feature branch; verify the resulting commit signature and deployment status independently.",
+    "attempts": [
+      {
+        "method": "GitHub authenticated Contents API",
+        "commit": "c0669cce2d4e937bd75a1b7ad50f6a979b4c9143",
+        "verification": {
+          "verified": false,
+          "reason": "unsigned"
+        },
+        "vercelStatus": "blocked"
+      }
+    ]
+  },
+  "scope": {
+    "applicationSourceChangedByThisRecord": false,
+    "historyRewritten": false,
+    "productionReleasePerformed": false,
+    "liveServicesVerified": false
+  },
+  "limits": [
+    "A signed head does not itself prove a successful build or release.",
+    "Local and GitHub browser checks use controlled service responses.",
+    "Production project access and exact deployment provenance require separate verification."
+  ]
+}

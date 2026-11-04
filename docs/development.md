@@ -100,6 +100,7 @@ Check [package.json](../package.json) for the executable command definitions. Ad
 | Edge contract | `supabase/functions/generate-event/*.test.ts` | Request, prompt, response, and quota migration invariants |
 | Static content and markets | `src/tests/config.data.test.js`, `src/tests/market.test.js` | Catalog shapes, references, and market behavior |
 | Saves and diagnostics | `src/tests/stateValidation.test.js`, `src/tests/diagnostics.test.js`, `src/tests/firestoreRules.test.js` | Warning/redaction behavior and save-field allowlist drift |
+| Career workflow | `src/tests/actions/careerActions.test.js`, `src/tests/careerDecision.test.jsx`, `src/tests/cloudSaveReceipts.test.jsx`, `src/tests/gameState.cloud.test.jsx`, `tests/e2e/career-foundation.spec.js` | Pure resolution, preview/confirmation, acknowledgment ordering, lifecycle-scoped feedback, and reload of acknowledged saves |
 | Cloud lifecycle | `src/tests/gameState.cloud.test.jsx` | Real hook with mocked Firebase: delayed boot, replace/merge, linking, account switches, sign-out, and async action locking |
 | Annual composition | `src/tests/annualSimulation.test.js` | Ordered random draws, immutable inputs, cash/principal accounting, and history order |
 | Manual probe | `src/tests/llmProbe.test.js` | Actual script against a local HTTP fixture; required Origin and separate auth headers |

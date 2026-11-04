@@ -54,6 +54,7 @@ See [architecture](./architecture.md#life-state-and-save-contract) for the compl
 
 ## Domain invariants
 
+- **Shared career actions:** quote and resolve through `src/engine/actions/careerActions.js`; keep persistence and setters in `useGameState`. Never save inside a React updater. Committed decisions carry validated versioned `history[].action` metadata; do not introduce top-level save fields for this slice. Treat reselect/duplicate/unemployed quit as no-ops, and keep save receipt status separate from gameplay status.
 - **Education:** use `yearsInProgram`; charge year-one tuition at enrollment. Both eligibility and headhunter placement use `hasRequiredDegree` for minimum career requirements.
 - **Recruiter:** `hireViaHeadhunter` charges `HEADHUNTER_COST`, including an unsuccessful placement. An LLM event alone does not perform placement.
 - **Startup:** `startStartup` owns `STARTUP_COST` through `computeStartupLaunch`. The UI must not debit separately, and an existing founder must not relaunch or reset equity.

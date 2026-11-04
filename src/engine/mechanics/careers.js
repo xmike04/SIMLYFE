@@ -175,14 +175,14 @@ export function runPerformanceReview(currentStats, currentCareer, currentMeta, c
 }
 
 export function checkCareerEligibility(career, education, stats, networking, age) {
-  if (age < career.minAge) return { eligible: false, reason: `Requires age ${career.minAge}+` };
+  if (age < career.minAge) return { eligible: false, code: 'age_required', reason: `Requires age ${career.minAge}+` };
   if (!hasRequiredDegree(education, career.requiresDegree)) {
-    return { eligible: false, reason: `Requires ${DEGREE_LABELS[career.requiresDegree]}` };
+    return { eligible: false, code: 'degree_required', reason: `Requires ${DEGREE_LABELS[career.requiresDegree]}` };
   }
   const netReq = career.requiresNetworking ?? 0;
-  if (networking < netReq) return { eligible: false, reason: `Requires Networking ${netReq}+` };
+  if (networking < netReq) return { eligible: false, code: 'networking_required', reason: `Requires Networking ${netReq}+` };
   for (const [stat, min] of Object.entries(career.statRequirements ?? {})) {
-    if ((stats[stat] ?? 0) < min) return { eligible: false, reason: `Requires ${stat} ${min}+` };
+    if ((stats[stat] ?? 0) < min) return { eligible: false, code: 'stat_required', reason: `Requires ${stat} ${min}+` };
   }
-  return { eligible: true, reason: '' };
+  return { eligible: true, code: 'eligible', reason: '' };
 }

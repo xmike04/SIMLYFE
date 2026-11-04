@@ -1,23 +1,51 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { createDiagnosticId, diagnosticNow, emitDiagnostic, getDiagnosticStateFields, getErrorClass } from '../diagnostics';
 import { validateHydratedSave } from '../stateValidation';
 import { setFirebaseIdTokenProvider } from '../firebaseToken';
 import { summarizeAuthUser, prepareEmailCredential } from './authHelpers';
+import { createSaveQueue } from './saveQueue';
 
 /**
  * Owns the Firebase session and transport, never the player's life state.
  * The parent supplies stable hydration/clear callbacks and keeps its snapshot
  * and life-boundary guard so save replacement remains explicit at start/reset.
  */
-export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData }) {
-  const [cloudSync, setCloudSync] = useState(null);
+export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData, lifeRevisionRef }) {
+  const cloudSyncRef = useRef(null);
+  const accountGenerationRef = useRef(0);
+  const backendModulesRef = useRef(null);
+  const saveQueueRef = useRef(null);
+  if (saveQueueRef.current === null) saveQueueRef.current = createSaveQueue();
   const [authAccount, setAuthAccount] = useState(null);
+
+  // Share pending imports across StrictMode's effect restart and account actions.
+  const loadBackendModules = useCallback(() => {
+    backendModulesRef.current ??= Promise.all([
+      import('../../config/firebase'),
+      import('firebase/auth'),
+      import('firebase/firestore'),
+    ]).catch(error => {
+      backendModulesRef.current = null;
+      throw error;
+    });
+    return backendModulesRef.current;
+  }, []);
+
+  const adoptUser = useCallback((user, transport) => {
+    if (cloudSyncRef.current?.userId !== user.uid) accountGenerationRef.current += 1;
+    // Update the transport before React renders so immediate commands use this account.
+    cloudSyncRef.current = { ...transport, userId: user.uid };
+    setFirebaseIdTokenProvider(() => user.getIdToken());
+    setAuthAccount(summarizeAuthUser(user));
+  }, []);
 
   // 1. Adopt the persisted auth session (or start an anonymous one) and load
   // the cloud save if configured
   useEffect(() => {
     let cancelled = false;
     let unsubscribeFirstAuth = null;
+    const initialAccountGeneration = accountGenerationRef.current;
+    const initialLifeRevision = lifeRevisionRef?.current;
     setFirebaseIdTokenProvider(null);
     const loadOperationId = createDiagnosticId('save-load');
     const loadStartedAt = diagnosticNow();
@@ -28,11 +56,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
           firebaseConfig,
           authApi,
           firestoreApi,
-        ] = await Promise.all([
-          import('../../config/firebase'),
-          import('firebase/auth'),
-          import('firebase/firestore'),
-        ]);
+        ] = await loadBackendModules();
 
         const { auth, db } = firebaseConfig;
         if (cancelled) return;
@@ -65,17 +89,20 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
         unsubscribeFirstAuth?.();
         unsubscribeFirstAuth = null;
         const user = persistedUser ?? (await signInAnonymously(auth)).user;
-        if (cancelled) return;
+        if (cancelled || accountGenerationRef.current !== initialAccountGeneration) return;
 
-        setFirebaseIdTokenProvider(() => user.getIdToken());
-        setCloudSync({ db, userId: user.uid, doc, setDoc });
-        setAuthAccount(summarizeAuthUser(user));
+        adoptUser(user, { db, doc, setDoc });
+        const loadAccountGeneration = accountGenerationRef.current;
 
         try {
           const saveRef = doc(db, 'users', user.uid, 'saves', 'currentLife');
           const saveSnap = await getDoc(saveRef);
           if (cancelled) return;
-          if (!ignoreCloudLoadRef.current && saveSnap.exists()) {
+          // Save hydration is life/account scoped; the shared catalog still loads
+          // when a start/reset made this saved life obsolete.
+          const canHydrate = accountGenerationRef.current === loadAccountGeneration
+            && lifeRevisionRef?.current === initialLifeRevision && !ignoreCloudLoadRef.current;
+          if (canHydrate && saveSnap.exists()) {
             const data = saveSnap.data();
             const validation = validateHydratedSave(data);
             hydrateFromSave(data);
@@ -87,7 +114,7 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
                 ? validation.warningFields
                 : getDiagnosticStateFields(data),
             });
-          } else if (!ignoreCloudLoadRef.current) {
+          } else if (canHydrate) {
             emitDiagnostic('save_load', {
               operationId: loadOperationId,
               status: 'not_found',
@@ -129,51 +156,57 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       unsubscribeFirstAuth?.();
       setFirebaseIdTokenProvider(null);
     };
-  }, [hydrateFromSave, ignoreCloudLoadRef, setCareersData]);
+  }, [adoptUser, hydrateFromSave, ignoreCloudLoadRef, setCareersData, lifeRevisionRef, loadBackendModules]);
 
-  // 2. Sync to Cloud — pass { replace: true } on life boundaries to wipe stale fields
-  const syncToCloud = useCallback(async (stateData, options = {}) => {
-    const saveOperationId = createDiagnosticId('save-sync');
+  /**
+   * Acknowledged saves are serialized per account on this device, including
+   * life-boundary replacements. Capturing the target and payload now prevents
+   * later account changes or caller mutations from redirecting queued writes.
+   */
+  const syncToCloud = useCallback((stateData, options = {}) => {
+    const operationId = createDiagnosticId('save-sync');
     const saveStartedAt = diagnosticNow();
     const fields = getDiagnosticStateFields(stateData);
-    if (!cloudSync) {
+    const transport = cloudSyncRef.current;
+    const receipt = (status, errorClass = null) => ({ status, operationId, errorClass });
+    if (!transport) {
       emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'skipped',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
+        operationId, status: 'skipped', durationMs: diagnosticNow() - saveStartedAt, fields,
       });
-      return;
+      return Promise.resolve(receipt('skipped'));
     }
-    emitDiagnostic('save_sync', {
-      operationId: saveOperationId,
-      status: 'started',
-      durationMs: 0,
-      fields,
-    });
+
+    let payload;
     try {
-      const saveRef = cloudSync.doc(cloudSync.db, 'users', cloudSync.userId, 'saves', 'currentLife');
-      if (options.replace) {
-        await cloudSync.setDoc(saveRef, stateData);
-      } else {
-        await cloudSync.setDoc(saveRef, stateData, { merge: true });
-      }
+      payload = structuredClone(stateData);
+    } catch (error) {
       emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'saved',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
+        operationId, status: 'failed', durationMs: diagnosticNow() - saveStartedAt,
+        fields, errorClass: getErrorClass(error),
       });
-    } catch (e) {
-      emitDiagnostic('save_sync', {
-        operationId: saveOperationId,
-        status: 'failed',
-        durationMs: diagnosticNow() - saveStartedAt,
-        fields,
-        errorClass: getErrorClass(e),
-      });
+      return Promise.resolve(receipt('failed', getErrorClass(error)));
     }
-  }, [cloudSync]);
+    const replace = !!options.replace;
+    const destinationKey = `users/${transport.userId}/saves/currentLife`;
+    emitDiagnostic('save_sync', {
+      operationId, status: 'started', durationMs: diagnosticNow() - saveStartedAt, fields,
+    });
+    return saveQueueRef.current.enqueue(destinationKey, {
+      operationId,
+      write: () => {
+        const saveRef = transport.doc(transport.db, 'users', transport.userId, 'saves', 'currentLife');
+        return replace
+          ? transport.setDoc(saveRef, payload)
+          : transport.setDoc(saveRef, payload, { merge: true });
+      },
+    }).then(saved => {
+      emitDiagnostic('save_sync', {
+        operationId, status: saved.status, durationMs: diagnosticNow() - saveStartedAt,
+        fields, errorClass: saved.errorClass,
+      });
+      return saved;
+    });
+  }, []);
 
   /**
    * Shared backend loader for account actions (Google, email, sign-out).
@@ -182,21 +215,19 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
    * `loadAccountSave` (clear local life, hydrate the uid's cloud save).
    */
   const getAuthBackend = async () => {
-    const [firebaseConfig, authApi, firestoreApi] = await Promise.all([
-      import('../../config/firebase'),
-      import('firebase/auth'),
-      import('firebase/firestore'),
-    ]);
+    const [firebaseConfig, authApi, firestoreApi] = await loadBackendModules();
     const { auth, db } = firebaseConfig;
     if (!auth || !db) return null;
     const adopt = (user) => {
-      setFirebaseIdTokenProvider(() => user.getIdToken());
-      setCloudSync({ db, userId: user.uid, doc: firestoreApi.doc, setDoc: firestoreApi.setDoc });
-      setAuthAccount(summarizeAuthUser(user));
+      adoptUser(user, { db, doc: firestoreApi.doc, setDoc: firestoreApi.setDoc });
     };
     const loadAccountSave = async (uid) => {
       clearLocalLife();
+      const loadAccountGeneration = accountGenerationRef.current;
+      const loadLifeRevision = lifeRevisionRef?.current;
       const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
+      if (accountGenerationRef.current !== loadAccountGeneration
+        || cloudSyncRef.current?.userId !== uid || lifeRevisionRef?.current !== loadLifeRevision) return;
       if (snap.exists()) hydrateFromSave(snap.data());
     };
     return { auth, authApi, adopt, loadAccountSave };

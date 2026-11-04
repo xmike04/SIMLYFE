@@ -82,6 +82,14 @@ Tier selection uses liquid bank balance, not salary or total asset value. It als
 
 Standard careers live in [careers.json](../src/engine/careers.json); special-career menu definitions live in [specialCareers.js](../src/config/specialCareers.js). Eligibility combines age, minimum completed degree, networking, and stat requirements.
 
+Standard career decisions first show a preview with base annual salary, age/degree/networking/stat requirements, annual health/happiness effects, and the role being replaced. City salary adjustments and income tax apply in the existing annual simulation; confirmation does not pay salary. The player confirms or cancels before the engine resolves against current eligibility.
+
+- Choosing the already active career is a no-op: earned salary, tenure, PIP, and history remain unchanged, even if the catalog or eligibility has changed.
+- Switching to another eligible career installs its catalog role and resets career metadata, including tenure and PIP, and clears financial stress.
+- Quitting clears the role, tenure, PIP, and unemployment benefits while preserving existing financial stress. Voluntary quitting grants no unemployment benefits. Quitting while already unemployed is a no-op.
+- Successful decisions record one versioned consequence in history. Repeating a recorded command cannot append a second consequence or reinstall its old role.
+- The result appears separately from cloud-save status. A session change is labeled saved only after cloud acknowledgment; failed/unavailable storage may lose the change on reload.
+
 - Networking is bounded to 0–100 and increases through jobs, conferences, mixers, and events.
 - Catalog health/happiness effects are stress-intensity scores. Each nonzero effect is converted to `sign × max(1, ceil(abs(effect) / 8))` annual stat points.
 - Military enlistment starts the `soldier` career and requires health 60 and athleticism 50. Branch names are history flavor.

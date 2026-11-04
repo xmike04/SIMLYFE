@@ -3,6 +3,9 @@ import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 import { advanceBelongingsYear } from '../engine/annual/belongings';
 import { advanceRelationshipsYear } from '../engine/annual/relationships';
 import { buildLifeSave } from '../engine/lifeSave';
+import { resolveCareerChange } from '../engine/actions/careerActions';
+import { computeCareerYearIncome } from '../engine/mechanics/careers';
+import { findActionRecord } from '../engine/actions/actionResult';
 
 function freezeTree(value) {
   if (value && typeof value === 'object') {
@@ -126,5 +129,43 @@ describe('annual simulation boundary', () => {
     expect(adult.relationships[0]).toMatchObject({ age: 18, status: 'family_adult' });
     const employed = advanceRelationshipsYear([{ ...adult.relationships[0], age: 21 }], { happiness: 80 }, { randomFn: rolls(.99, .0) });
     expect(employed.relationships[0]).toMatchObject({ age: 22, npcJob: 'barista' });
+  });
+});
+
+
+describe('committed career actions continue through the unchanged annual simulation', () => {
+  const teacher = { id: 'teacher', title: 'Teacher', type: 'full_time', salary: 50000, healthEffect: -16, happinessEffect: -8, minAge: 22, requiresDegree: 'bachelor', requiresNetworking: 20, statRequirements: { smarts: 60 } };
+  const analyst = { ...teacher, id: 'analyst', title: 'Analyst', salary: 70000 };
+  const catalog = [teacher, analyst];
+  const adultLife = fields => life({ age: 30, bank: 12000, stats: { health: 80, happiness: 80, smarts: 70, looks: 50, grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0 }, education: { bachelor: true }, networking: 30, ...fields });
+
+  it('pays the selected role using the existing 15% bank tier and later costs before review', () => {
+    const input = adultLife();
+    const action = resolveCareerChange(input, { actionId: 'career-continuity', targetId: 'teacher' }, catalog);
+    const committed = { ...input, ...action.patch };
+    expect(committed.bank).toBe(12000); // Selection itself pays no wages.
+    const income = computeCareerYearIncome(committed.career, committed.stats, committed.bank, 1);
+    expect(income).toMatchObject({ grossSalary: 50000, tax: 7500, netSalary: 42500, bank: 54500 });
+    const randomFn = vi.fn(() => .9);
+    const year = advanceLifeYear(committed, { careersData: catalog, randomFn });
+    expect(year.state).toMatchObject({ age: 31, bank: 51500, stats: { health: 77, happiness: 79 }, career: { id: 'teacher', salary: 52500 }, careerMeta: { yearsInRole: 1 } });
+    expect(randomFn).toHaveBeenCalledTimes(2); // Existing market draws only.
+    const history = [...committed.history, ...year.history];
+    expect(findActionRecord(history, 'career-continuity')).toEqual(action.record);
+    expect(history.filter(entry => entry.action)).toHaveLength(1);
+    expect(action.record.afterSalary).toBe(50000); // Decision facts do not overwrite the earned raise.
+    expect(year.history.some(entry => entry.text.includes('7,500'))).toBe(true);
+  });
+
+  it('switching and quitting alter only future wages without retroactive pay, refunds or new benefits', () => {
+    const input = adultLife({ career: teacher });
+    const switched = resolveCareerChange(input, { actionId: 'switch-continuity', targetId: 'analyst' }, catalog);
+    const nextRole = { ...input, ...switched.patch };
+    expect(nextRole.bank).toBe(12000);
+    expect(advanceLifeYear(nextRole, { careersData: catalog, randomFn: () => .9 }).state.bank).toBe(68500);
+    const quit = resolveCareerChange(input, { actionId: 'quit-continuity', targetId: null }, catalog);
+    const unemployed = { ...input, ...quit.patch };
+    expect(unemployed.bank).toBe(12000);
+    expect(advanceLifeYear(unemployed, { careersData: catalog, randomFn: () => .9 }).state).toMatchObject({ bank: 11500, career: null, careerMeta: { unemploymentYearsLeft: 0, yearsInRole: 0 }, stats: { health: 79, happiness: 80 } });
   });
 });

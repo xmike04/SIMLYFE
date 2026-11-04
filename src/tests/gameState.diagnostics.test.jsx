@@ -70,3 +70,20 @@ describe('game state diagnostics safeguards', () => {
     expect(JSON.stringify(diagnosticError.mock.calls)).not.toContain('private activity context');
   });
 });
+
+it('distinguishes a committed career from unavailable cloud persistence without requesting AI', async () => {
+  const requestsBefore = generateDynamicEvent.mock.calls.length;
+  const { result } = renderHook(() => useGameState());
+  act(() => {
+    result.current.startLife('Local Player', 'Female', 'US');
+    result.current.debugAddAge(30);
+  });
+  let selection;
+  act(() => { selection = result.current.chooseCareer('electrician'); });
+  expect(selection.result.status).toBe('committed');
+  await act(async () => { expect((await selection.persistence).status).toBe('skipped'); });
+  expect(result.current.career.id).toBe('electrician');
+  expect(result.current.lastCareerAction.saveStatus).toBe('skipped');
+  expect(result.current.currentEvent).toBeNull();
+  expect(generateDynamicEvent).toHaveBeenCalledTimes(requestsBefore);
+});

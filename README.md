@@ -6,6 +6,8 @@ SIMLYFE is a mobile-first browser life simulator. Create a character, age one ye
 
 [Application quality evidence](https://github.com/xmike04/SIMLYFE/actions/runs/40444810716) · [Current deployment evidence](./docs/operations.md#october-26-2026-replacement-key-canary)
 
+The [product direction](./docs/product-direction.md) is **life strategy first**: planning, trade-offs, and lasting consequences, with AI making each life personal. Standard career selection, switching, and quitting now preview requirements and annual effects before confirmation, then report the outcome and cloud-save acknowledgment separately. This foundation supplies bounded facts for later AI personalization; it adds no new inference calls.
+
 The project combines a React interface with explicit gameplay calculations and generated narrative. Firebase supplies guest/account identity and cloud saves. An authenticated Supabase Edge Function owns the OpenAI call, prompt, and quotas; the browser receives no OpenAI credential.
 
 ## Start locally

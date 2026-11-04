@@ -19,7 +19,7 @@ export default function GameSheets({
 }) {
   const {
     age, bank, stats, career, careersData,
-    chooseCareer, relationships, modifyRelationship, modifyProperty, performGig,
+    chooseCareer, quoteCareer, lastCareerAction, relationships, modifyRelationship, modifyProperty, performGig,
     startStartup, enlistMilitary, hireViaHeadhunter, playLottery, goGamble,
     visitDoctor, addRelationship, proposeMarriage, breakUp, haveChild,
     giftRelationship, meetFriend, triggerActivityEvent, belongings, properties,
@@ -34,6 +34,7 @@ export default function GameSheets({
       {/* Action Sheets */}
       {visibleSheet === 'job' && (
         <JobSheet
+          key={authAccount?.uid}
           age={age}
           bank={bank}
           stats={stats}
@@ -43,6 +44,8 @@ export default function GameSheets({
           networking={networking}
           education={education}
           chooseCareer={chooseCareer}
+          quoteCareer={quoteCareer}
+          lastCareerAction={lastCareerAction}
           studyHard={studyHard}
           triggerActivityEvent={triggerActivityEvent}
           performGig={performGig}

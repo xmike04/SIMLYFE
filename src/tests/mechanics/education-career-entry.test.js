@@ -48,6 +48,15 @@ describe('checkCareerEligibility', () => {
     expect(eligible).toBe(true);
   });
 
+  it('returns stable eligibility codes in the existing first-failure order', () => {
+    const eligibleEdu = { ...baseEdu, bachelor: true };
+    expect(checkCareerEligibility(career, baseEdu, {}, 0, 1).code).toBe('age_required');
+    expect(checkCareerEligibility(career, baseEdu, {}, 0, 26).code).toBe('degree_required');
+    expect(checkCareerEligibility(career, eligibleEdu, {}, 0, 26).code).toBe('networking_required');
+    expect(checkCareerEligibility(career, eligibleEdu, {}, 30, 26).code).toBe('stat_required');
+    expect(checkCareerEligibility(career, eligibleEdu, baseStats, 30, 26)).toEqual({ eligible: true, reason: '', code: 'eligible' });
+  });
+
   it('null requiresDegree skips degree check', () => {
     const noDegreeCareer = { ...career, requiresDegree: null };
     const { eligible } = checkCareerEligibility(noDegreeCareer, baseEdu, baseStats, networking, 26);
