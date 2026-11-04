@@ -25,7 +25,7 @@ export default function GameSheets({
     giftRelationship, meetFriend, triggerActivityEvent, belongings, properties,
     buyAsset, sellAsset, buyInvestment, sellInvestment, debugModifyBank,
     studyHard, careerMeta, networking, economyCycle, education,
-    checkCareerEligibility, enrollInDegree, attendNetworkingEvent, pets, visitVet,
+    checkCareerEligibility, enrollInDegree, quoteEducation, lastEducationAction, attendNetworkingEvent, pets, visitVet,
     will, draftWill, authAccount, signInWithGoogle, signInWithEmail,
     resetPassword, signOutAccount,
   } = engine;
@@ -51,6 +51,8 @@ export default function GameSheets({
           performGig={performGig}
           attendNetworkingEvent={attendNetworkingEvent}
           enrollInDegree={enrollInDegree}
+          quoteEducation={quoteEducation}
+          lastEducationAction={lastEducationAction}
           checkCareerEligibility={checkCareerEligibility}
           debugModifyBank={debugModifyBank}
           startStartup={startStartup}

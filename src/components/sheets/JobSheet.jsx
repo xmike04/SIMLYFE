@@ -2,6 +2,9 @@ import React, { useRef, useState } from 'react';
 import ActionSheet from '../ActionSheet';
 import CareerActionPanel, { CareerActionFeedback } from './CareerActionPanel';
 import { careerActionReason } from './careerActionMessages';
+import EducationActionPanel, { EducationActionFeedback } from './EducationActionPanel';
+import { educationActionReason } from './educationActionMessages';
+import { summarizeDegreeProgress } from '../../engine/mechanics/education';
 import { createDiagnosticId } from '../../engine/diagnostics';
 import { SPECIAL_CAREERS } from '../../config/specialCareers';
 import { DEGREE_CONFIG, DEGREE_LABELS, HEADHUNTER_COST, canAffordHeadhunter } from '../../engine/gameState';
@@ -24,7 +27,7 @@ const SECTOR_META = {
 export default function JobSheet({
   age, bank, stats, career, careersData, careerMeta, networking, education,
   chooseCareer, quoteCareer, lastCareerAction, studyHard, triggerActivityEvent, performGig, attendNetworkingEvent,
-  enrollInDegree, checkCareerEligibility, debugModifyBank, startStartup,
+  enrollInDegree, quoteEducation, lastEducationAction, checkCareerEligibility, debugModifyBank, startStartup,
   enlistMilitary, hireViaHeadhunter,
   onClose,
 }) {
@@ -32,20 +35,27 @@ export default function JobSheet({
   const [jobSector, setJobSector] = useState(null);
   const [careerDecision, setCareerDecision] = useState(null);
   const [decisionNotice, setDecisionNotice] = useState('');
+  const [educationDecision, setEducationDecision] = useState(null);
+  const [educationNotice, setEducationNotice] = useState('');
+  const educationSubmittedRef = useRef(false);
   const submittedRef = useRef(false);
-  const isSaving = lastCareerAction?.saveStatus === 'pending';
+  const isSaving = lastCareerAction?.saveStatus === 'pending' || lastEducationAction?.saveStatus === 'pending';
 
   const close = () => {
     setJobMenu(null);
     setJobSector(null);
     setCareerDecision(null);
+    setEducationDecision(null);
     setDecisionNotice('');
+    setEducationNotice('');
     onClose();
   };
 
   const handleChooseJob = (id) => {
     if (isSaving) return;
     submittedRef.current = false;
+    setEducationDecision(null);
+    setEducationNotice('');
     setDecisionNotice('');
     setCareerDecision({ targetId: id, quote: quoteCareer?.(id) });
   };
@@ -73,10 +83,43 @@ export default function JobSheet({
     setCareerDecision(null);
   };
 
+  const handleChooseDegree = (targetId) => {
+    if (isSaving) return;
+    educationSubmittedRef.current = false;
+    setCareerDecision(null);
+    setDecisionNotice('');
+    setEducationNotice('');
+    setEducationDecision({ targetId, quote: quoteEducation?.(targetId) });
+  };
+
+  const confirmEducation = () => {
+    const capturedQuote = educationDecision?.quote;
+    if (!capturedQuote?.eligible || !capturedQuote.preview || isSaving || educationSubmittedRef.current) return;
+    educationSubmittedRef.current = true;
+    const response = enrollInDegree?.(educationDecision.targetId, {
+      actionId: createDiagnosticId('education-action'), expectedBasis: capturedQuote.basis,
+    });
+    if (!response?.result) {
+      setEducationNotice(educationActionReason());
+      educationSubmittedRef.current = false;
+      return;
+    }
+    if (response.result.status === 'rejected') {
+      const refreshedQuote = quoteEducation?.(educationDecision.targetId);
+      setEducationDecision({ targetId: educationDecision.targetId, quote: refreshedQuote });
+      setEducationNotice(educationActionReason(response.result.code, refreshedQuote));
+      educationSubmittedRef.current = false;
+      return;
+    }
+    setEducationNotice('');
+    setEducationDecision(null);
+  };
+
   const getSectors = (type) => [...new Set(careersData.filter(c => c.type === type).map(c => c.sector).filter(Boolean))].sort();
   const getSectorJobs = (type, sector) => careersData.filter(c => c.type === type && c.sector === sector);
 
   const getTitle = () => {
+    if (educationDecision) return 'Review Enrollment';
     if (careerDecision) return 'Review Career Decision';
     if (age < 18) return "Education";
     if (!jobMenu) return "Career & Income";
@@ -94,14 +137,24 @@ export default function JobSheet({
 
   return (
     <ActionSheet title={getTitle()} onClose={close}>
-      {!careerDecision && <CareerActionFeedback feedback={lastCareerAction} onContinue={close} />}
+      {!careerDecision && !educationDecision && (jobMenu === 'education'
+        ? <EducationActionFeedback feedback={lastEducationAction} onContinue={close} />
+        : <CareerActionFeedback feedback={lastCareerAction} onContinue={close} />)}
+      {educationNotice && (
+        <section className="glass-panel education-feedback" role="alert">
+          <p className="education-rejection">{educationNotice}</p>
+          <button className="btn btn-secondary" onClick={close}>Continue</button>
+        </section>
+      )}
       {decisionNotice && (
         <section className="glass-panel career-feedback" role="alert">
           <p className="career-rejection">{decisionNotice}</p>
           <button className="btn btn-secondary" onClick={close}>Continue</button>
         </section>
       )}
-      {careerDecision ? (
+      {educationDecision ? (
+        <EducationActionPanel quote={educationDecision.quote} isSaving={isSaving} onConfirm={confirmEducation} onCancel={() => { setEducationDecision(null); setEducationNotice(''); }} />
+      ) : careerDecision ? (
         <CareerActionPanel key={careerDecision.quote?.basis ?? 'unavailable'} quote={careerDecision.quote} isSaving={isSaving} onConfirm={confirmCareer} onCancel={() => { setCareerDecision(null); setDecisionNotice(''); }} />
       ) : age < 18 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -109,11 +162,11 @@ export default function JobSheet({
             <strong>{age < 11 ? "Elementary School" : (age < 14 ? "Middle School" : "High School")}</strong>
             <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Grades: {stats.grades}/100</div>
           </div>
-          <button className="glass-panel" onClick={() => { studyHard(); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>📚 Study Hard</strong></button>
-          <button className="glass-panel" onClick={() => { triggerActivityEvent('Interacted with classmates at school'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🗣️ Interact with Classmates</strong></button>
-          <button className="glass-panel" onClick={() => { triggerActivityEvent('Went to the administration office at school'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🏫 Speak to Administrators</strong></button>
+          <button className="glass-panel" disabled={isSaving} onClick={() => { studyHard(); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>📚 Study Hard</strong></button>
+          <button className="glass-panel" disabled={isSaving} onClick={() => { triggerActivityEvent('Interacted with classmates at school'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🗣️ Interact with Classmates</strong></button>
+          <button className="glass-panel" disabled={isSaving} onClick={() => { triggerActivityEvent('Went to the administration office at school'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🏫 Speak to Administrators</strong></button>
           {age >= 16 && (
-            <button className="glass-panel" onClick={() => { triggerActivityEvent('Attempted to drop out of high school'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(239, 68, 68, 0.1)' }}><strong>Escalate: Drop Out</strong></button>
+            <button className="glass-panel" disabled={isSaving} onClick={() => { triggerActivityEvent('Attempted to drop out of high school'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(239, 68, 68, 0.1)' }}><strong>Escalate: Drop Out</strong></button>
           )}
         </div>
       ) : (
@@ -164,7 +217,7 @@ export default function JobSheet({
               <button className="glass-panel" onClick={() => setJobMenu('special_careers')} style={{ padding: '1rem', textAlign: 'center', background: 'rgba(139, 92, 246, 0.1)' }}><strong>🌟 Special Careers</strong></button>
               <button className="glass-panel" onClick={() => setJobMenu('education')} style={{ padding: '1rem', textAlign: 'center', background: 'rgba(59, 130, 246, 0.1)' }}><strong>🎓 Education</strong></button>
               <button className="glass-panel" onClick={() => setJobMenu('recruiter')} style={{ padding: '1rem', textAlign: 'center', background: 'rgba(59, 130, 246, 0.1)' }}><strong>👔 Recruiter</strong></button>
-              <button className="glass-panel" onClick={() => { attendNetworkingEvent(); close(); }} style={{ padding: '1rem', textAlign: 'center', background: 'rgba(139, 92, 246, 0.1)' }}>
+              <button className="glass-panel" disabled={isSaving} onClick={() => { attendNetworkingEvent(); close(); }} style={{ padding: '1rem', textAlign: 'center', background: 'rgba(139, 92, 246, 0.1)' }}>
                 <strong>🤝 Networking</strong>
                 <div style={{ fontSize: '0.72rem', color: '#a78bfa', marginTop: '2px' }}>{networking}/100</div>
               </button>
@@ -259,9 +312,9 @@ export default function JobSheet({
           {/* Freelance */}
           {jobMenu === 'freelance' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button className="glass-panel" onClick={() => { performGig('Ride Share Driver', 40); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🚗 Ride Share (+$40)</strong></button>
-              <button className="glass-panel" onClick={() => { performGig('Food Delivery', 30); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🍔 Food Delivery (+$30)</strong></button>
-              <button className="glass-panel" onClick={() => { performGig('Tutor', 50); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>📖 Private Tutor (+$50)</strong></button>
+              <button className="glass-panel" disabled={isSaving} onClick={() => { performGig('Ride Share Driver', 40); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🚗 Ride Share (+$40)</strong></button>
+              <button className="glass-panel" disabled={isSaving} onClick={() => { performGig('Food Delivery', 30); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>🍔 Food Delivery (+$30)</strong></button>
+              <button className="glass-panel" disabled={isSaving} onClick={() => { performGig('Tutor', 50); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}><strong>📖 Private Tutor (+$50)</strong></button>
               <button className="glass-panel" onClick={() => setJobMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '6px' }}>Back</button>
             </div>
           )}
@@ -284,6 +337,7 @@ export default function JobSheet({
                   <button
                     key={branch}
                     className="glass-panel"
+                    disabled={isSaving}
                     onClick={() => { enlistMilitary(branch); close(); }}
                     style={{ padding: '0.8rem', textAlign: 'left', background: styles[i] }}
                   >
@@ -317,7 +371,7 @@ export default function JobSheet({
                 {sc.actions.map((action, i) => {
                   const isStartupLaunch = action.specialAction === 'startStartup';
                   const startupActive = isStartupLaunch && career?.id === 'founder';
-                  const disabled = startupActive || bank < (action.cost || 0);
+                  const disabled = isSaving || startupActive || bank < (action.cost || 0);
                   return (
                     <button key={i} className="glass-panel" disabled={disabled} onClick={() => {
                       // startStartup owns STARTUP_COST — never also debugModifyBank here
@@ -343,12 +397,12 @@ export default function JobSheet({
           {jobMenu === 'education' && (() => {
             const degreeTypes = ['associate', 'bachelor', 'master', 'phd'];
             const enrolled = education?.currentDegree;
+            const progress = summarizeDegreeProgress(enrolled);
             const completedList = [education?.highSchool && 'highSchool', ...degreeTypes.filter(d => education?.[d])].filter(Boolean);
             const availableToEnroll = degreeTypes.filter(d => {
               if (education?.[d]) return false;
               if (enrolled) return false;
-              const cfg = DEGREE_CONFIG[d];
-              return !cfg.requires || education?.[cfg.requires];
+              return true;
             });
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -356,11 +410,16 @@ export default function JobSheet({
                   <div className="glass-panel" style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.15)', borderLeft: '4px solid #3b82f6' }}>
                     <strong>📖 Enrolled: {DEGREE_LABELS[enrolled.type]}</strong>
                     <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                      Year {enrolled.yearsInProgram || 1} of {DEGREE_CONFIG[enrolled.type]?.years}
-                      {' • '}-${DEGREE_CONFIG[enrolled.type]?.annualCost.toLocaleString()}/yr
+                      Year {enrolled.yearsInProgram || 1} of {enrolled.totalYears}
+                      {' • '}${enrolled.annualCost?.toLocaleString()}/yr
                     </div>
+                    {progress && <div className="education-progress">
+                      <p>Paid years: {progress.paidYears} of {enrolled.totalYears}</p>
+                      <p>Remaining tuition: ${progress.remainingTuition.toLocaleString()}</p>
+                      <p>{progress.ageUpsToCompletion} later Age click{progress.ageUpsToCompletion === 1 ? '' : 's'} to completion.</p>
+                    </div>}
                     <div style={{ marginTop: '6px', width: '100%', height: '5px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ width: `${((enrolled.yearsInProgram || 0) / (DEGREE_CONFIG[enrolled.type]?.years || 1)) * 100}%`, height: '100%', background: '#3b82f6' }} />
+                      <div style={{ width: `${((enrolled.yearsInProgram || 0) / (enrolled.totalYears || 1)) * 100}%`, height: '100%', background: '#3b82f6' }} />
                     </div>
                   </div>
                 )}
@@ -371,9 +430,9 @@ export default function JobSheet({
                 )}
                 {availableToEnroll.map(d => {
                   const cfg = DEGREE_CONFIG[d];
-                  const canAfford = cfg.annualCost === 0 || bank >= cfg.annualCost;
+                  const canAfford = bank >= cfg.annualCost;
                   return (
-                    <button key={d} className="glass-panel" disabled={!canAfford} onClick={() => { enrollInDegree(d); close(); }}
+                    <button key={d} className="glass-panel" disabled={isSaving} onClick={() => handleChooseDegree(d)}
                       style={{ padding: '1rem', textAlign: 'left', background: 'rgba(59, 130, 246, 0.1)', opacity: canAfford ? 1 : 0.55 }}>
                       <strong>🎓 Enroll: {DEGREE_LABELS[d]}</strong>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -393,7 +452,7 @@ export default function JobSheet({
                     {degreeTypes.every(d => education?.[d]) ? '🎓 All degrees completed!' : 'No degrees available — check prerequisites.'}
                   </div>
                 )}
-                <button className="glass-panel" onClick={() => { triggerActivityEvent('Applied to a Trade/Vocational School'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
+                <button className="glass-panel" disabled={isSaving} onClick={() => { triggerActivityEvent('Applied to a Trade/Vocational School'); close(); }} style={{ padding: '0.8rem', textAlign: 'left', background: 'rgba(255,255,255,0.05)' }}>
                   <strong>🔧 Trade/Vocational School</strong>
                 </button>
                 <button className="glass-panel" onClick={() => setJobMenu(null)} style={{ padding: '0.8rem', textAlign: 'center', marginTop: '6px' }}>Back</button>
@@ -409,9 +468,9 @@ export default function JobSheet({
               </div>
               <button
                 className="glass-panel"
-                disabled={!canAffordHeadhunter(bank)}
+                disabled={isSaving || !canAffordHeadhunter(bank)}
                 onClick={() => {
-                  if (!canAffordHeadhunter(bank)) return;
+                  if (isSaving || !canAffordHeadhunter(bank)) return;
                   hireViaHeadhunter();
                   close();
                 }}

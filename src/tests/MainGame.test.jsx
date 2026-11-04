@@ -13,7 +13,15 @@ function createEngine(overrides = {}) {
     career: null,
     careersData: [],
     careerMeta: {},
-    education: {},
+    education: { highSchool: true, currentDegree: null },
+    quoteEducation: vi.fn(() => ({ targetId: 'bachelor', eligible: true, code: 'eligible', reason: '', basis: 'education-1', preview: {
+      degreeType: 'bachelor', label: "Bachelor's Degree", prerequisiteDegree: 'highSchool', prerequisiteMet: true,
+      programYears: 4, annualTuition: 20000, firstYearTuition: 20000, remainingTuition: 60000, totalTuition: 80000,
+      bankBefore: 100000, bankAfterEnrollment: 80000, ageUpsToCompletion: 3, completionAge: 28,
+      annualHappinessEffect: 0, completionSmartsBonus: 10, completionHappinessBonus: 3,
+    } })),
+    enrollInDegree: vi.fn(),
+    lastEducationAction: null,
     relationships: [],
     properties: [],
     belongings: [],
@@ -91,6 +99,28 @@ describe('MainGame sheet navigation', () => {
       expect(screen.getByRole('heading', { name: 'Activities' })).toBeInTheDocument();
     }
   );
+
+  it.each([{ isAging: true }, { currentEvent: { description: 'A choice is pending' } }])('discards education previews across freeze/unfreeze (%j)', frozen => {
+    const engine = createEngine({ bank: 100000 });
+    const { rerender } = render(<MainGame engine={engine} />);
+    fireEvent.click(screen.getByRole('button', { name: /Job/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Education/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Enroll:.*Bachelor/ }));
+    expect(screen.getByRole('region', { name: 'Education decision preview' })).toBeInTheDocument();
+    rerender(<MainGame engine={{ ...engine, ...frozen }} />);
+    expect(screen.queryByRole('region', { name: 'Education decision preview' })).not.toBeInTheDocument();
+    rerender(<MainGame engine={engine} />);
+    expect(screen.queryByRole('region', { name: 'Education decision preview' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm enrollment' })).not.toBeInTheDocument();
+    expect(engine.enrollInDegree).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Education/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Enroll:.*Bachelor/ }));
+    expect(screen.getByRole('region', { name: 'Education decision preview' })).toBeInTheDocument();
+    fireEvent.click(document.querySelector('.age-btn'));
+    expect(screen.queryByRole('region', { name: 'Education decision preview' })).not.toBeInTheDocument();
+    expect(engine.ageUp).toHaveBeenCalledOnce();
+    expect(engine.enrollInDegree).not.toHaveBeenCalled();
+  });
 
   it('keeps the menu open when the engine rejects an activity and closes after acceptance', () => {
     const engine = createEngine({ performActivity: vi.fn().mockReturnValueOnce('locked').mockReturnValueOnce('ok') });

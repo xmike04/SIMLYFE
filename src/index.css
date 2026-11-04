@@ -226,3 +226,19 @@ p { color: var(--text-secondary); line-height: 1.5; }
 .continuity-save-status--skipped {
   color: var(--warning-color, #fbbf24);
 }
+
+.education-decision,
+.education-feedback { padding: 1rem; overflow-wrap: anywhere; }
+.education-decision h4 { margin: 0 0 1rem; font-size: 1.15rem; }
+.education-decision p,
+.education-feedback p,
+.education-progress p { margin: 0.6rem 0; }
+.education-decision ul { margin: 0.4rem 0 1rem; padding-left: 1.25rem; }
+.education-costs { display: grid; gap: 0.6rem; margin: 1rem 0; }
+.education-costs dd { margin: 0.2rem 0 0; color: var(--text-secondary); font-size: 0.85rem; }
+.education-detail { color: var(--text-secondary); font-size: 0.85rem; }
+.education-rejection { color: #fca5a5; }
+.education-decision-controls { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; }
+.education-decision-controls button { flex: 1; min-width: 8rem; min-height: 44px; }
+.education-decision button:disabled { opacity: 0.5; cursor: not-allowed; }
+.education-progress { font-size: 0.85rem; color: var(--text-secondary); }
