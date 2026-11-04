@@ -80,3 +80,82 @@ describe('annual death route save feedback', () => {
     expect(screen.queryByRole('status', { name: 'Progress save status' })).not.toBeInTheDocument();
   });
 });
+
+
+describe('saved-life recovery routing', () => {
+  function mockOwner(fields = {}) {
+    const owner = { ...buildLifeSave(), startLife: vi.fn(), retryCloudLoad: vi.fn(), signOutAccount: vi.fn(), ...fields };
+    vi.spyOn(gameState, 'useGameState').mockReturnValue(owner);
+    return owner;
+  }
+  afterEach(() => sessionStorage.clear());
+
+  it('retains initial splash until dismissed, then blocks creation while loading', () => {
+    sessionStorage.clear();
+    mockOwner({ cloudLoadState: { status: 'loading' } });
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Begin Your Life' }));
+    expect(screen.getByRole('status', { name: 'Saved life loading' })).toHaveTextContent('Loading your saved life…');
+    expect(screen.queryByRole('heading', { name: 'Start a Life' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+  });
+
+  it.each(['loading', 'failed'])('gates creation, gameplay and death during %s with only relevant signout', status => {
+    sessionStorage.setItem('simlyfe_splash', '1');
+    const owner = mockOwner({ character: { name: 'Unread Player' }, isDead: true,
+      cloudLoadState: { status, reason: 'PRIVATE_PROVIDER_ERROR' }, authAccount: { uid: 'identified', isAnonymous: false } });
+    render(<App />);
+    expect(screen.getByRole(status === 'loading' ? 'status' : 'alert', {
+      name: status === 'loading' ? 'Saved life loading' : 'Saved life load failed',
+    })).toBeVisible();
+    expect(screen.queryByText('PRIVATE_PROVIDER_ERROR')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'The End.' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Live Again' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Start a Life' })).not.toBeInTheDocument();
+    const signOut = screen.getByRole('button', { name: 'Sign out' });
+    expect(signOut.tagName).toBe('BUTTON');
+    fireEvent.click(signOut);
+    expect(owner.signOutAccount).toHaveBeenCalledOnce();
+    if (status === 'failed') {
+      expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t load your saved life. It hasn’t been replaced. Try again.');
+      const retry = screen.getByRole('button', { name: 'Try again' });
+      expect(retry.tagName).toBe('BUTTON');
+      fireEvent.click(retry);
+      expect(owner.retryCloudLoad).toHaveBeenCalledOnce();
+    } else expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(owner.startLife).not.toHaveBeenCalled();
+  });
+
+  it('unmounts failed controls while retrying and hides signout for a guest', () => {
+    sessionStorage.setItem('simlyfe_splash', '1');
+    const owner = mockOwner({ cloudLoadState: { status: 'failed' }, authAccount: { isAnonymous: true } });
+    const view = render(<App />);
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    owner.cloudLoadState = { status: 'loading' };
+    view.rerender(<App />);
+    expect(screen.getByRole('status', { name: 'Saved life loading' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+
+  it.each(['local', 'missing', 'loaded'])('retains creation after splash for ready %s', status => {
+    sessionStorage.setItem('simlyfe_splash', '1');
+    mockOwner({ cloudLoadState: { status } });
+    render(<App />);
+    expect(screen.getByRole('heading', { name: 'Start a Life' })).toBeVisible();
+  });
+
+  it('shows recovery after a returning life switches accounts even without a prior splash flag', () => {
+    sessionStorage.clear();
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    const owner = mockOwner({ character: { name: 'Returning Player' }, cloudLoadState: { status: 'loaded' } });
+    const view = render(<App />);
+    expect(screen.getByRole('heading', { name: 'Returning Player' })).toBeVisible();
+    owner.character = null;
+    owner.cloudLoadState = { status: 'failed' };
+    view.rerender(<App />);
+    expect(screen.getByRole('alert', { name: 'Saved life load failed' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Begin Your Life' })).not.toBeInTheDocument();
+  });
+});

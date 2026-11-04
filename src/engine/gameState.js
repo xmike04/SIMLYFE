@@ -99,7 +99,7 @@ export function useGameState() {
     activeEventRequestRef.current = null;
     agingInFlightRef.current = false;
   }, []);
-  /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
+  /** Ready-life start/reset boundaries suppress obsolete cloud hydration; unread destinations are guarded. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
   const lifeSnapshotRef = useRef(buildLifeSave());

@@ -166,6 +166,8 @@ Failed provider sign-out retains the origin life and transport. If anonymous cre
 
 [authOperations.js](../src/engine/cloud/authOperations.js) serializes provider mutation per auth object across hook mounts. Concurrent explicit commands return busy before provider side effects or invalidation. Acquired explicit commands invalidate older pre-adoption boot intents. The mutex releases before awaiting Firestore reads, allowing a newer switch/sign-out while a read remains pending. Boot waits for an abandoned mutation to settle and reconciles actual provider currentUser before adoption. Late obsolete observers cannot mint, adopt, or publish.
 
+[CloudLoadScreen](../src/components/game/CloudLoadScreen.jsx) is routed by App before creation, gameplay, or death whenever readiness is loading/failed. The initial splash remains until dismissed; a life already displayed in this App lifetime bypasses a second splash during account recovery. Loading announces “Saved life loading”; failure announces “Saved life load failed” with fixed reassurance and an explicit native Try again button. Failed controls unmount during retry. Identified accounts can Sign out during either state; the new guest read must confirm readiness before creation. Guest recovery offers no sign-out or discard/reset action, and provider error details never appear. This route owns no persistence or account state.
+
 Account actions share the cloud transport rather than issuing Firebase calls from sheets. `authAccount` contains the UI's sanitized account summary, including provider, name, email, and photo; it is excluded from diagnostics.
 
 ### Security rules
