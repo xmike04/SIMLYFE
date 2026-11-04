@@ -1,6 +1,7 @@
 import React from 'react';
 import { getWealthTier } from '../config/wealthTiers';
 import { findSpouse, computeEstateDistribution } from '../engine/gameState';
+import ContinuitySaveStatus from './game/ContinuitySaveStatus';
 
 const STAT_META = [
   { key: 'health',      label: 'Health',      color: 'var(--health-color)' },
@@ -49,6 +50,7 @@ export default function DeathScreen({ engine }) {
         <h3 className="mb-2" style={{ fontSize: '1.5rem' }}>{character?.name}</h3>
         <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '4px' }}>{epitaph}</p>
         <p className="mb-1" style={{ fontSize: '1.1rem' }}>You died at age <b>{age}</b>.</p>
+        <ContinuitySaveStatus feedback={engine.lastContinuitySave} />
 
         {/* Wealth tier badge */}
         <div style={{ marginBottom: '12px' }}>

@@ -261,6 +261,47 @@ test('E: older replacement missing continuity fields loads compatible defaults w
   noNetworkGeneration(fixture);
 });
 
+test('F: actual annual death exposes pending, failed and acknowledged year saves across reload', async ({ page }, testInfo) => {
+  const fixture = await bootContinuity(page, {
+    age: 99, isDead: false, currentEvent: null, bank: 0,
+    properties: [], belongings: [], relationships: [], pets: [], career: null,
+    activitiesThisYear: { vacation__Staycation: 1 },
+  });
+  await page.getByRole('button', { name: /^\+ Age$/ }).click();
+  await expect(page.getByRole('heading', { name: 'The End.' })).toBeVisible();
+  await expect(page.getByText('You died at age 100.', { exact: true })).toBeVisible();
+  await expect(status(page)).toHaveCount(1);
+  await expect(status(page)).toHaveText('Saving year progress…');
+  expect(await page.evaluate(() => globalThis.__continuityCloud.writes)).toBe(1);
+  expect(await acknowledgedSave(page)).toMatchObject({ age: 99, isDead: false });
+  await page.evaluate(() => globalThis.__continuityCloud.fail());
+  await expect(status(page)).toHaveText('Year progress remains in this session, but saving failed. Reloading may restore an older save.');
+  await evidence(page, testInfo, 'annual-death-failed');
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: /^\+ Age$/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The End.' })).toHaveCount(0);
+  await expect(status(page)).toHaveCount(0);
+  expect(await acknowledgedSave(page)).toMatchObject({ age: 99, isDead: false, activitiesThisYear: { vacation__Staycation: 1 } });
+  await expect(page.getByText(MEMORY, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^\+ Age$/ }).click();
+  await expect(status(page)).toHaveText('Saving year progress…');
+  await acknowledge(page);
+  await expect(status(page)).toHaveCount(1);
+  await expect(status(page)).toHaveText('Year progress saved to the cloud.');
+  const saved = await acknowledgedSave(page);
+  expect(saved).toMatchObject({ age: 100, isDead: true, currentEvent: null, activitiesThisYear: {} });
+  expect(saved.history.at(-1)).toEqual({ age: 100, text: 'You passed away peacefully at age 100.' });
+  expect(saved.history.filter(entry => entry.text === 'You passed away peacefully at age 100.')).toHaveLength(1);
+  await evidence(page, testInfo, 'annual-death-saved');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'The End.' })).toBeVisible();
+  await expect(page.getByText('You died at age 100.', { exact: true })).toBeVisible();
+  await expect(status(page)).toHaveCount(0);
+  expect(await page.evaluate(() => globalThis.__continuityCloud.writes)).toBe(0);
+  noNetworkGeneration(fixture);
+});
+
 test('F: actual Live Again and newborn replacement leave no prior continuity or history after reload', async ({ page }, testInfo) => {
   const fixture = await bootContinuity(page, { isDead: true, currentEvent: event, activitiesThisYear: { vacation__Staycation: 1 } });
   await page.getByRole('button', { name: 'Live Again', exact: true }).click();
