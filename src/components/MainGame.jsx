@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import GameHeader from './game/GameHeader';
 import GameSheets from './game/GameSheets';
+import ContinuitySaveStatus from './game/ContinuitySaveStatus';
 
 const ENABLE_DEV_TOOLS = import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true';
 
@@ -84,6 +85,8 @@ export default function MainGame({ engine }) {
         </div>
       )}
       <GameHeader engine={engine} uiFrozen={uiFrozen} openSheet={openSheet} setActiveSheet={setActiveSheet} enableDevTools={ENABLE_DEV_TOOLS} />
+
+      {!currentEvent && <ContinuitySaveStatus feedback={engine.lastContinuitySave} />}
 
       {/* History Log (Middle) */}
       <div className="glass-panel mb-1" style={{ flexGrow: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column' }}>

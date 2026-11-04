@@ -225,10 +225,33 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       clearLocalLife();
       const loadAccountGeneration = accountGenerationRef.current;
       const loadLifeRevision = lifeRevisionRef?.current;
-      const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
-      if (accountGenerationRef.current !== loadAccountGeneration
-        || cloudSyncRef.current?.userId !== uid || lifeRevisionRef?.current !== loadLifeRevision) return;
-      if (snap.exists()) hydrateFromSave(snap.data());
+      const operationId = createDiagnosticId('save-load');
+      const startedAt = diagnosticNow();
+      emitDiagnostic('save_load', { operationId, status: 'started', durationMs: 0, fields: [] });
+      try {
+        const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
+        if (accountGenerationRef.current !== loadAccountGeneration
+          || cloudSyncRef.current?.userId !== uid || lifeRevisionRef?.current !== loadLifeRevision) return;
+        if (snap.exists()) {
+          const data = snap.data();
+          const validation = validateHydratedSave(data);
+          hydrateFromSave(data);
+          emitDiagnostic('save_load', {
+            operationId,
+            status: validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
+            durationMs: diagnosticNow() - startedAt,
+            fields: validation.hasWarnings ? validation.warningFields : getDiagnosticStateFields(data),
+          });
+        } else {
+          emitDiagnostic('save_load', { operationId, status: 'not_found', durationMs: diagnosticNow() - startedAt, fields: [] });
+        }
+      } catch (error) {
+        emitDiagnostic('save_load', {
+          operationId, status: 'failed', durationMs: diagnosticNow() - startedAt,
+          fields: [], errorClass: getErrorClass(error),
+        });
+        throw error;
+      }
     };
     return { auth, authApi, adopt, loadAccountSave };
   };
@@ -362,10 +385,16 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       if (!backend) return { ok: false, reason: 'unavailable' };
       const { auth, authApi, adopt } = backend;
       if (auth.currentUser?.isAnonymous) return { ok: true, mode: 'already_guest' };
-      await authApi.signOut(auth);
+      if (auth.currentUser) await authApi.signOut(auth);
+      // Provider sign-out is the life boundary, even when guest setup fails.
+      // Already-enqueued writes retain their captured account transport.
+      accountGenerationRef.current += 1;
+      cloudSyncRef.current = null;
+      setFirebaseIdTokenProvider(null);
+      setAuthAccount(null);
+      clearLocalLife();
       const cred = await authApi.signInAnonymously(auth);
       adopt(cred.user);
-      clearLocalLife();
       return { ok: true, mode: 'signed_out' };
     } catch {
       return { ok: false, reason: 'error' };

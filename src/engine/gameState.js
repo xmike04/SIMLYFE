@@ -1,4 +1,5 @@
 import { useCloudAccount } from './cloud/useCloudAccount';
+import { restoreLifeContinuity } from './lifeContinuity';
 import { advanceLifeYear } from './annual/advanceLifeYear';
 import { checkCareerEligibility as evaluateCareerEligibility } from './mechanics/careers';
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -49,6 +50,7 @@ export function useGameState() {
   const currentEventRef = useRef(null);
   const setCurrentEvent = useCallback((event) => {
     currentEventRef.current = event;
+    lifeSnapshotRef.current = { ...lifeSnapshotRef.current, currentEvent: event };
     setCurrentEventState(event);
   }, []);
   const [activitiesThisYear, setActivitiesThisYear] = useState({});
@@ -64,40 +66,59 @@ export function useGameState() {
   const [pets, setPets] = useState([]);
   const [will, setWill] = useState(null);
   const [lastCareerAction, setLastCareerAction] = useState(null);
+  const [lastContinuitySave, setLastContinuitySave] = useState(null);
   // Transient lifecycle identity: never persisted or sent to narration.
   const lifeRevisionRef = useRef(0);
   const careerFeedbackRef = useRef(null);
   const agingInFlightRef = useRef(false);
-  const invalidateCareerFeedback = useCallback(() => {
+  const continuityFeedbackRef = useRef(null);
+  const activeEventRequestRef = useRef(null);
+  const ownsEventRequest = useCallback(request => (
+    activeEventRequestRef.current === request && lifeRevisionRef.current === request.revision
+  ), []);
+  const invalidateLifeFeedback = useCallback(() => {
     lifeRevisionRef.current += 1;
     careerFeedbackRef.current = null;
     setLastCareerAction(null);
+    continuityFeedbackRef.current = null;
+    setLastContinuitySave(null);
+    activeEventRequestRef.current = null;
+    agingInFlightRef.current = false;
+    setIsAging(false);
   }, []);
   useEffect(() => () => {
     lifeRevisionRef.current += 1;
     careerFeedbackRef.current = null;
+    continuityFeedbackRef.current = null;
+    activeEventRequestRef.current = null;
+    agingInFlightRef.current = false;
   }, []);
   /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
   const lifeSnapshotRef = useRef(buildLifeSave());
   lifeSnapshotRef.current = {
-    character, age, stats, bank, history, isDead, flags, career, careerMeta,
+    character, age, stats, bank, history, isDead, flags, currentEvent, activitiesThisYear, career, careerMeta,
     relationships, belongings, properties, education, networking, economyCycle, pets, will,
   };
 
   /** Apply a cloud save document to local state — used at boot and on account switch. */
   const hydrateFromSave = useCallback((data) => {
-    invalidateCareerFeedback();
+    invalidateLifeFeedback();
+    const continuity = restoreLifeContinuity(data, { newEventId: createDiagnosticId('pending-event') });
     lifeSnapshotRef.current = buildLifeSave({
       ...lifeSnapshotRef.current, ...data,
       stats: data.stats ? { grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats } : lifeSnapshotRef.current.stats,
       education: { ...INITIAL_EDUCATION, ...data.education },
       careerMeta: { ...INITIAL_CAREER_META, ...data.careerMeta },
       economyCycle: { ...INITIAL_ECONOMY, ...data.economyCycle },
-      // Preserve the existing flags hydration contract for this slice.
-      flags: lifeSnapshotRef.current.flags,
+      flags: continuity.flags,
+      activitiesThisYear: continuity.activitiesThisYear,
+      currentEvent: continuity.currentEvent,
     });
+    setFlags(continuity.flags);
+    setActivitiesThisYear(continuity.activitiesThisYear);
+    setCurrentEvent(continuity.currentEvent);
     if (data.character) setCharacter(data.character);
     if (data.age !== undefined) setAge(data.age);
     if (data.stats) setStats({ grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0, ...data.stats });
@@ -114,11 +135,11 @@ export function useGameState() {
     if (data.economyCycle) setEconomyCycle({ ...INITIAL_ECONOMY, ...data.economyCycle });
     if (data.pets) setPets(data.pets);
     if (data.will !== undefined) setWill(data.will);
-  }, [invalidateCareerFeedback]);
+  }, [invalidateLifeFeedback, setCurrentEvent]);
 
   /** Clear the in-memory life only — no cloud write. Shared by resetLife and account changes. */
   const clearLocalLife = useCallback(() => {
-    invalidateCareerFeedback();
+    invalidateLifeFeedback();
     lifeSnapshotRef.current = buildLifeSave();
     agingInFlightRef.current = false;
     setCharacter(null);
@@ -141,7 +162,7 @@ export function useGameState() {
     setEconomyCycle({ ...INITIAL_ECONOMY });
     setPets([]);
     setWill(null);
-  }, [invalidateCareerFeedback, setCurrentEvent]);
+  }, [invalidateLifeFeedback, setCurrentEvent]);
 
   const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
     hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData, lifeRevisionRef,
@@ -173,7 +194,7 @@ export function useGameState() {
   };
 
   const startLife = (name, gender, country, cityId) => {
-    invalidateCareerFeedback();
+    invalidateLifeFeedback();
     agingInFlightRef.current = false;
     ignoreCloudLoadRef.current = true;
     const city = getCityById(cityId);
@@ -303,6 +324,8 @@ export function useGameState() {
   const ageUp = useCallback(async () => {
     if (isDead || currentEvent || isAging || agingInFlightRef.current) return;
 
+    const request = { revision: lifeRevisionRef.current };
+    activeEventRequestRef.current = request;
     agingInFlightRef.current = true;
     setIsAging(true);
     const transitionOperationId = createDiagnosticId('age-transition');
@@ -381,6 +404,8 @@ export function useGameState() {
         economyPhase: nextEconomy?.phase,
       });
 
+      if (!ownsEventRequest(request)) return;
+
       if (dynamicEvent && dynamicEvent.description && dynamicEvent.choices) {
         // Re-map format if necessary to ensure stability with UI
         const safeEvent = {
@@ -417,6 +442,7 @@ export function useGameState() {
         toAge: nextAge,
       });
     } catch (error) {
+      if (!ownsEventRequest(request)) return;
       emitDiagnostic('age_transition', {
         operationId: transitionOperationId,
         status: 'failed',
@@ -427,10 +453,13 @@ export function useGameState() {
       });
       throw error;
     } finally {
-      agingInFlightRef.current = false;
-      setIsAging(false);
+      if (ownsEventRequest(request)) {
+        activeEventRequestRef.current = null;
+        agingInFlightRef.current = false;
+        setIsAging(false);
+      }
     }
-  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, careersData, pets, activitiesThisYear, narrativeMode, setCurrentEvent]);
+  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, careersData, pets, activitiesThisYear, narrativeMode, setCurrentEvent, ownsEventRequest]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
 
@@ -946,6 +975,8 @@ export function useGameState() {
 
   const triggerActivityEvent = async (context) => {
     if (isActionLocked()) return;
+    const request = { revision: lifeRevisionRef.current };
+    activeEventRequestRef.current = request;
     agingInFlightRef.current = true;
     setIsAging(true);
     try {
@@ -958,6 +989,8 @@ export function useGameState() {
       };
       const parsed = await generateDynamicEvent(stateDump, context);
 
+      if (!ownsEventRequest(request)) return;
+
       if (parsed && parsed.choices && parsed.description) {
         setCurrentEvent(parsed);
       } else {
@@ -967,14 +1000,18 @@ export function useGameState() {
         });
       }
     } catch {
+      if (!ownsEventRequest(request)) return;
       emitLlmDiagnostic({ type: 'failure', code: 'service' });
       setCurrentEvent({
         description: 'LLM ERROR: Dynamic activity event generation failed. Please try again.',
         choices: [{ text: 'Understood', effects: {} }],
       });
     } finally {
-      agingInFlightRef.current = false;
-      setIsAging(false);
+      if (ownsEventRequest(request)) {
+        activeEventRequestRef.current = null;
+        agingInFlightRef.current = false;
+        setIsAging(false);
+      }
     }
   };
 
@@ -1284,6 +1321,7 @@ export function useGameState() {
     chooseCareer,
     quoteCareer,
     lastCareerAction,
+    lastContinuitySave,
     checkCareerEligibility,
     enrollInDegree,
     attendNetworkingEvent,

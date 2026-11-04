@@ -32,7 +32,7 @@ function App() {
     <>
       <MainGame engine={engine} />
       {engine.currentEvent && (
-        <EventModal event={engine.currentEvent} onChoice={engine.handleChoice} />
+        <EventModal event={engine.currentEvent} onChoice={engine.handleChoice} saveFeedback={engine.lastContinuitySave} />
       )}
     </>
   );

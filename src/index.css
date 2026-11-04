@@ -203,3 +203,16 @@ p { color: var(--text-secondary); line-height: 1.5; }
 .career-decision button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .career-option { color: var(--text-primary); }
+
+
+.continuity-save-status {
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.continuity-save-status--failed,
+.continuity-save-status--skipped {
+  color: var(--warning-color, #fbbf24);
+}

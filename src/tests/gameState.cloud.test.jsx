@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameState } from '../engine/gameState';
 import { buildLifeSave, LIFE_SAVE_KEYS } from '../engine/lifeSave';
 import { generateDynamicEvent } from '../engine/llmService';
+import { getFirebaseIdToken } from '../engine/firebaseToken';
 
 const backend = vi.hoisted(() => ({
   auth: { currentUser: null }, db: {},
@@ -30,9 +31,9 @@ vi.mock('firebase/auth', () => ({
 const user = (uid, isAnonymous = true) => ({ uid, isAnonymous, getIdToken: vi.fn().mockResolvedValue('fixture-id-token') });
 const snapshot = data => ({ exists: () => data != null, data: () => data });
 const deferred = () => {
-  let resolve;
-  const promise = new Promise(done => { resolve = done; });
-  return { promise, resolve };
+  let resolve, reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 };
 const savedLife = (name = 'Saved Player', fields = {}) => buildLifeSave({
   character: { name, gender: 'Female', country: 'US' }, age: 33, bank: 12000, ...fields,
@@ -47,6 +48,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'debug').mockImplementation(() => {});
   vi.spyOn(console, 'info').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
   backend.auth.currentUser = user('guest');
   backend.getDoc.mockReset().mockResolvedValue(snapshot(null));
   backend.getDocs.mockResolvedValue({ empty: true });
@@ -433,4 +436,172 @@ it('still adopts the remote career catalog when a life boundary suppresses a del
   await act(async () => pending.resolve(snapshot(savedLife('Obsolete Life'))));
   expect(result.current.character.name).toBe('New Life');
   await waitFor(() => expect(result.current.careersData).toEqual([remoteCareer]));
+});
+
+
+const offeredEvent = {
+  version: 1, id: 'annual-30', age: 30, source: 'annual',
+  description: 'A saved opportunity', choices: [{ text: 'Consider it', effects: { bank: 10 } }],
+};
+const continuityFixtures = [
+  { name: 'versioned', fields: { flags: ['opportunity_seen'], activitiesThisYear: { 'vacation__Staycation': 1 }, currentEvent: offeredEvent }, flags: ['opportunity_seen'], counters: { 'vacation__Staycation': 1 }, source: 'annual', warning: false },
+  { name: 'legacy', fields: { currentEvent: { description: 'Legacy opportunity', choices: [{ text: 'Continue', effects: {} }] } }, flags: [], counters: {}, source: 'legacy', warning: false },
+  { name: 'missing', fields: {}, flags: [], counters: {}, source: null, warning: false },
+  { name: 'malformed', fields: { flags: ['valid_flag', 'SECRET INVALID', 'valid_flag'], activitiesThisYear: { retained: 2, bad: 'SECRET INVALID' }, currentEvent: { description: 'SECRET INVALID', choices: [] } }, flags: ['valid_flag'], counters: { retained: 2 }, source: 'recovery', warning: true },
+  { name: 'dead', fields: { isDead: true, currentEvent: offeredEvent, activitiesThisYear: { retained: 2 } }, flags: [], counters: {}, source: null, warning: true },
+  { name: 'blank', fields: { character: null, currentEvent: offeredEvent, activitiesThisYear: { retained: 2 } }, flags: [], counters: {}, source: null, warning: true },
+];
+
+describe('continuity hydration and lifecycle ownership', () => {
+  for (const mode of ['boot', 'switch']) {
+    it.each(continuityFixtures)(`${mode} restores $name continuity without writes or inference`, async fixture => {
+      const save = savedLife('Target life', { age: 30, ...fixture.fields });
+      // Exercise genuinely absent fields in old documents, not builder defaults.
+      if (fixture.name === 'missing' || fixture.name === 'legacy') {
+        delete save.flags;
+        delete save.activitiesThisYear;
+        if (fixture.name === 'missing') delete save.currentEvent;
+      }
+      if (mode === 'boot') backend.getDoc.mockResolvedValueOnce(snapshot(save));
+      else backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Origin life', {
+        age: 30, flags: ['origin_flag'], activitiesThisYear: { origin: 3 }, currentEvent: offeredEvent,
+      })));
+      const { result } = await ready();
+      if (mode === 'switch') {
+        await waitFor(() => expect(result.current.character?.name).toBe('Origin life'));
+        backend.getDoc.mockResolvedValueOnce(snapshot(save));
+        backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('target', false) });
+        await act(async () => { await result.current.signInWithEmail('target@example.com', 'fixture-password', 'signin'); });
+      } else await waitFor(() => expect(backend.getDoc).toHaveBeenCalled());
+      await waitFor(() => expect(result.current.flags).toEqual(fixture.flags));
+      expect(result.current.activitiesThisYear).toEqual(fixture.counters);
+      expect(result.current.currentEvent?.source ?? null).toBe(fixture.source);
+      expect(result.current.lastContinuitySave).toBeNull();
+      if (fixture.source) {
+        if (fixture.source === 'annual') expect(result.current.currentEvent.id).toBe('annual-30');
+        else expect(result.current.currentEvent.id).toEqual(expect.any(String));
+        act(() => expect(result.current.chooseCareer('barista').result.code).toBe('action_locked'));
+        if (fixture.source === 'recovery') {
+          expect(result.current.currentEvent.description).toBe('This saved choice is unavailable. Clearing it applies no outcome and keeps your loaded life.');
+          expect(result.current.currentEvent.choices).toEqual([{ text: 'Clear unavailable choice', effects: {} }]);
+        }
+      }
+      const diagnostics = [...console.info.mock.calls, ...console.warn.mock.calls].map(([, record]) => record).filter(record => record?.event === 'save_load');
+      expect(diagnostics.at(-1).status).toBe(fixture.warning ? 'loaded_with_warnings' : 'loaded');
+      expect(JSON.stringify(diagnostics)).not.toContain('SECRET INVALID');
+      expect(backend.setDoc).not.toHaveBeenCalled();
+      expect(generateDynamicEvent).not.toHaveBeenCalled();
+    });
+  }
+
+  it('retains normalized continuity in the next complete canonical snapshot', async () => {
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Snapshot life', {
+      flags: ['opportunity_seen'], activitiesThisYear: { 'vacation__Staycation': 1 },
+    })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Snapshot life'));
+    act(() => result.current.performGig('Snapshot gig', 10));
+    expect(backend.setDoc.mock.calls.at(-1)[1]).toMatchObject({
+      flags: ['opportunity_seen'], activitiesThisYear: { 'vacation__Staycation': 1 }, currentEvent: null,
+    });
+  });
+
+  it.each(['startLife', 'resetLife'])('%s clears restored continuity in state and replacement', async boundary => {
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Old life', {
+      age: 30, flags: ['origin_flag'], activitiesThisYear: { origin: 3 }, currentEvent: offeredEvent,
+    })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Old life'));
+    act(() => result.current[boundary]('New life', 'Female', 'US'));
+    expect(result.current.flags).toEqual([]);
+    expect(result.current.activitiesThisYear).toEqual({});
+    expect(result.current.currentEvent).toBeNull();
+    expect(result.current.lastContinuitySave).toBeNull();
+    expect(backend.setDoc.mock.calls).toHaveLength(1);
+    expect(backend.setDoc.mock.calls[0]).toHaveLength(2);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ flags: [], activitiesThisYear: {}, currentEvent: null });
+  });
+
+  it('keeps the origin life and transport when provider sign-out fails', async () => {
+    backend.auth.currentUser = user('owner', false);
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Origin life', { flags: ['origin_flag'] })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Origin life'));
+    const provider = deferred();
+    backend.signOut.mockReturnValueOnce(provider.promise);
+    let signingOut;
+    await act(async () => { signingOut = result.current.signOutAccount(); });
+    expect(result.current.character.name).toBe('Origin life');
+    await act(async () => { provider.reject(new Error('private failure')); expect(await signingOut).toEqual({ ok: false, reason: 'error' }); });
+    expect(result.current.flags).toEqual(['origin_flag']);
+    expect(result.current.authAccount.uid).toBe('owner');
+    act(() => result.current.performGig('Retained transport', 10));
+    expect(backend.setDoc.mock.calls.at(-1)[0]).toBe('users/owner/saves/currentLife');
+  });
+
+  it.each([['activity', 'resolve'], ['activity', 'reject'], ['annual', 'resolve'], ['annual', 'reject']])('clears the life at provider sign-out and ignores an old %s %s while guest setup is pending', async (kind, completion) => {
+    backend.auth.currentUser = user('owner', false);
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Origin life', { flags: ['origin_flag'], activitiesThisYear: { origin: 3 } })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Origin life'));
+    const generation = deferred(), provider = deferred(), anonymous = deferred();
+    generateDynamicEvent.mockReturnValueOnce(generation.promise);
+    backend.signOut.mockImplementationOnce(async () => { await provider.promise; backend.auth.currentUser = null; });
+    backend.signInAnonymously.mockReturnValueOnce(anonymous.promise);
+    let request, signingOut;
+    act(() => { request = kind === 'annual' ? result.current.ageUp() : result.current.triggerActivityEvent('Origin request'); });
+    await act(async () => { signingOut = result.current.signOutAccount(); });
+    expect(result.current.character.name).toBe('Origin life');
+    await act(async () => provider.resolve());
+    expect(result.current.character).toBeNull();
+    expect(result.current.flags).toEqual([]);
+    expect(result.current.activitiesThisYear).toEqual({});
+    expect(result.current.currentEvent).toBeNull();
+    expect(result.current.lastContinuitySave).toBeNull();
+    expect(result.current.lastCareerAction).toBeNull();
+    expect(result.current.authAccount).toBeNull();
+    expect(await getFirebaseIdToken()).toBeNull();
+    expect(result.current.isAging).toBe(false);
+    await act(async () => {
+      if (completion === 'resolve') generation.resolve({ description: 'Obsolete choice', choices: [{ text: 'Continue', effects: {} }] });
+      else generation.reject(new Error('private generation failure'));
+      await request;
+    });
+    expect(result.current.currentEvent).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    await act(async () => { anonymous.reject(new Error('private anonymous failure')); expect(await signingOut).toEqual({ ok: false, reason: 'error' }); });
+    expect(result.current.character).toBeNull();
+    expect(result.current.authAccount).toBeNull();
+    backend.signInAnonymously.mockResolvedValueOnce({ user: user('retry-guest') });
+    await act(async () => expect(await result.current.signOutAccount()).toEqual({ ok: true, mode: 'signed_out' }));
+    expect(result.current.authAccount.uid).toBe('retry-guest');
+    expect(result.current.character).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+  });
+
+  it.each(['resolve', 'reject'])('an obsolete annual %s cannot mutate or unlock a newer life request', async completion => {
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Origin life')));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Origin life'));
+    const old = deferred(), current = deferred();
+    generateDynamicEvent.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    let oldRequest, newRequest;
+    act(() => { oldRequest = result.current.ageUp(); });
+    act(() => result.current.startLife('New life', 'Female', 'US'));
+    act(() => { newRequest = result.current.triggerActivityEvent('Current request'); });
+    backend.setDoc.mockClear();
+    await act(async () => {
+      if (completion === 'resolve') old.resolve({ description: 'Obsolete choice', choices: [{ text: 'Continue', effects: {} }] });
+      else old.reject(new Error('private generation failure'));
+      await oldRequest;
+    });
+    expect(result.current.character.name).toBe('New life');
+    expect(result.current.age).toBe(0);
+    expect(result.current.currentEvent).toBeNull();
+    expect(result.current.isAging).toBe(true);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    await act(async () => { current.resolve({ description: 'Current choice', choices: [{ text: 'Continue', effects: {} }] }); await newRequest; });
+    expect(result.current.currentEvent.description).toBe('Current choice');
+    expect(result.current.isAging).toBe(false);
+  });
 });

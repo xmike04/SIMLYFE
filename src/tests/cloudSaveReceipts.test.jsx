@@ -6,7 +6,7 @@ import { useCloudAccount } from '../engine/cloud/useCloudAccount';
 const backend = vi.hoisted(() => ({
   configured: true, auth: { currentUser: null }, db: {},
   getDoc: vi.fn(), setDoc: vi.fn(), getDocs: vi.fn(),
-  signInWithEmailAndPassword: vi.fn(),
+  signInWithEmailAndPassword: vi.fn(), signOut: vi.fn(), signInAnonymously: vi.fn(),
 }));
 vi.mock('../config/firebase', () => ({
   get auth() { return backend.configured ? backend.auth : null; },
@@ -21,7 +21,7 @@ vi.mock('firebase/auth', () => ({
     queueMicrotask(() => callback(auth.currentUser));
     return () => {};
   },
-  signInAnonymously: vi.fn(),
+  signInAnonymously: backend.signInAnonymously, signOut: backend.signOut,
   EmailAuthProvider: { credential: vi.fn() },
   linkWithCredential: vi.fn(), createUserWithEmailAndPassword: vi.fn(),
   signInWithEmailAndPassword: backend.signInWithEmailAndPassword,
@@ -227,4 +227,29 @@ describe('obsolete cloud load protection', () => {
     await act(async () => { pending.resolve(snapshot({ character: { name: 'Second account' } })); await firstSignin; });
     expect(hydrateFromSave.mock.calls).toEqual([[{ character: { name: 'Third account' } }]]);
   });
+});
+
+
+it('detaches transport immediately after sign-out while preserving already captured queued writes', async () => {
+  const { result, clearLocalLife } = await ready();
+  const first = deferred(), provider = deferred(), anonymous = deferred();
+  backend.setDoc.mockReturnValueOnce(first.promise);
+  const writing = result.current.syncToCloud({ bank: 10 });
+  const queued = result.current.syncToCloud({ bank: 20 });
+  backend.signOut.mockImplementationOnce(async () => { await provider.promise; backend.auth.currentUser = null; });
+  backend.signInAnonymously.mockReturnValueOnce(anonymous.promise);
+  let signingOut;
+  await act(async () => { signingOut = result.current.signOutAccount(); });
+  await act(async () => provider.resolve());
+  expect(clearLocalLife).toHaveBeenCalledTimes(1);
+  expect(result.current.authAccount).toBeNull();
+  expect((await result.current.syncToCloud({ bank: 999 })).status).toBe('skipped');
+  await act(async () => { first.resolve(); await writing; await queued; });
+  expect(backend.setDoc.mock.calls).toEqual([
+    ['users/first/saves/currentLife', { bank: 10 }, { merge: true }],
+    ['users/first/saves/currentLife', { bank: 20 }, { merge: true }],
+  ]);
+  await act(async () => { anonymous.resolve({ user: { ...user('new-guest'), isAnonymous: true } }); await signingOut; });
+  expect(clearLocalLife).toHaveBeenCalledTimes(1);
+  expect(result.current.authAccount.uid).toBe('new-guest');
 });

@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import MainGame from '../components/MainGame';
+import EventModal from '../components/EventModal';
 
 function createEngine(overrides = {}) {
   return {
@@ -131,5 +132,32 @@ describe('MainGame sheet navigation', () => {
     expect(screen.getByRole('button', { name: /Acting Lessons.*Need \$50/ })).toBeDisabled();
     rerender(<MainGame engine={{ ...engine, bank: 100 }} />);
     expect(screen.getByRole('button', { name: /Modeling Classes.*Requires looks 30/ })).toBeDisabled();
+  });
+});
+
+
+describe('continuity save announcements', () => {
+  it.each([
+    ['pending', 'Saving progress…'],
+    ['saved', 'Progress saved to the cloud.'],
+    ['failed', 'Progress remains in this session, but saving failed. Reloading may restore an older save.'],
+    ['skipped', 'Progress remains in this session, but cloud saving is unavailable. Reloading may restore an older save.'],
+  ])('announces %s without provider details', (saveStatus, message) => {
+    render(<MainGame engine={createEngine({ lastContinuitySave: { id: 'save', kind: 'activity', saveStatus, operationId: null, error: 'PRIVATE PROVIDER DETAIL' } })} />);
+    const status = screen.getByRole('status', { name: 'Progress save status' });
+    expect(status).toHaveTextContent(message);
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(document.body).not.toHaveTextContent('PRIVATE PROVIDER DETAIL');
+  });
+
+  it('renders one announcement inside an open event and none for null feedback', () => {
+    const event = { description: 'An offered choice', choices: [{ text: 'Continue', effects: {} }] };
+    const feedback = { id: 'save', kind: 'event_offered', saveStatus: 'pending', operationId: null };
+    const { rerender } = render(<><MainGame engine={createEngine({ currentEvent: event, lastContinuitySave: feedback })} /><EventModal event={event} onChoice={vi.fn()} saveFeedback={feedback} /></>);
+    const status = screen.getByRole('status', { name: 'Progress save status' });
+    expect(status).toHaveTextContent('Saving progress…');
+    expect(status.closest('.glass-panel')).toHaveTextContent('An offered choice');
+    rerender(<><MainGame engine={createEngine({ currentEvent: event, lastContinuitySave: null })} /><EventModal event={event} onChoice={vi.fn()} saveFeedback={null} /></>);
+    expect(screen.queryByRole('status', { name: 'Progress save status' })).not.toBeInTheDocument();
   });
 });

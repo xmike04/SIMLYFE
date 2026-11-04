@@ -79,7 +79,7 @@ The continuity defaults are `flags: []`, `activitiesThisYear: {}`, and `currentE
 
 Transient state includes `isAging`, `narrativeMode`, cloud connection status, account summary, and the loaded career catalog. These fields are not part of current life writes. The validation and Firestore allowlists also tolerate specific legacy fields; tolerating a field does not make it part of the current save contract.
 
-The contract helpers are established before hook integration: `hydrateFromSave` currently does not invoke continuity restoration, so restoring flags, counters, and pending choices through the hook remains a separate tested change.
+Boot and explicit account loads normalize these continuity fields through `restoreLifeContinuity`, installing the same restored values in React state and the eager life snapshot. Event installation also updates the action-lock ref synchronously. Missing fields restore their defaults rather than retaining another account's values. Hydration requests no inference and performs no write. Both load paths emit the same sanitized, observational `save_load` diagnostics.
 
 ### Cloud sync modes
 
@@ -126,7 +126,9 @@ Firebase is loaded asynchronously after mount. Boot adopts an existing persisted
 | Email sign-up | Validate input, then link the anonymous account. An existing email returns a sanitized code so the UI can offer sign-in. |
 | Email sign-in | Switch accounts, clear the local life, and load the signed-in account's save. |
 | Password reset | Request a reset without revealing whether the account exists. |
-| Sign-out | End the current session, start a fresh anonymous session, and clear local state without writing to the previous account. |
+| Sign-out | After provider sign-out succeeds, immediately clear local life, feedback, request ownership, token provider, transport, and account summary; then start a fresh anonymous session without writing to the previous account. |
+
+Failed provider sign-out retains the origin life and transport. If anonymous creation fails after successful sign-out, the life stays blank and the old transport stays detached. The engine can retry guest setup through `signOutAccount`; the existing cleared-life UI recovers through reload/bootstrap. Captured writes already enqueued keep their original account destination. Same-UID linking preserves the current life.
 
 Account actions share the cloud transport rather than issuing Firebase calls from sheets. `authAccount` contains the UI's sanitized account summary, including provider, name, email, and photo; it is excluded from diagnostics.
 
@@ -149,6 +151,10 @@ While `isAging` is true or an event is open:
 - The annual save contains the calculated fields explicitly, protecting them from a stale React closure after the request resolves.
 
 The gameplay rules and timing belong in [game mechanics](./game-mechanics.md#core-loop). Extraction must preserve calculation order, random draws, event timing, and save boundaries unless a behavior change is explicitly included and tested.
+
+Annual and activity requests carry one active request token and the originating life revision. Start, reset, hydration, account clearing, and unmount invalidate ownership. After an await, obsolete success/error results cannot mutate or save, and obsolete cleanup cannot unlock a newer request.
+
+`lastContinuitySave` is transient and cleared with the same lifecycle boundary as career feedback. `ContinuitySaveStatus` renders one polite progress announcement in MainGame when no event is open, or inside EventModal while a choice is open. It distinguishes pending, acknowledged saved, failed, and unavailable saves; failure copy preserves session progress and explains that reload may restore an older save. The selected continuity writers will populate this feedback as their coherent save boundaries are integrated; unrelated commands retain their existing feedback behavior.
 
 The annual event request currently receives the pre-tick relationship and pet arrays, while most other request fields use the calculated next state. The saved life receives the updated arrays. This existing request timing is preserved by the extraction.
 

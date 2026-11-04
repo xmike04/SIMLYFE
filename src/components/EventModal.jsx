@@ -1,6 +1,7 @@
 import React from 'react';
+import ContinuitySaveStatus from './game/ContinuitySaveStatus';
 
-export default function EventModal({ event, onChoice }) {
+export default function EventModal({ event, onChoice, saveFeedback }) {
   if (!event) return null;
 
   return (
@@ -16,6 +17,7 @@ export default function EventModal({ event, onChoice }) {
         </div>
         <h3 className="mb-4 mt-2" style={{ lineHeight: '1.4' }}>{event.description}</h3>
         
+        <ContinuitySaveStatus feedback={saveFeedback} />
         <div className="flex-column" style={{ gap: '0.8rem' }}>
           {(event.choices || []).map((choice, i) => (
             <button 
