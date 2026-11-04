@@ -31,7 +31,7 @@ function validEffects(effects) {
     if (!EFFECT_KEYS.has(key)) return false;
     if (key === 'flags') {
       return Array.isArray(value) && value.length >= 1 && value.length <= 4
-        && value.every(validFlag) && new Set(value).size === value.length;
+        && Array.from(value).every(validFlag) && new Set(value).size === value.length;
     }
     return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= (key === 'bank' ? 100000 : 100);
   });

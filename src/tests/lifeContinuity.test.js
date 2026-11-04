@@ -191,6 +191,15 @@ describe('pending event boundaries', () => {
   ];
   it.each(invalidEffects)('recovers malformed effects %# without applying them', effects => expectRecovery({ ...annual, choices: [{ text: 'Choose safely', effects }] }));
 
+  it.each([
+    ['only a hole', Array(1)],
+    ['a hole and a valid identifier', Object.assign(Array(2), { 1: 'seen' })],
+  ])('recovers effect flags containing %s without retaining undefined flags', (_label, flags) => {
+    const event = { ...annual, choices: [{ text: 'Choose safely', effects: { flags } }] };
+    expectRecovery(event);
+    expect(validatePendingEvent(event, { age: 30, relationships: [] })).toEqual({ valid: false, reason: 'invalid_choice' });
+  });
+
   it.each([false, 42, 'private-event', [], {}])('recovers a malformed supplied event %#', event => expectRecovery(event));
 
   it('keeps only canonical recovery copy and never accepts forged effects, metadata or custody', () => {
