@@ -4,12 +4,15 @@ import { validateHydratedSave } from '../stateValidation';
 import { setFirebaseIdTokenProvider } from '../firebaseToken';
 import { summarizeAuthUser, prepareEmailCredential } from './authHelpers';
 import { createSaveQueue } from './saveQueue';
+import { runExclusiveAuthOperation, waitForAuthOperation } from './authOperations';
 
-/**
- * Owns the Firebase session and transport, never the player's life state.
- * The parent supplies stable hydration/clear callbacks and keeps its snapshot
- * and life-boundary guard so save replacement remains explicit at start/reset.
- */
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const admitsSave = data => isRecord(data) && (isRecord(data.character)
+  || (data.character === null && data.isDead === false));
+const readyModes = ['loaded', 'missing', 'local'];
+const stale = () => ({ ok: false, reason: 'stale' });
+
+/** Owns session/read readiness and transport; useGameState owns the life. */
 export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData, lifeRevisionRef }) {
   const cloudSyncRef = useRef(null);
   const accountGenerationRef = useRef(0);
@@ -17,147 +20,186 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
   const saveQueueRef = useRef(null);
   if (saveQueueRef.current === null) saveQueueRef.current = createSaveQueue();
   const [authAccount, setAuthAccount] = useState(null);
+  const [cloudLoadState, setCloudLoadState] = useState({ status: 'loading', accountId: null, reason: null });
+  const loadStateRef = useRef(cloudLoadState);
+  const activeReadRef = useRef(null);
+  const initializationRef = useRef(0);
+  const lifecycleRef = useRef(0);
+  const mountedRef = useRef(false);
+  const observerCleanupRef = useRef(null);
 
-  // Share pending imports across StrictMode's effect restart and account actions.
+  const publish = useCallback((status, accountId = null, reason = null) => {
+    loadStateRef.current = { status, accountId, reason };
+    setCloudLoadState(loadStateRef.current);
+  }, []);
+
+  // Share imports across StrictMode restarts and explicit commands.
   const loadBackendModules = useCallback(() => {
     backendModulesRef.current ??= Promise.all([
-      import('../../config/firebase'),
-      import('firebase/auth'),
-      import('firebase/firestore'),
-    ]).catch(error => {
-      backendModulesRef.current = null;
-      throw error;
-    });
+      import('../../config/firebase'), import('firebase/auth'), import('firebase/firestore'),
+    ]).catch(error => { backendModulesRef.current = null; throw error; });
     return backendModulesRef.current;
   }, []);
 
-  const adoptUser = useCallback((user, transport) => {
-    if (cloudSyncRef.current?.userId !== user.uid) accountGenerationRef.current += 1;
-    // Update the transport before React renders so immediate commands use this account.
-    cloudSyncRef.current = { ...transport, userId: user.uid };
-    setFirebaseIdTokenProvider(() => user.getIdToken());
-    setAuthAccount(summarizeAuthUser(user));
+  const getAuthBackend = useCallback(async () => {
+    const [config, authApi, firestoreApi] = await loadBackendModules();
+    if (!config.auth || !config.db) return null;
+    return { auth: config.auth, db: config.db, authApi, ...firestoreApi };
+  }, [loadBackendModules]);
+
+  const canReplaceLife = useCallback(() => {
+    const state = loadStateRef.current;
+    return mountedRef.current && readyModes.includes(state.status)
+      && (state.status === 'local' || state.accountId === cloudSyncRef.current?.userId);
   }, []);
 
-  // 1. Adopt the persisted auth session (or start an anonymous one) and load
-  // the cloud save if configured
-  useEffect(() => {
-    let cancelled = false;
-    let unsubscribeFirstAuth = null;
-    const initialAccountGeneration = accountGenerationRef.current;
-    const initialLifeRevision = lifeRevisionRef?.current;
-    setFirebaseIdTokenProvider(null);
-    const loadOperationId = createDiagnosticId('save-load');
-    const loadStartedAt = diagnosticNow();
-
-    async function initCloudSync() {
-      try {
-        const [
-          firebaseConfig,
-          authApi,
-          firestoreApi,
-        ] = await loadBackendModules();
-
-        const { auth, db } = firebaseConfig;
-        if (cancelled) return;
-        if (!auth || !db) {
-          emitDiagnostic('save_load', {
-            operationId: loadOperationId,
-            status: 'skipped',
-            durationMs: diagnosticNow() - loadStartedAt,
-            fields: [],
-          });
-          return;
-        }
-
-        const { signInAnonymously, onAuthStateChanged } = authApi;
-        const { doc, setDoc, getDoc, collection, getDocs } = firestoreApi;
-
-        emitDiagnostic('save_load', {
-          operationId: loadOperationId,
-          status: 'started',
-          durationMs: 0,
-          fields: [],
-        });
-
-        // Adopt a persisted session (anonymous or Google-linked) so returning
-        // players keep their uid; only first-time visitors mint a new
-        // anonymous account. signInAnonymously would replace a Google session.
-        const persistedUser = await new Promise((resolve) => {
-          unsubscribeFirstAuth = onAuthStateChanged(auth, resolve, () => resolve(null));
-        });
-        unsubscribeFirstAuth?.();
-        unsubscribeFirstAuth = null;
-        const user = persistedUser ?? (await signInAnonymously(auth)).user;
-        if (cancelled || accountGenerationRef.current !== initialAccountGeneration) return;
-
-        adoptUser(user, { db, doc, setDoc });
-        const loadAccountGeneration = accountGenerationRef.current;
-
-        try {
-          const saveRef = doc(db, 'users', user.uid, 'saves', 'currentLife');
-          const saveSnap = await getDoc(saveRef);
-          if (cancelled) return;
-          // Save hydration is life/account scoped; the shared catalog still loads
-          // when a start/reset made this saved life obsolete.
-          const canHydrate = accountGenerationRef.current === loadAccountGeneration
-            && lifeRevisionRef?.current === initialLifeRevision && !ignoreCloudLoadRef.current;
-          if (canHydrate && saveSnap.exists()) {
-            const data = saveSnap.data();
-            const validation = validateHydratedSave(data);
-            hydrateFromSave(data);
-            emitDiagnostic('save_load', {
-              operationId: loadOperationId,
-              status: validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
-              durationMs: diagnosticNow() - loadStartedAt,
-              fields: validation.hasWarnings
-                ? validation.warningFields
-                : getDiagnosticStateFields(data),
-            });
-          } else if (canHydrate) {
-            emitDiagnostic('save_load', {
-              operationId: loadOperationId,
-              status: 'not_found',
-              durationMs: diagnosticNow() - loadStartedAt,
-              fields: [],
-            });
-          }
-        } catch (e) {
-          if (!cancelled) {
-            emitDiagnostic('save_load', {
-              operationId: loadOperationId,
-              status: 'failed',
-              durationMs: diagnosticNow() - loadStartedAt,
-              fields: [],
-              errorClass: getErrorClass(e),
-            });
-          }
-        }
-
-        getDocs(collection(db, 'careers')).then(snapshot => {
-          if (!cancelled && !snapshot.empty) setCareersData(snapshot.docs.map(skip => skip.data()));
-        }).catch(console.error);
-      } catch (error) {
-        if (!cancelled) {
-          emitDiagnostic('save_load', {
-            operationId: loadOperationId,
-            status: 'failed',
-            durationMs: diagnosticNow() - loadStartedAt,
-            fields: [],
-            errorClass: getErrorClass(error),
-          });
-        }
+  const readAccount = useCallback(async (backend, uid) => {
+    const attempt = {
+      generation: accountGenerationRef.current, lifecycle: lifecycleRef.current,
+      revision: lifeRevisionRef?.current,
+    };
+    activeReadRef.current = attempt;
+    ignoreCloudLoadRef.current = false;
+    publish('loading', uid);
+    const owns = (checkRevision = true) => mountedRef.current && activeReadRef.current === attempt
+      && lifecycleRef.current === attempt.lifecycle && accountGenerationRef.current === attempt.generation
+      && cloudSyncRef.current?.userId === uid
+      && (!checkRevision || lifeRevisionRef?.current === attempt.revision);
+    const operationId = createDiagnosticId('save-load');
+    const startedAt = diagnosticNow();
+    const diagnostic = (status, fields = [], errorClass) => emitDiagnostic('save_load', {
+      operationId, status, durationMs: diagnosticNow() - startedAt, fields,
+      ...(errorClass ? { errorClass } : {}),
+    });
+    diagnostic('started');
+    try {
+      const snapshot = await backend.getDoc(backend.doc(backend.db, 'users', uid, 'saves', 'currentLife'));
+      if (!owns() || ignoreCloudLoadRef.current) return stale();
+      if (!snapshot.exists()) {
+        publish('missing', uid);
+        diagnostic('not_found');
+        return { ok: true, mode: 'missing' };
       }
+      const data = snapshot.data();
+      if (!admitsSave(data)) {
+        publish('failed', uid, 'invalid_save');
+        diagnostic('failed', [], 'InvalidSave');
+        return { ok: false, reason: 'error' };
+      }
+      const validation = validateHydratedSave(data);
+      hydrateFromSave(data);
+      // Hydration deliberately advances lifeRevision. Finish this owned
+      // synchronous transition without mistaking that increment for a race.
+      if (!owns(false)) return stale();
+      publish('loaded', uid);
+      diagnostic(validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
+        validation.hasWarnings ? validation.warningFields : getDiagnosticStateFields(data));
+      return { ok: true, mode: 'loaded' };
+    } catch (error) {
+      if (!owns()) return stale();
+      publish('failed', uid, 'read_failed');
+      diagnostic('failed', [], getErrorClass(error));
+      return { ok: false, reason: 'error' };
+    } finally {
+      if (activeReadRef.current === attempt) activeReadRef.current = null;
     }
+  }, [hydrateFromSave, ignoreCloudLoadRef, lifeRevisionRef, publish]);
 
-    initCloudSync();
+  const adoptAndRead = useCallback((user, backend, clear = false) => {
+    const sameOwnedAccount = cloudSyncRef.current?.userId === user.uid
+      && loadStateRef.current.accountId === user.uid;
+    if (!sameOwnedAccount) {
+      accountGenerationRef.current += 1;
+      activeReadRef.current = null;
+      publish('loading', user.uid);
+      if (clear) clearLocalLife();
+    }
+    cloudSyncRef.current = { ...backend, userId: user.uid };
+    setFirebaseIdTokenProvider(() => user.getIdToken());
+    setAuthAccount(summarizeAuthUser(user));
+    // Same-UID linking must keep both a failed state and an active read intact.
+    return sameOwnedAccount ? null : readAccount(backend, user.uid);
+  }, [clearLocalLife, publish, readAccount]);
+
+  const initialize = useCallback(async () => {
+    const intent = ++initializationRef.current;
+    const lifecycle = lifecycleRef.current;
+    const owns = () => mountedRef.current && lifecycleRef.current === lifecycle && initializationRef.current === intent;
+    publish('loading');
+    try {
+      const backend = await getAuthBackend();
+      if (!owns()) return stale();
+      if (!backend) { publish('local'); return { ok: true, mode: 'local' }; }
+      const { auth, authApi } = backend;
+      const observed = await new Promise((resolve, reject) => {
+        const unsubscribe = authApi.onAuthStateChanged(auth, resolve, reject);
+        observerCleanupRef.current = () => {
+          unsubscribe?.();
+          // Unsubscribing cannot leave an externally awaited retry pending.
+          // The initialization intent/lifecycle check converts this to stale.
+          resolve(undefined);
+        };
+      });
+      if (!owns()) return stale();
+      observerCleanupRef.current?.();
+      observerCleanupRef.current = null;
+      // A previous hook may still be changing the shared provider. Its final
+      // currentUser, rather than a stale observer value, determines adoption.
+      await waitForAuthOperation(auth);
+      if (!owns()) return stale();
+      let user = auth.currentUser;
+      if (!user) {
+        if (observed !== null) throw new Error('Auth restoration incomplete');
+        const mutation = await runExclusiveAuthOperation(auth, async () => {
+          if (!owns()) return null;
+          return (await authApi.signInAnonymously(auth)).user;
+        });
+        if (!owns()) return stale();
+        if (mutation.busy) {
+          await waitForAuthOperation(auth);
+          if (!owns()) return stale();
+          user = auth.currentUser;
+        } else user = mutation.value;
+      }
+      if (!owns()) return stale();
+      if (!user) throw new Error('Auth restoration incomplete');
+      const reading = adoptAndRead(user, backend);
+      backend.getDocs(backend.collection(backend.db, 'careers')).then(snapshot => {
+        if (mountedRef.current && lifecycleRef.current === lifecycle && !snapshot.empty) setCareersData(snapshot.docs.map(item => item.data()));
+      }).catch(console.error);
+      return reading ? await reading : { ok: true, mode: loadStateRef.current.status };
+    } catch (error) {
+      if (!owns()) return stale();
+      observerCleanupRef.current?.();
+      observerCleanupRef.current = null;
+      publish('failed', cloudSyncRef.current?.userId ?? null, 'auth_failed');
+      emitDiagnostic('save_load', { operationId: createDiagnosticId('save-load'), status: 'failed', durationMs: 0, fields: [], errorClass: getErrorClass(error) });
+      return { ok: false, reason: 'error' };
+    }
+  }, [adoptAndRead, getAuthBackend, publish, setCareersData]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    initialize();
     return () => {
-      cancelled = true;
-      unsubscribeFirstAuth?.();
+      mountedRef.current = false;
+      lifecycleRef.current += 1;
+      initializationRef.current += 1;
+      activeReadRef.current = null;
+      observerCleanupRef.current?.();
+      observerCleanupRef.current = null;
       setFirebaseIdTokenProvider(null);
     };
-  }, [adoptUser, hydrateFromSave, ignoreCloudLoadRef, setCareersData, lifeRevisionRef, loadBackendModules]);
+  }, [initialize]);
 
+  const retryCloudLoad = useCallback(() => {
+    const state = loadStateRef.current;
+    if (canReplaceLife()) return Promise.resolve({ ok: true, mode: state.status });
+    if (state.status === 'loading') return Promise.resolve({ ok: false, reason: 'busy' });
+    if (!mountedRef.current) return Promise.resolve(stale());
+    const transport = cloudSyncRef.current;
+    return transport ? readAccount(transport, transport.userId) : initialize();
+  }, [canReplaceLife, initialize, readAccount]);
   /**
    * Acknowledged saves are serialized per account on this device, including
    * life-boundary replacements. Capturing the target and payload now prevents
@@ -169,6 +211,13 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
     const fields = getDiagnosticStateFields(stateData);
     const transport = cloudSyncRef.current;
     const receipt = (status, errorClass = null) => ({ status, operationId, errorClass });
+    if (!canReplaceLife()) {
+      emitDiagnostic('save_sync', {
+        operationId, status: 'skipped', durationMs: diagnosticNow() - saveStartedAt,
+        fields, errorClass: 'AccountLoadBlocked',
+      });
+      return Promise.resolve(receipt('skipped', 'AccountLoadBlocked'));
+    }
     if (!transport) {
       emitDiagnostic('save_sync', {
         operationId, status: 'skipped', durationMs: diagnosticNow() - saveStartedAt, fields,
@@ -208,157 +257,102 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       });
       return saved;
     });
-  }, []);
+  }, [canReplaceLife]);
 
-  /**
-   * Shared backend loader for account actions (Google, email, sign-out).
-   * Returns null when Firebase is unconfigured; otherwise auth handles plus
-   * `adopt` (rebind token provider / cloud sync / authAccount to a user) and
-   * `loadAccountSave` (clear local life, hydrate the uid's cloud save).
-   */
-  const getAuthBackend = async () => {
-    const [firebaseConfig, authApi, firestoreApi] = await loadBackendModules();
-    const { auth, db } = firebaseConfig;
-    if (!auth || !db) return null;
-    const adopt = (user) => {
-      adoptUser(user, { db, doc: firestoreApi.doc, setDoc: firestoreApi.setDoc });
-    };
-    const loadAccountSave = async (uid) => {
-      clearLocalLife();
-      const loadAccountGeneration = accountGenerationRef.current;
-      const loadLifeRevision = lifeRevisionRef?.current;
-      const operationId = createDiagnosticId('save-load');
-      const startedAt = diagnosticNow();
-      emitDiagnostic('save_load', { operationId, status: 'started', durationMs: 0, fields: [] });
-      try {
-        const snap = await firestoreApi.getDoc(firestoreApi.doc(db, 'users', uid, 'saves', 'currentLife'));
-        if (accountGenerationRef.current !== loadAccountGeneration
-          || cloudSyncRef.current?.userId !== uid || lifeRevisionRef?.current !== loadLifeRevision) return;
-        if (snap.exists()) {
-          const data = snap.data();
-          const validation = validateHydratedSave(data);
-          hydrateFromSave(data);
-          emitDiagnostic('save_load', {
-            operationId,
-            status: validation.hasWarnings ? 'loaded_with_warnings' : 'loaded',
-            durationMs: diagnosticNow() - startedAt,
-            fields: validation.hasWarnings ? validation.warningFields : getDiagnosticStateFields(data),
-          });
-        } else {
-          emitDiagnostic('save_load', { operationId, status: 'not_found', durationMs: diagnosticNow() - startedAt, fields: [] });
-        }
-      } catch (error) {
-        emitDiagnostic('save_load', {
-          operationId, status: 'failed', durationMs: diagnosticNow() - startedAt,
-          fields: [], errorClass: getErrorClass(error),
-        });
-        throw error;
-      }
-    };
-    return { auth, authApi, adopt, loadAccountSave };
-  };
 
-  /**
-   * Google sign-in for cloud saves. An anonymous player is LINKED (same uid —
-   * the current life survives untouched). If the Google account already
-   * belongs to another uid, we SWITCH to that account and load its save
-   * instead. Returns { ok: true, mode } or { ok: false, reason } — reasons
-   * are sanitized codes, never raw provider errors.
-   */
-  const signInWithGoogle = async () => {
+  // Hold the provider mutex only through mutation/adoption, never through a
+  // Firestore read. An accepted explicit intent supersedes pre-adoption boot.
+  const changeSession = async work => {
+    const lifecycle = lifecycleRef.current;
     try {
       const backend = await getAuthBackend();
+      if (!mountedRef.current || lifecycleRef.current !== lifecycle) return stale();
       if (!backend) return { ok: false, reason: 'unavailable' };
-      const { auth, authApi, adopt, loadAccountSave } = backend;
-      const { GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential } = authApi;
-
-      const provider = new GoogleAuthProvider();
-      const current = auth.currentUser;
-      try {
-        if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
-        if (current) {
-          const result = await linkWithPopup(current, provider);
-          adopt(result.user); // same uid — the in-progress life is untouched
-          return { ok: true, mode: 'linked' };
-        }
-        const result = await signInWithPopup(auth, provider);
-        adopt(result.user);
-        await loadAccountSave(result.user.uid);
-        return { ok: true, mode: 'signed_in' };
-      } catch (e) {
-        if (e?.code === 'auth/credential-already-in-use') {
-          // This Google account already owns a save under another uid — switch to it.
-          const credential = GoogleAuthProvider.credentialFromError(e);
-          if (!credential) return { ok: false, reason: 'error' };
-          const result = await signInWithCredential(auth, credential);
-          adopt(result.user);
-          await loadAccountSave(result.user.uid);
-          return { ok: true, mode: 'switched' };
-        }
-        if (e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-blocked') {
-          return { ok: false, reason: 'cancelled' };
-        }
-        return { ok: false, reason: 'error' };
+      const mutation = await runExclusiveAuthOperation(backend.auth, async () => {
+        initializationRef.current += 1;
+        observerCleanupRef.current?.();
+        observerCleanupRef.current = null;
+        const owns = () => mountedRef.current && lifecycleRef.current === lifecycle;
+        const adopt = user => owns() ? adoptAndRead(user, backend, true) : null;
+        return work(backend, adopt, owns);
+      });
+      if (mutation.busy) return { ok: false, reason: 'busy' };
+      if (!mountedRef.current || lifecycleRef.current !== lifecycle) return stale();
+      const { outcome, reading } = mutation.value;
+      if (!outcome.ok && !cloudSyncRef.current) publish('failed', null, 'auth_failed');
+      if (reading) {
+        const loaded = await reading;
+        if (!loaded.ok) return loaded;
       }
+      return outcome;
     } catch {
+      if (!mountedRef.current || lifecycleRef.current !== lifecycle) return stale();
+      if (!cloudSyncRef.current) publish('failed', null, 'auth_failed');
       return { ok: false, reason: 'error' };
     }
   };
 
-  /**
-   * Email/password auth. mode 'signup' links the anonymous player (same uid —
-   * the current life survives untouched) or creates a fresh account; mode
-   * 'signin' switches to the existing account and loads its cloud save.
-   * Sanitized reasons only — raw provider errors never surface.
-   */
+  const signInWithGoogle = () => changeSession(async (backend, adopt, owns) => {
+    const { auth, authApi } = backend;
+    const { GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential } = authApi;
+    const provider = new GoogleAuthProvider();
+    let user, mode;
+    try {
+      const current = auth.currentUser;
+      if (current && !current.isAnonymous) { user = current; mode = 'already'; }
+      else if (current) { user = (await linkWithPopup(current, provider)).user; mode = 'linked'; }
+      else { user = (await signInWithPopup(auth, provider)).user; mode = 'signed_in'; }
+    } catch (error) {
+      if (!owns()) return { outcome: stale() };
+      if (error?.code === 'auth/credential-already-in-use') {
+        const credential = GoogleAuthProvider.credentialFromError(error);
+        if (!credential) return { outcome: { ok: false, reason: 'error' } };
+        user = (await signInWithCredential(auth, credential)).user;
+        mode = 'switched';
+      } else if (['auth/popup-closed-by-user', 'auth/cancelled-popup-request', 'auth/popup-blocked'].includes(error?.code)) {
+        return { outcome: { ok: false, reason: 'cancelled' } };
+      } else throw error;
+    }
+    return { outcome: { ok: true, mode }, reading: adopt(user) };
+  });
+
   const signInWithEmail = async (email, password, mode = 'signup') => {
     const input = prepareEmailCredential(email, password);
     if (!input.ok) return input;
-    try {
-      const backend = await getAuthBackend();
-      if (!backend) return { ok: false, reason: 'unavailable' };
-      const { auth, authApi, adopt, loadAccountSave } = backend;
-      const { EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword } = authApi;
+    return changeSession(async (backend, adopt) => {
+      const { auth, authApi } = backend;
       const current = auth.currentUser;
+      let user, outcomeMode;
       try {
         if (mode === 'signin') {
-          const result = await signInWithEmailAndPassword(auth, input.email, password);
-          adopt(result.user);
-          await loadAccountSave(result.user.uid);
-          return { ok: true, mode: 'switched' };
+          user = (await authApi.signInWithEmailAndPassword(auth, input.email, password)).user;
+          outcomeMode = 'switched';
+        } else if (current && !current.isAnonymous) { user = current; outcomeMode = 'already'; }
+        else if (current) {
+          const credential = authApi.EmailAuthProvider.credential(input.email, password);
+          user = (await authApi.linkWithCredential(current, credential)).user;
+          outcomeMode = 'linked';
+        } else {
+          user = (await authApi.createUserWithEmailAndPassword(auth, input.email, password)).user;
+          outcomeMode = 'signed_in';
         }
-        if (current && !current.isAnonymous) return { ok: true, mode: 'already' };
-        if (current) {
-          const credential = EmailAuthProvider.credential(input.email, password);
-          const result = await linkWithCredential(current, credential);
-          adopt(result.user); // same uid — the in-progress life is untouched
-          return { ok: true, mode: 'linked' };
-        }
-        const result = await createUserWithEmailAndPassword(auth, input.email, password);
-        adopt(result.user);
-        await loadAccountSave(result.user.uid);
-        return { ok: true, mode: 'signed_in' };
-      } catch (e) {
-        const code = e?.code ?? '';
-        if (code === 'auth/email-already-in-use' || code === 'auth/credential-already-in-use') {
-          return { ok: false, reason: 'email_in_use' };
-        }
-        if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
-          return { ok: false, reason: 'invalid_credentials' };
-        }
-        if (code === 'auth/weak-password') return { ok: false, reason: 'weak_password' };
-        if (code === 'auth/invalid-email') return { ok: false, reason: 'invalid_email' };
-        if (code === 'auth/too-many-requests') return { ok: false, reason: 'rate_limited' };
-        if (code === 'auth/operation-not-allowed') return { ok: false, reason: 'unavailable' };
-        return { ok: false, reason: 'error' };
+      } catch (error) {
+        const reasons = {
+          'auth/email-already-in-use': 'email_in_use', 'auth/credential-already-in-use': 'email_in_use',
+          'auth/invalid-credential': 'invalid_credentials', 'auth/wrong-password': 'invalid_credentials',
+          'auth/user-not-found': 'invalid_credentials', 'auth/weak-password': 'weak_password',
+          'auth/invalid-email': 'invalid_email', 'auth/too-many-requests': 'rate_limited',
+          'auth/operation-not-allowed': 'unavailable',
+        };
+        if (!cloudSyncRef.current) publish('failed', null, 'auth_failed');
+        return { outcome: { ok: false, reason: reasons[error?.code] ?? 'error' } };
       }
-    } catch {
-      return { ok: false, reason: 'error' };
-    }
+      return { outcome: { ok: true, mode: outcomeMode }, reading: adopt(user) };
+    });
   };
 
-  /** Password-reset email. Never reveals whether the address has an account. */
-  const resetPassword = async (email) => {
+  /** Password reset never reveals whether an address has an account. */
+  const resetPassword = async email => {
     const cleanEmail = typeof email === 'string' ? email.trim() : '';
     if (!cleanEmail) return { ok: false, reason: 'invalid_email' };
     try {
@@ -367,41 +361,33 @@ export function useCloudAccount({ hydrateFromSave, clearLocalLife, ignoreCloudLo
       try {
         await backend.authApi.sendPasswordResetEmail(backend.auth, cleanEmail);
         return { ok: true };
-      } catch (e) {
-        if (e?.code === 'auth/user-not-found') return { ok: true };
-        if (e?.code === 'auth/invalid-email') return { ok: false, reason: 'invalid_email' };
-        return { ok: false, reason: 'error' };
+      } catch (error) {
+        if (error?.code === 'auth/user-not-found') return { ok: true };
+        return { ok: false, reason: error?.code === 'auth/invalid-email' ? 'invalid_email' : 'error' };
       }
-    } catch {
-      return { ok: false, reason: 'error' };
-    }
+    } catch { return { ok: false, reason: 'error' }; }
   };
 
-  /**
-   * Sign out on this device: a fresh anonymous session starts and the local
-   * life clears. The signed-in account's cloud save is left untouched.
-   */
-  const signOutAccount = async () => {
-    try {
-      const backend = await getAuthBackend();
-      if (!backend) return { ok: false, reason: 'unavailable' };
-      const { auth, authApi, adopt } = backend;
-      if (auth.currentUser?.isAnonymous) return { ok: true, mode: 'already_guest' };
-      if (auth.currentUser) await authApi.signOut(auth);
-      // Provider sign-out is the life boundary, even when guest setup fails.
-      // Already-enqueued writes retain their captured account transport.
-      accountGenerationRef.current += 1;
-      cloudSyncRef.current = null;
-      setFirebaseIdTokenProvider(null);
-      setAuthAccount(null);
-      clearLocalLife();
-      const cred = await authApi.signInAnonymously(auth);
-      adopt(cred.user);
-      return { ok: true, mode: 'signed_out' };
-    } catch {
-      return { ok: false, reason: 'error' };
+  const signOutAccount = () => changeSession(async (backend, adopt, owns) => {
+    const { auth, authApi } = backend;
+    if (auth.currentUser?.isAnonymous) {
+      return { outcome: { ok: true, mode: 'already_guest' }, reading: adopt(auth.currentUser) };
     }
-  };
+    if (auth.currentUser) await authApi.signOut(auth);
+    if (!owns()) return { outcome: stale() };
+    accountGenerationRef.current += 1;
+    activeReadRef.current = null;
+    cloudSyncRef.current = null;
+    publish('loading');
+    setFirebaseIdTokenProvider(null);
+    setAuthAccount(null);
+    clearLocalLife();
+    const credential = await authApi.signInAnonymously(auth);
+    // The origin was already cleared at provider success.
+    const reading = owns() ? adoptAndRead(credential.user, backend) : null;
+    return { outcome: { ok: true, mode: 'signed_out' }, reading };
+  });
 
-  return { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount };
+  return { syncToCloud, authAccount, cloudLoadState, retryCloudLoad, canReplaceLife,
+    signInWithGoogle, signInWithEmail, resetPassword, signOutAccount };
 }

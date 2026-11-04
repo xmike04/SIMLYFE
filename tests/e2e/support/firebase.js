@@ -28,8 +28,14 @@ export function createFirebaseIdToken() {
   return `${header}.${payload}.playwright-signature`;
 }
 
-export async function mockFirebase(page, firebaseIdToken, { firestoreSource } = {}) {
+export async function mockFirebase(page, firebaseIdToken, { firestoreSource, authSource } = {}) {
   const requests = [];
+
+  if (authSource) {
+    await page.route('**/node_modules/.vite/deps/firebase_auth.js*', route => route.fulfill({
+      status: 200, contentType: 'application/javascript', body: authSource,
+    }));
+  }
 
   await page.route('**/node_modules/.vite/deps/firebase_firestore.js*', async (route) => {
     requests.push({ type: 'firestore-module', method: 'GET', url: route.request().url() });

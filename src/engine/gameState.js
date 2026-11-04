@@ -99,7 +99,7 @@ export function useGameState() {
     activeEventRequestRef.current = null;
     agingInFlightRef.current = false;
   }, []);
-  /** When true, ignore a late cloud getDoc so startLife/resetLife win the race. */
+  /** Ready-life start/reset boundaries suppress obsolete cloud hydration; unread destinations are guarded. */
   const ignoreCloudLoadRef = useRef(false);
   /** Latest persisted-life fields; updated every render and eagerly inside persistLife. */
   const lifeSnapshotRef = useRef(buildLifeSave());
@@ -170,7 +170,7 @@ export function useGameState() {
     setWill(null);
   }, [invalidateLifeFeedback, setCurrentEvent]);
 
-  const { syncToCloud, authAccount, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
+  const { syncToCloud, authAccount, cloudLoadState, retryCloudLoad, canReplaceLife, signInWithGoogle, signInWithEmail, resetPassword, signOutAccount } = useCloudAccount({
     hydrateFromSave, clearLocalLife, ignoreCloudLoadRef, setCareersData, lifeRevisionRef,
   });
 
@@ -216,6 +216,7 @@ export function useGameState() {
    * See docs/architecture.md#death-restart-flow.
    */
   const resetLife = () => {
+    if (!canReplaceLife()) return { status: 'rejected', code: 'account_load_blocked', persistence: null };
     ignoreCloudLoadRef.current = true;
     clearLocalLife();
     syncToCloud(buildLifeSave({ character: null, isDead: false }), { replace: true });
@@ -224,6 +225,7 @@ export function useGameState() {
   const startLife = (rawName, gender, country, cityId) => {
     const prepared = prepareCharacterName(rawName);
     if (!prepared.ok) return { status: 'rejected', code: prepared.reason, persistence: null };
+    if (!canReplaceLife()) return { status: 'rejected', code: 'account_load_blocked', persistence: null };
     const { name } = prepared;
     invalidateLifeFeedback();
     agingInFlightRef.current = false;
@@ -1327,6 +1329,8 @@ export function useGameState() {
     will,
     draftWill,
     authAccount,
+    cloudLoadState,
+    retryCloudLoad,
     signInWithGoogle,
     signInWithEmail,
     resetPassword,

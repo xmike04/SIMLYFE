@@ -7,7 +7,7 @@ The engine orchestrates player actions in [gameState.js](../src/engine/gameState
 
 ## Character creation
 
-New names are trimmed and must contain 1–80 UTF-16 code units, as counted by JavaScript string length. `prepareCharacterName` is shared by the creation form and `startLife`; invalid input is rejected before life invalidation, randomness, or replacement saving. Existing saved names are retained unchanged. Unicode names and mature content remain allowed; this is an input length bound, not a byte-size validator.
+New names are trimmed and must contain 1–80 UTF-16 code units, as counted by JavaScript string length. `prepareCharacterName` is shared by the creation form and `startLife`; invalid input is rejected before life invalidation, randomness, or replacement saving. After name admission, creation and reset also require a loaded, confirmed-missing, or confirmed-unconfigured local account destination. Pending/failed reads reject replacement without randomness, life changes, or writes; explicit retry restores the acknowledged life or confirms absence. Existing saved names are retained unchanged. Unicode names and mature content remain allowed; this is an input length bound, not a byte-size validator.
 
 ## Core loop
 

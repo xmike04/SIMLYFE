@@ -242,3 +242,13 @@ p { color: var(--text-secondary); line-height: 1.5; }
 .education-decision-controls button { flex: 1; min-width: 8rem; min-height: 44px; }
 .education-decision button:disabled { opacity: 0.5; cursor: not-allowed; }
 .education-progress { font-size: 0.85rem; color: var(--text-secondary); }
+
+/* Keep recovery controls reachable within the bounded app viewport. */
+.cloud-load-screen {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+  margin-block: auto;
+  width: 100%;
+  overflow-wrap: anywhere;
+}

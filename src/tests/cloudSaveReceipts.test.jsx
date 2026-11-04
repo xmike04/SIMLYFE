@@ -42,9 +42,15 @@ function mountCloud(options) {
   };
   return { ...renderHook(() => useCloudAccount(callbacks), options), ...callbacks };
 }
-async function ready() {
+async function adopted() {
   const rendered = mountCloud();
   await waitFor(() => expect(rendered.result.current.authAccount?.uid).toBe('first'));
+  return rendered;
+}
+
+async function ready() {
+  const rendered = await adopted();
+  await waitFor(() => expect(['loaded', 'missing', 'local']).toContain(rendered.result.current.cloudLoadState.status));
   return rendered;
 }
 
@@ -65,7 +71,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe('acknowledged cloud save receipts', () => {
   it('adopts storage after a StrictMode effect restart', async () => {
     const { result } = mountCloud({ wrapper: StrictMode });
-    await waitFor(() => expect(result.current.authAccount?.uid).toBe('first'));
+    await waitFor(() => expect(result.current.cloudLoadState.status).toBe('missing'));
     expect((await result.current.syncToCloud({ bank: 50 })).status).toBe('saved');
   });
 
@@ -110,6 +116,7 @@ describe('acknowledged cloud save receipts', () => {
   it('returns skipped without writing when storage is unconfigured', async () => {
     backend.configured = false;
     const { result } = mountCloud();
+    await waitFor(() => expect(result.current.cloudLoadState.status).toBe('local'));
     expect(await result.current.syncToCloud({ bank: 50 })).toEqual({
       status: 'skipped', operationId: expect.any(String), errorClass: null,
     });
@@ -211,7 +218,7 @@ describe('obsolete cloud load protection', () => {
   it('ignores a boot save after the state owner advances its life boundary', async () => {
     const pending = deferred();
     backend.getDoc.mockReturnValueOnce(pending.promise);
-    const { lifeRevisionRef, hydrateFromSave } = await ready();
+    const { lifeRevisionRef, hydrateFromSave } = await adopted();
     lifeRevisionRef.current += 1;
     await act(async () => pending.resolve(snapshot({ character: { name: 'Obsolete' } })));
     expect(hydrateFromSave).not.toHaveBeenCalled();
@@ -221,7 +228,7 @@ describe('obsolete cloud load protection', () => {
     const pending = deferred();
     backend.getDoc.mockReturnValueOnce(pending.promise)
       .mockResolvedValueOnce(snapshot({ character: { name: 'Current account' } }));
-    const { result, hydrateFromSave } = await ready();
+    const { result, hydrateFromSave } = await adopted();
     backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('second') });
     await act(async () => { await result.current.signInWithEmail('fixture@example.com', 'fixture-password', 'signin'); });
     await act(async () => pending.resolve(snapshot({ character: { name: 'Obsolete boot account' } })));
@@ -278,4 +285,45 @@ it('detaches transport immediately after sign-out while preserving already captu
   await act(async () => { anonymous.resolve({ user: { ...user('new-guest'), isAnonymous: true } }); await signingOut; });
   expect(clearLocalLife).toHaveBeenCalledTimes(1);
   expect(result.current.authAccount.uid).toBe('new-guest');
+});
+
+
+it('rejects direct legacy writes while the account is unread without enqueue or automatic replay', async () => {
+  const pending = deferred();
+  backend.getDoc.mockReturnValueOnce(pending.promise);
+  const { result } = await adopted();
+  const receipt = await result.current.syncToCloud({ bank: 999 }, { replace: true });
+  expect(receipt).toEqual({ status: 'skipped', operationId: expect.any(String), errorClass: 'AccountLoadBlocked' });
+  expect(backend.setDoc).not.toHaveBeenCalled();
+  await act(async () => pending.resolve(snapshot({ character: { name: 'Acknowledged' } })));
+  expect(backend.setDoc).not.toHaveBeenCalled();
+});
+
+it.each(['resolve', 'reject'])('late read %s after unmount cannot hydrate or publish readiness', async completion => {
+  const pending = deferred();
+  backend.getDoc.mockReturnValueOnce(pending.promise);
+  const { result, unmount, hydrateFromSave } = await adopted();
+  const previous = result.current.cloudLoadState;
+  unmount();
+  await act(async () => pending[completion](completion === 'resolve' ? snapshot({ character: { name: 'Late' } }) : new Error('private')));
+  expect(hydrateFromSave).not.toHaveBeenCalled();
+  expect(result.current.cloudLoadState).toBe(previous);
+});
+
+it.each(['resolve', 'reject'])('signout keeps the new guest unread when an old read has a late %s', async completion => {
+  const old = deferred(), guest = deferred();
+  backend.getDoc.mockReturnValueOnce(old.promise).mockReturnValueOnce(guest.promise);
+  const { result, hydrateFromSave } = await adopted();
+  backend.signOut.mockImplementationOnce(async () => { backend.auth.currentUser = null; });
+  backend.signInAnonymously.mockResolvedValueOnce({ user: { ...user('guest'), isAnonymous: true } });
+  let signingOut;
+  await act(async () => { signingOut = result.current.signOutAccount(); });
+  expect(result.current.cloudLoadState).toEqual({ status: 'loading', accountId: 'guest', reason: null });
+  expect((await result.current.syncToCloud({ bank: 99 })).errorClass).toBe('AccountLoadBlocked');
+  await act(async () => old[completion](completion === 'resolve' ? snapshot({ character: { name: 'Old owner' } }) : new Error('private')));
+  expect(result.current.cloudLoadState.status).toBe('loading');
+  expect(hydrateFromSave).not.toHaveBeenCalled();
+  await act(async () => { guest.resolve(snapshot(null)); expect(await signingOut).toEqual({ ok: true, mode: 'signed_out' }); });
+  expect(result.current.cloudLoadState).toEqual({ status: 'missing', accountId: 'guest', reason: null });
+  expect(backend.setDoc).not.toHaveBeenCalled();
 });
