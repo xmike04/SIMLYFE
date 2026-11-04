@@ -3,6 +3,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import JobSheet from '../components/sheets/JobSheet';
 import GameSheets from '../components/game/GameSheets';
+import { quoteEducationEnrollment } from '../engine/actions/educationActions';
+import { INITIAL_EDUCATION, INITIAL_STATS } from '../engine/lifeSave';
 
 const job = { id: 'developer', title: 'Software Developer', salary: 45000, type: 'full_time', sector: 'tech' };
 const quote = {
@@ -50,6 +52,45 @@ describe('education enrollment decisions', () => {
     for (const text of [/Pay now: \$20,000/, /Remaining tuition: \$60,000/, /Total tuition: \$80,000/, /Balance after enrollment: \$80,000/, /Annual tuition: \$20,000/, /Balance before enrollment: \$100,000/, /Prerequisite: HS Diploma.*met/, /3.*Age clicks/, /age 21/, /Smarts: \+10/, /Happiness: \+3/, /may.*negative/]) expect(preview.getByText(text)).toBeInTheDocument();
     expectUntouched(props); fireEvent.click(preview.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('region', { name: 'Education decision preview' })).not.toBeInTheDocument(); expectUntouched(props);
+  });
+  it.each(['100000', null, undefined, NaN, Infinity, -Infinity])('renders unavailable balances from a real invalid-bank quote (%s) without allowing enrollment', bank => {
+    const life = {
+      character: { name: 'Education Test' }, age: 18, isDead: false, bank,
+      stats: { ...INITIAL_STATS }, education: { ...INITIAL_EDUCATION, highSchool: true },
+    };
+    const invalidQuote = quoteEducationEnrollment(life, 'bachelor');
+    const props = propsFor({ bank, quoteEducation: () => invalidQuote });
+    render(<JobSheet {...props} />);
+    const preview = within(openBachelor());
+    expect(preview.getByText('Balance before enrollment: Unavailable')).toBeInTheDocument();
+    expect(preview.getByText('Balance after enrollment: Unavailable')).toBeInTheDocument();
+    expect(preview.queryByText(/Balance (before|after) enrollment: \$0/)).not.toBeInTheDocument();
+    expect(preview.getByText('Pay now: $20,000')).toBeInTheDocument();
+    expect(preview.getByText('Start a valid life before enrolling in education.')).toBeInTheDocument();
+    const confirm = preview.getByRole('button', { name: 'Confirm enrollment' });
+    expect(confirm).toBeDisabled(); fireEvent.click(confirm);
+    expectUntouched(props); expect(life.bank).toBe(bank);
+  });
+  it('keeps a rejected confirmation open when a real refreshed quote has unavailable balances', () => {
+    const invalidQuote = quoteEducationEnrollment({
+      character: { name: 'Education Test' }, age: 18, isDead: false, bank: '100000',
+      stats: { ...INITIAL_STATS }, education: { ...INITIAL_EDUCATION, highSchool: true },
+    }, 'bachelor');
+    const props = propsFor({
+      quoteEducation: vi.fn().mockReturnValueOnce(quote).mockReturnValueOnce(invalidQuote),
+      enrollInDegree: vi.fn(() => rejected('invalid_state')),
+    });
+    render(<JobSheet {...props} />); openBachelor();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm enrollment' }));
+    const preview = within(screen.getByRole('region', { name: 'Education decision preview' }));
+    expect(preview.getByText('Balance before enrollment: Unavailable')).toBeInTheDocument();
+    expect(preview.getByText('Balance after enrollment: Unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Start a valid life before enrolling in education.');
+    expect(preview.getByRole('button', { name: 'Confirm enrollment' })).toBeDisabled();
+    expect(props.enrollInDegree).toHaveBeenCalledExactlyOnceWith('bachelor', {
+      actionId: expect.any(String), expectedBasis: 'education-quote-1',
+    });
+    expect(props.debugModifyBank).not.toHaveBeenCalled(); expect(props.triggerActivityEvent).not.toHaveBeenCalled(); expect(props.onClose).not.toHaveBeenCalled();
   });
   it('confirms once synchronously and keeps pending feedback open until Continue', () => {
     const props = propsFor();

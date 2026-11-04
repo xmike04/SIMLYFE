@@ -2,7 +2,7 @@ import React from 'react';
 import { DEGREE_LABELS } from '../../engine/mechanics/education';
 import { educationActionReason } from './educationActionMessages';
 
-const money = amount => `$${amount.toLocaleString()}`;
+const money = amount => Number.isFinite(amount) ? `$${amount.toLocaleString()}` : 'Unavailable';
 
 export function EducationActionFeedback({ feedback, onContinue }) {
   if (!feedback) return null;
