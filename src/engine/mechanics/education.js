@@ -33,7 +33,7 @@ export const DEGREE_SMARTS_BONUS = { associate: 3, bachelor: 10, master: 5, phd:
 /** Describe stored program terms without changing legacy counters or annual progression. */
 export function summarizeDegreeProgress(currentDegree) {
   if (!currentDegree || typeof currentDegree !== 'object' || Array.isArray(currentDegree)
-    || !Object.hasOwn(DEGREE_SMARTS_BONUS, currentDegree.type)
+    || typeof currentDegree.type !== 'string' || !Object.hasOwn(DEGREE_SMARTS_BONUS, currentDegree.type)
     || !Number.isInteger(currentDegree.yearsInProgram) || currentDegree.yearsInProgram < 0
     || !Number.isInteger(currentDegree.totalYears) || currentDegree.totalYears <= 0
     || !Number.isFinite(currentDegree.annualCost) || currentDegree.annualCost < 0) return null;

@@ -150,3 +150,16 @@ describe('pure career action resolution', () => {
     expect(JSON.stringify(result.facts)).not.toMatch(/Private Player|private|effects|account|save/);
   });
 });
+
+
+describe('career identity across action domains', () => {
+  it('rejects a saved education identity even when the career target has the same string', () => {
+    const record = { version: 1, id: 'shared', type: 'education.enroll', targetId: 'bachelor', beforeBank: 100000, afterBank: 80000, firstYearTuition: 20000, annualTuition: 20000, totalYears: 4, yearsInProgram: 1, code: 'education_enrolled' };
+    const restored = freezeTree(JSON.parse(JSON.stringify(buildLifeSave(life({ history: [{ age: 18, text: 'An enrollment memory', action: record }] })))));
+    const before = structuredClone(restored);
+    expect(findActionRecord(restored.history, 'shared')).toEqual(record);
+    expect(resolveCareerChange(restored, { actionId: 'shared', targetId: 'bachelor', expectedBasis: 'stale' }, []))
+      .toMatchObject({ status: 'rejected', code: 'action_id_conflict', patch: {}, record: null, facts: null });
+    expect(restored).toEqual(before);
+  });
+});

@@ -73,7 +73,7 @@ export function resolveCareerChange(state, command, careersData) {
     || (command.expectedBasis != null && typeof command.expectedBasis !== 'string')) return result('rejected', 'invalid_command');
   if (state?.isDead) return result('rejected', 'dead');
   const previous = findActionRecord(state?.history, actionId);
-  if (previous) return previous.targetId === targetId ? result('noop', 'duplicate_action') : result('rejected', 'action_id_conflict');
+  if (previous) return previous.type === 'career.choose' && previous.targetId === targetId ? result('noop', 'duplicate_action') : result('rejected', 'action_id_conflict');
   const quote = quoteCareerChange(state, targetId, careersData);
   if (command.expectedBasis != null && command.expectedBasis !== quote.basis) return result('rejected', 'stale_quote');
   if (!quote.eligible) return result('rejected', quote.code);

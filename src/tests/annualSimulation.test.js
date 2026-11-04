@@ -3,6 +3,8 @@ import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 import { advanceBelongingsYear } from '../engine/annual/belongings';
 import { advanceRelationshipsYear } from '../engine/annual/relationships';
 import { buildLifeSave } from '../engine/lifeSave';
+import { resolveEducationEnrollment } from '../engine/actions/educationActions';
+import { INITIAL_EDUCATION, INITIAL_STATS } from '../engine/lifeSave';
 import { resolveCareerChange } from '../engine/actions/careerActions';
 import { computeCareerYearIncome } from '../engine/mechanics/careers';
 import { findActionRecord } from '../engine/actions/actionResult';
@@ -194,5 +196,24 @@ describe('committed career actions continue through the unchanged annual simulat
     const unemployed = { ...input, ...quit.patch };
     expect(unemployed.bank).toBe(12000);
     expect(advanceLifeYear(unemployed, { careersData: catalog, randomFn: () => .9 }).state).toMatchObject({ bank: 11500, career: null, careerMeta: { unemploymentYearsLeft: 0, yearsInRole: 0 }, stats: { health: 79, happiness: 80 } });
+  });
+});
+
+
+describe('committed education continues through the unchanged annual simulation', () => {
+  it('charges the next prepaid-program year before the existing zero-upkeep lifestyle tier and preserves its record', () => {
+    const state = freezeTree(life({ age: 18, bank: 45000, stats: { ...INITIAL_STATS, smarts: 50, happiness: 70 }, education: { ...INITIAL_EDUCATION, highSchool: true }, career: null, belongings: [], properties: [], relationships: [], pets: [] }));
+    const actionId = 'education-annual-continuity';
+    const result = resolveEducationEnrollment(state, { actionId, targetId: 'bachelor' });
+    expect(result.status).toBe('committed');
+    const committed = { ...state, ...result.patch };
+    expect(committed).toMatchObject({ bank: 25000, education: { currentDegree: { yearsInProgram: 1 } } });
+    const output = advanceLifeYear(committed, { randomFn: () => .9 });
+    expect(output.state).toMatchObject({ age: 19, bank: 5000, education: { currentDegree: { yearsInProgram: 2 } } });
+    const tuition = output.history.filter(entry => entry.text.startsWith('Education:') && entry.text.includes('$20,000 paid'));
+    expect(tuition).toHaveLength(1);
+    const history = [...committed.history, ...output.history];
+    expect(findActionRecord(history, actionId)).toEqual(result.record);
+    expect(history.filter(entry => entry.action)).toHaveLength(1);
   });
 });

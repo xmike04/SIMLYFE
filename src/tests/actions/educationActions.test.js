@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { quoteEducationEnrollment } from '../../engine/actions/educationActions';
+import { quoteEducationEnrollment, resolveEducationEnrollment } from '../../engine/actions/educationActions';
 import { buildLifeSave, INITIAL_EDUCATION, INITIAL_STATS } from '../../engine/lifeSave';
+import { resolveCareerChange } from '../../engine/actions/careerActions';
+import { findActionRecord, validateActionRecord } from '../../engine/actions/actionResult';
 import { DEGREE_CONFIG, DEGREE_LABELS, DEGREE_SMARTS_BONUS } from '../../engine/mechanics/education';
 
 const life = fields => buildLifeSave({
@@ -137,6 +139,7 @@ describe('read-only education enrollment quote', () => {
     { education: null }, { education: {} }, { education: { ...INITIAL_EDUCATION, highSchool: 1 } },
     { education: { ...INITIAL_EDUCATION, currentDegree: undefined } },
     { education: { ...INITIAL_EDUCATION, currentDegree: {} } },
+    { education: { ...INITIAL_EDUCATION, currentDegree: { type: ['bachelor'], yearsInProgram: 1, totalYears: 4, annualCost: 20000 } } },
     { education: { ...INITIAL_EDUCATION, currentDegree: { type: 'bachelor', yearsInProgram: 1, totalYears: 4, annualCost: NaN } } },
   ])('rejects malformed life state %j without changing it', fields => {
     const state = fields === null ? null : fields && Object.keys(fields).length === 0 ? {} : { ...life(), ...fields };
@@ -210,5 +213,161 @@ describe('read-only education enrollment quote', () => {
     } finally {
       catalog[key] = original;
     }
+  });
+});
+
+
+describe('pure education enrollment resolution', () => {
+  const command = (actionId = 'education-test-1', targetId = 'bachelor', expectedBasis = null) => ({ actionId, targetId, expectedBasis });
+  const unchanged = (state, input, status, code) => {
+    const before = structuredClone(state);
+    const result = resolveEducationEnrollment(freezeTree(state), input);
+    expect(result).toMatchObject({ actionType: 'education.enroll', status, code, patch: {}, record: null, facts: null });
+    expect(state).toEqual(before);
+    return result;
+  };
+
+  it('commits one prepaid year with exactly bank, education and history from a frozen source without IO', () => {
+    const state = freezeTree(life({ history: [{ age: 17, text: 'A legacy memory' }], career: { id: 'fixture', salary: 50000 } }));
+    const before = structuredClone(state);
+    const basis = quoteEducationEnrollment(state, 'bachelor').basis;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      const result = resolveEducationEnrollment(state, command('education-test-1', 'bachelor', basis));
+      expect(Object.keys(result).sort()).toEqual(['actionId', 'actionType', 'code', 'facts', 'patch', 'record', 'status', 'targetId']);
+      expect(result).toMatchObject({ actionId: 'education-test-1', actionType: 'education.enroll', targetId: 'bachelor', status: 'committed', code: 'education_enrolled' });
+      expect(Object.keys(result.patch).sort()).toEqual(['bank', 'education', 'history']);
+      expect(result.patch.bank).toBe(80000);
+      expect(result.patch.education).toEqual({ ...INITIAL_EDUCATION, highSchool: true, currentDegree: { type: 'bachelor', yearsInProgram: 1, totalYears: 4, annualCost: 20000 } });
+      expect(result.record).toEqual({ version: 1, id: 'education-test-1', type: 'education.enroll', targetId: 'bachelor', beforeBank: 100000, afterBank: 80000, firstYearTuition: 20000, annualTuition: 20000, totalYears: 4, yearsInProgram: 1, code: 'education_enrolled' });
+      expect(validateActionRecord(result.record)).toBe(true);
+      expect(result.facts).toEqual({ version: 1, actionId: 'education-test-1', actionType: 'education.enroll', age: 18, code: 'education_enrolled', degreeType: 'bachelor', beforeBank: 100000, afterBank: 80000, firstYearTuition: 20000, annualTuition: 20000, totalYears: 4, yearsInProgram: 1 });
+      expect(result.patch.history).toEqual([
+        { age: 17, text: 'A legacy memory' },
+        { age: 18, text: "Education: You enrolled in a Bachelor's Degree program (Year 1/4).", action: result.record },
+      ]);
+      const committed = { ...state, ...result.patch };
+      expect(committed.stats).toEqual(before.stats);
+      expect(committed.career).toEqual(before.career);
+      expect(state).toEqual(before);
+      expect(resolveEducationEnrollment(state, command('education-test-1', 'bachelor', basis))).toEqual(result);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(storageSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      storageSpy.mockRestore();
+    }
+  });
+
+  it('replays after JSON save restoration before stale and already-enrolled checks and rejects a changed target', () => {
+    const state = life({ history: [{ age: 17, text: 'Legacy history' }] });
+    const first = resolveEducationEnrollment(state, { actionId: 'shared', targetId: 'bachelor' });
+    const restored = JSON.parse(JSON.stringify(buildLifeSave({ ...state, ...first.patch })));
+    expect(resolveEducationEnrollment(restored, { actionId: 'shared', targetId: 'bachelor', expectedBasis: 'stale' }))
+      .toMatchObject({ status: 'noop', code: 'duplicate_action', patch: {} });
+    expect(resolveEducationEnrollment(restored, { actionId: 'shared', targetId: 'associate' }).code)
+      .toBe('action_id_conflict');
+    unchanged(restored, command('shared', 'bachelor', 'stale'), 'noop', 'duplicate_action');
+    unchanged(restored, command('shared', 'associate'), 'rejected', 'action_id_conflict');
+    expect(resolveCareerChange(restored, { actionId: 'shared', targetId: 'bachelor' }, []))
+      .toMatchObject({ status: 'rejected', code: 'action_id_conflict', patch: {}, record: null, facts: null });
+    expect(restored.history).toHaveLength(2);
+    expect(findActionRecord(restored.history, 'shared')).toEqual(first.record);
+  });
+
+  it('rejects a career identity even when its target string equals the education target', () => {
+    const state = life();
+    const job = { id: 'bachelor', title: 'Fixture role', type: 'full_time', salary: 10000, minAge: 18, statRequirements: {} };
+    const first = resolveCareerChange(state, { actionId: 'shared', targetId: 'bachelor' }, [job]);
+    expect(first.status).toBe('committed');
+    const restored = JSON.parse(JSON.stringify(buildLifeSave({ ...state, ...first.patch })));
+    unchanged(restored, command('shared', 'bachelor', 'stale'), 'rejected', 'action_id_conflict');
+    expect(restored.history).toHaveLength(1);
+    expect(findActionRecord(restored.history, 'shared')).toEqual(first.record);
+  });
+
+  it('rejects a fresh identity while enrolled without adding history or charging twice', () => {
+    const state = life();
+    const first = resolveEducationEnrollment(state, command());
+    const committed = { ...state, ...first.patch };
+    unchanged(committed, command('fresh-id'), 'rejected', 'already_enrolled');
+    expect(committed.bank).toBe(80000);
+    expect(committed.history).toHaveLength(1);
+  });
+
+  it.each([
+    ['bank', state => ({ ...state, bank: 99999 }), 79999],
+    ['age', state => ({ ...state, age: 19 }), 80000],
+    ['education', state => ({ ...state, education: { ...state.education, associate: true } }), 80000],
+    ['stats', state => ({ ...state, stats: { ...state.stats, smarts: 51 } }), 80000],
+  ])('rejects changed %s basis and commits only after fresh confirmation', (_field, alter, bankAfter) => {
+    const state = life();
+    const basis = quoteEducationEnrollment(state, 'bachelor').basis;
+    const changed = alter(state);
+    unchanged(changed, command('old-confirmation', 'bachelor', basis), 'rejected', 'stale_quote');
+    const freshBasis = quoteEducationEnrollment(changed, 'bachelor').basis;
+    const result = resolveEducationEnrollment(changed, command('new-confirmation', 'bachelor', freshBasis));
+    expect(result).toMatchObject({ status: 'committed', code: 'education_enrolled', patch: { bank: bankAfter } });
+  });
+
+  it('uses latest history while history, career and networking changes do not stale education', () => {
+    const state = life();
+    const basis = quoteEducationEnrollment(state, 'bachelor').basis;
+    const changed = life({ history: [{ age: 18, text: 'Latest legacy memory' }, { age: 18, text: 'Keep malformed metadata', action: { version: 999, id: 'education-test-1' } }], career: { id: 'fixture' }, networking: 99 });
+    const result = resolveEducationEnrollment(changed, command('education-test-1', 'bachelor', basis));
+    expect(result.status).toBe('committed');
+    expect(result.patch.history.slice(0, -1)).toEqual(changed.history);
+    expect(result.patch.history).toHaveLength(3);
+  });
+
+  it.each([
+    undefined, null, {}, [], 'bachelor',
+    { targetId: 'bachelor' }, { actionId: null, targetId: 'bachelor' },
+    { actionId: 1, targetId: 'bachelor' }, { actionId: '', targetId: 'bachelor' },
+    { actionId: ' ', targetId: 'bachelor' }, { actionId: 'x'.repeat(129), targetId: 'bachelor' },
+    { actionId: 'attempt' }, { actionId: 'attempt', targetId: null },
+    { actionId: 'attempt', targetId: ['bachelor'] }, { actionId: 'attempt', targetId: 42 },
+    { actionId: 'attempt', targetId: '' }, { actionId: 'attempt', targetId: ' ' },
+    { actionId: 'attempt', targetId: 'x'.repeat(129) },
+    ...[{}, [], 1, false].map(expectedBasis => ({ actionId: 'attempt', targetId: 'bachelor', expectedBasis })),
+  ])('rejects malformed command or basis %j without consequences', input => {
+    unchanged(life(), input, 'rejected', 'invalid_command');
+  });
+
+  it('accepts a bounded 128-character ID and omitted or null basis for historical callers', () => {
+    expect(resolveEducationEnrollment(life(), { actionId: 'x'.repeat(128), targetId: 'bachelor' }).status).toBe('committed');
+    expect(resolveEducationEnrollment(life(), command()).status).toBe('committed');
+    unchanged(life(), command('empty-basis', 'bachelor', ''), 'rejected', 'stale_quote');
+  });
+
+  it.each([
+    [{ isDead: true }, 'bachelor', 'dead'],
+    [{ character: null }, 'bachelor', 'invalid_state'],
+    [{ age: -1 }, 'bachelor', 'invalid_state'],
+    [{ bank: Infinity }, 'bachelor', 'invalid_state'],
+    [{ stats: { ...INITIAL_STATS, smarts: NaN } }, 'bachelor', 'invalid_state'],
+    [{ education: {} }, 'bachelor', 'invalid_state'],
+    [{ education: { ...INITIAL_EDUCATION, highSchool: true, currentDegree: { type: ['bachelor'], yearsInProgram: 1, totalYears: 4, annualCost: 20000 } } }, 'bachelor', 'invalid_state'],
+    [{ history: {} }, 'bachelor', 'invalid_state'],
+    [{ bank: 19999 }, 'bachelor', 'insufficient_funds'],
+    [{ education: { ...INITIAL_EDUCATION, phd: true } }, 'phd', 'prerequisite_required'],
+    [{}, 'highSchool', 'unknown_degree'], [{}, '__proto__', 'unknown_degree'],
+  ])('rechecks current life and eligibility without any changes: %j / %s', (fields, target, code) => {
+    unchanged(life(fields), command('attempt', target), 'rejected', code);
+  });
+
+  it('rejects dead life before treating a committed identity as replay', () => {
+    const state = life();
+    const first = resolveEducationEnrollment(state, command());
+    unchanged({ ...state, ...first.patch, isDead: true }, command(), 'rejected', 'dead');
+  });
+
+  it('preserves zero-cost PhD funds behavior and applies no immediate happiness debit', () => {
+    const education = { ...INITIAL_EDUCATION, master: true };
+    const result = resolveEducationEnrollment(life({ bank: 0, education }), command('phd-at-zero', 'phd'));
+    expect(result).toMatchObject({ status: 'committed', patch: { bank: 0, education: { currentDegree: { type: 'phd', yearsInProgram: 1, totalYears: 4, annualCost: 0 } } } });
+    expect(result.patch).not.toHaveProperty('stats');
+    unchanged(life({ bank: -1, education }), command('phd-negative', 'phd'), 'rejected', 'insufficient_funds');
   });
 });

@@ -1,3 +1,4 @@
+import { findActionRecord, makeActionResult, projectActionFacts } from './actionResult';
 import { INITIAL_EDUCATION, INITIAL_STATS } from '../lifeSave';
 import { DEGREE_CONFIG, DEGREE_LABELS, DEGREE_SMARTS_BONUS, enrollDegree, summarizeDegreeProgress } from '../mechanics/education';
 
@@ -76,4 +77,40 @@ export function quoteEducationEnrollment(state, degreeType) {
   const code = state.education.currentDegree !== null ? 'already_enrolled'
     : !state.education[config.requires] ? 'prerequisite_required' : 'insufficient_funds';
   return reject(code, enrollment.error);
+}
+
+
+/** Pure enrollment resolution; history supplies one identity across both action domains. */
+export function resolveEducationEnrollment(state, command) {
+  const actionId = validTarget(command?.actionId) ? command.actionId : null;
+  const targetId = validTarget(command?.targetId) ? command.targetId : null;
+  const result = (status, code, details = {}) => makeActionResult({
+    actionId, actionType: 'education.enroll', targetId, status, code, ...details,
+  }, { sourceState: state });
+  if (!actionId || !targetId || (command.expectedBasis != null && typeof command.expectedBasis !== 'string')) {
+    return result('rejected', 'invalid_command');
+  }
+  if (state?.isDead === true) return result('rejected', 'dead');
+  const previous = findActionRecord(state?.history, actionId);
+  if (previous) return previous.type === 'education.enroll' && previous.targetId === targetId
+    ? result('noop', 'duplicate_action') : result('rejected', 'action_id_conflict');
+  if (!Array.isArray(state?.history)) return result('rejected', 'invalid_state');
+  const quote = quoteEducationEnrollment(state, targetId);
+  if (command.expectedBasis != null && command.expectedBasis !== quote.basis) return result('rejected', 'stale_quote');
+  if (!quote.eligible) return result('rejected', quote.code);
+
+  const { newEducation, newBank } = enrollDegree(targetId, state.education, state.bank);
+  const config = DEGREE_CONFIG[targetId];
+  const record = {
+    version: 1, id: actionId, type: 'education.enroll', targetId,
+    beforeBank: state.bank, afterBank: newBank,
+    firstYearTuition: config.annualCost, annualTuition: config.annualCost,
+    totalYears: config.years, yearsInProgram: 1, code: 'education_enrolled',
+  };
+  const text = `Education: You enrolled in a ${DEGREE_LABELS[targetId]} program (Year 1/${config.years}).`;
+  const history = [...state.history, { age: state.age, text, action: record }];
+  const facts = projectActionFacts(record, { age: state.age });
+  return result('committed', 'education_enrolled', {
+    patch: { bank: newBank, education: newEducation, history }, record, facts,
+  });
 }
