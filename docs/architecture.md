@@ -109,6 +109,8 @@ Firestore `{ merge: true }` would recursively merge nonempty maps. After a faile
 
 `lifeSnapshotRef` tracks the current life on render and is updated eagerly by `persistLife`. React state updates have not necessarily flushed when a handler writes. Every field changed by that handler must therefore appear in its persistence overrides.
 
+Special-skill activities use `performSkillTraining` in the state owner: it installs and saves counter, bank, and stats together before starting generation. MainGame only delegates and displays the returned skill toast; it does not debit through debug commands. The separately saved event always sees the accepted base outcome.
+
 ### Career and education decision workflows
 
 Standard career selection, switching, voluntary quitting, and higher-degree enrollment use an explicit action boundary:

@@ -577,10 +577,58 @@ export function useGameState() {
     });
   };
 
+  /** Accepted training owns its complete base save before the event acquires the lock. */
+  const performSkillTraining = (item, categoryId) => {
+    if (isActionLocked()) return { status: 'blocked_busy' };
+    const skills = {
+      gym: ['athleticism', 'Athleticism', 0],
+      run: ['athleticism', 'Athleticism', 0],
+      act_lesson: ['acting', 'Acting Skill', 50],
+      voice_lesson: ['voice', 'Vocal Skill', 50],
+      model_lesson: ['modeling', 'Modeling Skill', 50],
+    };
+    const training = skills[item?.specialAction];
+    if (!training) return { status: 'blocked_skill' };
+    const snap = lifeSnapshotRef.current;
+    if (item.yearlyLimit && !canConsumeYearlyActivity(snap.activitiesThisYear, categoryId, item.text, item.yearlyLimit)) {
+      return { status: 'blocked_yearly' };
+    }
+    if (item.statGuard) {
+      const { stat, op, value } = item.statGuard;
+      const actual = snap.stats[stat] ?? 0;
+      if ((op === 'gte' && actual < value) || (op === 'lte' && actual > value)) return { status: 'blocked_guard' };
+    }
+    const [skill, displayName, defaultCost] = training;
+    const cost = item.cost ?? defaultCost;
+    const nextActivities = item.yearlyLimit
+      ? { ...snap.activitiesThisYear, [yearlyActivityTrackId(categoryId, item.text)]: (snap.activitiesThisYear[yearlyActivityTrackId(categoryId, item.text)] ?? 0) + 1 }
+      : snap.activitiesThisYear;
+    // Preserve the existing slot-before-affordability ordering and insufficient-funds event.
+    if (snap.bank < cost) {
+      if (item.yearlyLimit) {
+        setActivitiesThisYear(nextActivities);
+        persistContinuity({ activitiesThisYear: nextActivities }, 'activity');
+      }
+      triggerActivityEvent("Tried to train skills, but couldn't afford the lessons.");
+      return { status: 'blocked_cost' };
+    }
+    const gain = Math.floor(Math.random() * 6) + 3;
+    const previous = snap.stats[skill] || 0;
+    const nextStats = { ...snap.stats, [skill]: Math.min(100, previous + gain) };
+    const nextBank = snap.bank - cost;
+    setStats(nextStats);
+    setBank(nextBank);
+    setActivitiesThisYear(nextActivities);
+    persistContinuity({ stats: nextStats, bank: nextBank, activitiesThisYear: nextActivities }, 'activity');
+    triggerActivityEvent(item.context);
+    return { status: 'ok', gain, previous, skill, displayName };
+  };
+
   const trainHiddenSkill = (skill) => {
     if (isActionLocked()) return 0;
     let gain = Math.floor(Math.random() * 6) + 3;
-    const nextStats = { ...stats, [skill]: Math.min(100, (stats[skill] || 0) + gain) };
+    const currentStats = lifeSnapshotRef.current.stats;
+    const nextStats = { ...currentStats, [skill]: Math.min(100, (currentStats[skill] || 0) + gain) };
     setStats(nextStats);
     persistLife({ stats: nextStats });
     return gain;
@@ -1322,6 +1370,7 @@ export function useGameState() {
     modifyRelationship,
     modifyProperty,
     trainHiddenSkill,
+    performSkillTraining,
     performGig,
     executeTrade,
     startStartup,

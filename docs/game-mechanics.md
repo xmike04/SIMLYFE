@@ -185,11 +185,11 @@ Living pets age, charge the species' annual upkeep, and grant its happiness bonu
 
 ## Activity limits and content
 
-[activities.js](../src/config/activities.js) owns menu categories, age/bank gates, special actions, and yearly limits. Limited activities share tracker IDs `categoryId__itemText`. Gym/run consume that tracker before training and show “Done this year” after use.
+[activities.js](../src/config/activities.js) owns menu categories, age/bank gates, special actions, and yearly limits. Limited activities share tracker IDs `categoryId__itemText`. Gym/run consume their separate trackers with training and show “Done this year” after use.
 
 Yearly counters and relationship interaction markers are saved with each affected activity or relationship command and restored on reload. Cost, base effects, and the counter share one coherent save. Acknowledged counters retain the current year’s allowance; annual progression resets them for the new year. Activity progress feedback reports the acknowledgement of that command’s save; reload before acknowledgement can restore an older snapshot.
 
-Ordinary Staycation costs $0, grants +8 happiness and +4 health (subject to existing stat bounds), and consumes `vacation__Staycation` once per year. Its base-effect/counter save precedes the separately generated offer save. Gym/run trackers also survive acknowledged reload; this continuity work does not change the existing special-skill gain timing.
+Ordinary Staycation costs $0, grants +8 happiness and +4 health (subject to existing stat bounds), and consumes `vacation__Staycation` once per year. Its base-effect/counter save precedes the separately generated offer save. The engine-owned `performSkillTraining` commits the yearly counter, lesson cost, and one 3–8 point skill gain (capped at 100) in one base save before requesting the existing activity event. Gym/run are free; acting, voice, and modeling lessons retain their catalog prices and guards. The insufficient-funds path retains slot consumption before its existing error event. Legacy `trainHiddenSkill` remains available for direct callers.
 
 A restored invalid or unsupported choice stays locked behind explicit recovery: “This saved choice is unavailable. Clearing it applies no outcome and keeps your loaded life.” Clearing it changes no stats, money, flags, or relationships. Missing legacy fields use defaults. Progress messages distinguish session commitment from cloud acknowledgment; a failed or pending save may reload an older event and balance. See [supported-client limits](./architecture.md#supported-clients-and-rollback).
 

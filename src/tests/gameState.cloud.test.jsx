@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameState } from '../engine/gameState';
 import { buildLifeSave, LIFE_SAVE_KEYS, INITIAL_EDUCATION } from '../engine/lifeSave';
@@ -7,6 +7,8 @@ import { generateDynamicEvent } from '../engine/llmService';
 import { getFirebaseIdToken } from '../engine/firebaseToken';
 import { applyFirestoreSave } from '../../tests/e2e/support/firestoreWrites.js';
 import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
+import MainGame from '../components/MainGame';
+import { ACTIVITY_MENUS } from '../config/activities';
 
 const backend = vi.hoisted(() => ({
   configured: true, auth: { currentUser: null }, db: {},
@@ -1748,5 +1750,90 @@ describe('education command commit and lifecycle-scoped receipts', () => {
     await act(async () => { second.resolve(); await education.persistence; });
     expect(result.current.lastEducationAction.saveStatus).toBe('saved');
     expect(result.current.lastContinuitySave).toBeNull();
+  });
+});
+
+
+describe('accepted skill training through MainGame and the real owner', () => {
+  it('preserves insufficient-funds slot ordering, guard rejection, skill cap, and legacy training', async () => {
+    backend.getDoc.mockResolvedValue(snapshot(savedLife('Training Player', { bank: 20, stats: { looks: 10, acting: 99, athleticism: 40 } })));
+    const { result } = await ready();
+    await waitFor(() => expect(result.current.character?.name).toBe('Training Player'));
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.999);
+    const model = ACTIVITY_MENUS.mind_body.find(item => item.specialAction === 'model_lesson');
+    act(() => expect(result.current.performSkillTraining(model, 'mind_body').status).toBe('blocked_guard'));
+    expect(random).not.toHaveBeenCalled();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    const lesson = ACTIVITY_MENUS.mind_body.find(item => item.specialAction === 'act_lesson');
+    const event = deferred();
+    generateDynamicEvent.mockReturnValue(event.promise);
+    act(() => expect(result.current.performSkillTraining({ ...lesson, yearlyLimit: 1 }, 'mind_body').status).toBe('blocked_cost'));
+    expect(result.current.activitiesThisYear).toEqual({ [`mind_body__${lesson.text}`]: 1 });
+    expect(result.current.bank).toBe(20);
+    expect(result.current.stats.acting).toBe(99);
+    expect(generateDynamicEvent).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ bank: 20 }), "Tried to train skills, but couldn't afford the lessons.");
+    act(() => expect(result.current.performSkillTraining(lesson, 'mind_body').status).toBe('blocked_busy'));
+    await act(async () => event.resolve({ description: 'No funds', choices: [{ text: 'OK', effects: {} }] }));
+    await act(async () => result.current.handleChoice(result.current.currentEvent.id, 0).persistence);
+    act(() => expect(result.current.trainHiddenSkill('acting')).toBe(8));
+    expect(result.current.stats.acting).toBe(100);
+    act(() => { result.current.trainHiddenSkill('athleticism'); result.current.trainHiddenSkill('athleticism'); });
+    expect(result.current.stats.athleticism).toBe(56);
+  });
+  const examples = [
+    ['Go to the Gym', 'athleticism', 100, 3],
+    ['Go for a Run', 'athleticism', 100, 8],
+    ['Acting Lessons ($50)', 'acting', 50, 3],
+    ['Voice Lessons ($50)', 'voice', 50, 3],
+    ['Modeling Classes ($50)', 'modeling', 50, 3],
+  ];
+  it.each(examples)('%s saves one complete base outcome before generation, surviving later failed offer save', async (text, skill, balance, gain) => {
+    const initial = savedLife('Training Player', { bank: 100, stats: { happiness: 50, health: 80, looks: 60, athleticism: 40, acting: 40, voice: 40, modeling: 40 } });
+    let acknowledged = structuredClone(initial);
+    backend.getDoc.mockImplementation(async () => snapshot(structuredClone(acknowledged)));
+    const baseAck = deferred();
+    backend.setDoc.mockImplementationOnce(async (_path, save, options) => {
+      await baseAck.promise;
+      acknowledged = applyFirestoreSave(acknowledged, save, options);
+    }).mockRejectedValueOnce(new Error('offer failed'));
+    const event = deferred();
+    generateDynamicEvent.mockReturnValue(event.promise);
+    if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = () => {};
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
+    let engine;
+    function Connected() { engine = useGameState(); return engine.character ? <MainGame engine={engine} /> : null; }
+    const ui = render(<StrictMode><Connected /></StrictMode>);
+    await screen.findByText('Training Player');
+    vi.spyOn(Math, 'random').mockReturnValue(gain === 8 ? 0.999 : 0);
+    fireEvent.click(screen.getByRole('button', { name: /Activities/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Mind & Body/ }));
+    const button = screen.getByRole('button', { name: name => name.startsWith(text) });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(engine.stats[skill]).toBe(40 + gain);
+    expect(engine.bank).toBe(balance);
+    expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+    expect(generateDynamicEvent.mock.calls[0][0]).toMatchObject({ bank: balance, stats: { [skill]: 40 + gain } });
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(1));
+    const item = ACTIVITY_MENUS.mind_body.find(item => item.text === text);
+    const counters = item.yearlyLimit ? { [`mind_body__${text}`]: 1 } : {};
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: balance, stats: { [skill]: 40 + gain }, activitiesThisYear: counters, currentEvent: null });
+    if (item.cost) expect(screen.getByText(content => content.endsWith(`Skill +${gain}`))).toBeInTheDocument();
+    await act(async () => baseAck.resolve());
+    await act(async () => event.resolve({ description: 'Training offer', choices: [{ text: 'Continue', effects: {} }] }));
+    await waitFor(() => expect(backend.setDoc).toHaveBeenCalledTimes(2));
+    ui.unmount();
+    scroll.mockRestore();
+    const reloaded = await ready();
+    await waitFor(() => expect(reloaded.result.current.character?.name).toBe('Training Player'));
+    expect(reloaded.result.current.stats[skill]).toBe(40 + gain);
+    expect(reloaded.result.current.bank).toBe(balance);
+    expect(reloaded.result.current.activitiesThisYear).toEqual(counters);
+    expect(reloaded.result.current.currentEvent).toBeNull();
+    if (item.yearlyLimit) {
+      act(() => expect(reloaded.result.current.performSkillTraining(item, 'mind_body').status).toBe('blocked_yearly'));
+      expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+      expect(backend.setDoc).toHaveBeenCalledTimes(2);
+    }
   });
 });

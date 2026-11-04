@@ -37,6 +37,7 @@ function createEngine(overrides = {}) {
     performActivity: vi.fn(() => 'ok'),
     consumeYearlyActivity: vi.fn(() => true),
     trainHiddenSkill: vi.fn(() => 4),
+    performSkillTraining: vi.fn(() => ({ status: 'ok', gain: 4 })),
     triggerActivityEvent: vi.fn(),
     debugModifyBank: vi.fn(),
     ...overrides,
@@ -133,24 +134,23 @@ describe('MainGame sheet navigation', () => {
     expect(screen.queryByRole('heading', { name: 'Mind & Body' })).not.toBeInTheDocument();
   });
 
-  it('checks the yearly engine guard before training and disables an already consumed activity', () => {
-    const engine = createEngine({ consumeYearlyActivity: vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true) });
+  it('delegates training to one owning command and disables an already consumed activity', () => {
+    const engine = createEngine({ performSkillTraining: vi.fn().mockReturnValueOnce({ status: 'blocked_yearly' }).mockReturnValueOnce({ status: 'ok' }) });
     const { rerender } = render(<MainGame engine={engine} />);
     openMindAndBody();
     fireEvent.click(screen.getByRole('button', { name: 'Go to the Gym' }));
-    expect(engine.consumeYearlyActivity).toHaveBeenCalledWith('mind_body', 'Go to the Gym', 1);
+    expect(screen.getByRole('heading', { name: 'Mind & Body' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to the Gym' }));
+    expect(engine.performSkillTraining).toHaveBeenLastCalledWith(expect.objectContaining({ specialAction: 'gym', yearlyLimit: 1 }), 'mind_body');
     expect(engine.trainHiddenSkill).not.toHaveBeenCalled();
     expect(engine.triggerActivityEvent).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Go to the Gym' }));
-    expect(engine.trainHiddenSkill).toHaveBeenCalledExactlyOnceWith('athleticism');
-    expect(engine.triggerActivityEvent).toHaveBeenCalledExactlyOnceWith('Went to the gym for an intense workout session');
     expect(engine.debugModifyBank).not.toHaveBeenCalled();
     rerender(<MainGame engine={{ ...engine, activitiesThisYear: { 'mind_body__Go to the Gym': 1 } }} />);
     openMindAndBody();
     const gym = screen.getByRole('button', { name: /Go to the Gym.*Done this year/ });
     expect(gym).toBeDisabled();
     fireEvent.click(gym);
-    expect(engine.trainHiddenSkill).toHaveBeenCalledOnce();
+    expect(engine.performSkillTraining).toHaveBeenCalledTimes(2);
   });
 
   it('retains age, bank, and stat restrictions in the extracted activities sheet', () => {
