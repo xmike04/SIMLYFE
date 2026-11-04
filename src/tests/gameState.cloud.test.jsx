@@ -5,6 +5,7 @@ import { useGameState } from '../engine/gameState';
 import { buildLifeSave, LIFE_SAVE_KEYS } from '../engine/lifeSave';
 import { generateDynamicEvent } from '../engine/llmService';
 import { getFirebaseIdToken } from '../engine/firebaseToken';
+import { advanceLifeYear } from '../engine/annual/advanceLifeYear';
 
 const backend = vi.hoisted(() => ({
   auth: { currentUser: null }, db: {},
@@ -800,5 +801,227 @@ describe('activity continuity commits and receipts', () => {
     else expect(result.current.lastContinuitySave).toBeNull();
     await act(async () => pending.resolve());
     expect(result.current.lastContinuitySave).toBe(boundary === 'unmount' ? before : null);
+  });
+});
+
+
+describe('generated offers are acknowledged with their originating life', () => {
+  beforeEach(() => {
+    generateDynamicEvent.mockReset().mockResolvedValue({ description: 'Fixture year', choices: [{ text: 'Continue', effects: {} }] });
+    backend.setDoc.mockReset().mockResolvedValue(undefined);
+  });
+  const offer = { description: 'A meaningful opportunity', choices: [{ text: 'Accept', effects: { happiness: 3 } }], meta: { requestId: 'provider-request', model: 'fixture-model', latencyMs: 12, usage: { inputTokens: 20, outputTokens: 9, cachedInputTokens: 2, totalTokens: 29 } } };
+  const friend = { id: 'friend', type: 'Friend', name: 'Alex', age: 30, status: 'friend', relation: 60, isAlive: true };
+  async function loaded(fields = {}) {
+    backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Offer Player', { age: 30, ...fields })));
+    const rendered = await ready();
+    await waitFor(() => expect(rendered.result.current.character?.name).toBe('Offer Player'));
+    return rendered;
+  }
+
+  it('saves the complete calculated latest year and offered event together without an inference checkpoint or extra RNG', async () => {
+    const initial = savedLife('Offer Player', {
+      age: 30, flags: ['kept'], history: [{ age: 30, text: 'Prior memory' }],
+      stats: { health: 80, happiness: 80, smarts: 70, looks: 50, grades: 70, athleticism: 50, karma: 50, acting: 0, voice: 0, modeling: 0 },
+      career: { id: 'fixture', title: 'Fixture', salary: 30000 },
+      education: { highSchool: true, associate: false, bachelor: false, master: false, phd: false, currentDegree: 'bachelor', yearsInProgram: 1 },
+      relationships: [friend], pets: [{ id: 'pet', speciesId: 'dog', name: 'Pup', age: 1, isAlive: true }],
+      belongings: [{ id: 'fund', type: 'investment', subType: 'fund', currentValue: 1000, yearsOwned: 0, returnProfile: { base: .1, volatility: 0 } }],
+      properties: [{ id: 'house', type: 'realEstate', currentValue: 10000, yearsOwned: 0, upkeep: 100 }],
+      will: { allocations: [] }, activitiesThisYear: { health__Run: 1 },
+    });
+    const { result, unmount } = await loaded(initial);
+    const generation = deferred(), acknowledgment = deferred();
+    generateDynamicEvent.mockReturnValueOnce(generation.promise);
+    // No render between the interaction marker commit and Age: annual reads the eager snapshot.
+    const expectedInput = { ...initial, activitiesThisYear: { health__Run: 1, rel_interact__friend: 1 }, relationships: [{ ...friend, relation: 65 }] };
+    const expectedRandom = vi.fn(() => .999);
+    const expectedYear = advanceLifeYear(expectedInput, { randomFn: expectedRandom });
+    const random = vi.spyOn(Math, 'random').mockReturnValue(.999);
+    let aging;
+    act(() => {
+      result.current.modifyRelationship('friend', 5);
+      aging = result.current.ageUp();
+      result.current.ageUp();
+      result.current.triggerActivityEvent('Must remain locked');
+    });
+    // The interaction write is the only write before generation completes.
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+    expect(generateDynamicEvent.mock.calls[0][0]).toMatchObject({
+      age: 31, relationships: expectedInput.relationships, pets: initial.pets, history: initial.history,
+    });
+    expect(result.current.age).toBe(31);
+    expect(result.current.relationships).toEqual(expectedYear.state.relationships);
+    expect(result.current.lastContinuitySave.kind).toBe('activity');
+    await waitFor(() => expect(result.current.lastContinuitySave.saveStatus).toBe('saved'));
+    backend.setDoc.mockClear();
+    backend.setDoc.mockReturnValueOnce(acknowledgment.promise);
+    await act(async () => { generation.resolve(offer); await aging; });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    const event = result.current.currentEvent;
+    expect(event).toEqual({ ...offer, version: 1, id: expect.any(String), age: 31, source: 'annual' });
+    expect(event.id).not.toBe(offer.meta.requestId);
+    const save = backend.setDoc.mock.calls[0][1];
+    expect(save).toEqual(buildLifeSave({ ...expectedInput, ...expectedYear.state, history: [...initial.history, ...expectedYear.history], activitiesThisYear: {}, currentEvent: event }));
+    expect(random).toHaveBeenCalledTimes(expectedRandom.mock.calls.length + 1); // Existing death-check roll is unconditional.
+    expect(result.current.lastContinuitySave).toMatchObject({ kind: 'year', saveStatus: 'pending', operationId: null });
+    await act(async () => acknowledgment.resolve());
+    expect(result.current.lastContinuitySave).toMatchObject({ kind: 'year', saveStatus: 'saved', operationId: expect.any(String) });
+    unmount();
+    backend.getDoc.mockResolvedValueOnce(snapshot(save));
+    const restored = await ready();
+    await waitFor(() => expect(restored.result.current.currentEvent).toEqual(event));
+    expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits exactly the existing death save with no event, empty counters, and no inference', async () => {
+    const { result } = await loaded({ stats: { health: 1 }, activitiesThisYear: { old: 2 }, history: [{ age: 30, text: 'Prior memory' }] });
+    vi.spyOn(Math, 'random').mockReturnValue(.999);
+    await act(async () => { await result.current.ageUp(); });
+    expect(generateDynamicEvent).not.toHaveBeenCalled();
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ age: 31, isDead: true, currentEvent: null, activitiesThisYear: {}, history: [{ age: 30, text: 'Prior memory' }, { age: 31, text: 'You passed away peacefully at age 31.' }] });
+    expect(result.current.lastContinuitySave).toMatchObject({ kind: 'year', saveStatus: 'saved' });
+  });
+
+  it.each(['base-effects', 'zero-cost'])('saves an activity offer once after the latest %s snapshot and eagerly locks commands', async variant => {
+    const { result } = await loaded();
+    const generation = deferred(), acknowledgment = deferred();
+    generateDynamicEvent.mockReturnValueOnce(generation.promise);
+    const random = vi.spyOn(Math, 'random').mockImplementation(() => { throw new Error('Offer identity used gameplay RNG'); });
+    let request;
+    act(() => {
+      if (variant === 'base-effects') result.current.performActivity({ text: 'Quiet day', context: 'Quiet day', cost: 50, baseEffects: { happiness: 4 }, yearlyLimit: 1 }, 'test');
+      else request = result.current.triggerActivityEvent('Free activity');
+      result.current.triggerActivityEvent('Duplicate');
+      result.current.ageUp();
+    });
+    expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+    const before = generateDynamicEvent.mock.calls[0][0];
+    expect(before.bank).toBe(variant === 'base-effects' ? 11950 : 12000);
+    if (variant === 'base-effects') expect(before.stats.happiness).toBe(84);
+    await act(async () => {});
+    backend.setDoc.mockClear();
+    backend.setDoc.mockReturnValueOnce(acknowledgment.promise);
+    await act(async () => {
+      generation.resolve(offer);
+      if (request) await request;
+      // Continuation installed the event synchronously before a React render.
+      await generation.promise;
+      expect(result.current.consumeYearlyActivity('test', 'blocked', 1)).toBe(false);
+    });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    const event = result.current.currentEvent;
+    expect(event).toEqual({ ...offer, version: 1, id: expect.any(String), age: 30, source: 'activity' });
+    expect(backend.setDoc.mock.calls[0][1]).toMatchObject({ bank: before.bank, stats: before.stats, currentEvent: event, activitiesThisYear: variant === 'base-effects' ? { 'test__Quiet day': 1 } : {} });
+    expect(result.current.lastContinuitySave).toMatchObject({ kind: 'event_offered', saveStatus: 'pending' });
+    await act(async () => acknowledgment.resolve());
+    expect(result.current.lastContinuitySave).toMatchObject({ kind: 'event_offered', saveStatus: 'saved' });
+    expect(random).not.toHaveBeenCalled();
+  });
+
+  it.each(['annual', 'activity'])('saves a resolved real-client sanitized error as a no-effect %s offer', async kind => {
+    const { generateDynamicEvent: realGenerate } = await vi.importActual('../engine/llmService');
+    const errorOffer = await realGenerate({}); // Missing configuration returns the real sanitized error; no transport request.
+    expect(errorOffer.description).toContain('LLM ERROR:');
+    generateDynamicEvent.mockResolvedValueOnce(errorOffer);
+    const { result } = await loaded();
+    await act(async () => { await (kind === 'annual' ? result.current.ageUp() : result.current.triggerActivityEvent('Activity')); });
+    expect(result.current.currentEvent).toMatchObject({ version: 1, source: kind, description: errorOffer.description, choices: [{ text: 'Understood', effects: {} }] });
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][1].currentEvent).toEqual(result.current.currentEvent);
+    expect(result.current.lastContinuitySave.saveStatus).toBe('saved');
+    expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['annual', 'activity'])('retains an offered %s event in the session when its save fails', async kind => {
+    const { result } = await loaded();
+    const acknowledgment = deferred();
+    backend.setDoc.mockReturnValueOnce(acknowledgment.promise);
+    generateDynamicEvent.mockResolvedValueOnce(offer);
+    await act(async () => { await (kind === 'annual' ? result.current.ageUp() : result.current.triggerActivityEvent('Free activity')); });
+    const event = result.current.currentEvent;
+    expect(result.current.lastContinuitySave).toMatchObject({ kind: kind === 'annual' ? 'year' : 'event_offered', saveStatus: 'pending', operationId: null });
+    await act(async () => acknowledgment.reject(new Error('private write failure')));
+    expect(result.current.lastContinuitySave).toMatchObject({ saveStatus: 'failed', operationId: expect.any(String) });
+    expect(result.current.currentEvent).toBe(event);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(generateDynamicEvent).toHaveBeenCalledTimes(1);
+    act(() => expect(result.current.consumeYearlyActivity('test', 'blocked', 1)).toBe(false));
+  });
+
+  it('assigns fresh instance IDs even when the provider repeats its request metadata', async () => {
+    const { result } = await loaded();
+    generateDynamicEvent.mockResolvedValue(offer);
+    const random = vi.spyOn(Math, 'random').mockImplementation(() => { throw new Error('Offer identity used gameplay RNG'); });
+    await act(async () => { await result.current.triggerActivityEvent('First'); });
+    const firstId = result.current.currentEvent.id;
+    act(() => result.current.handleChoice(result.current.currentEvent.choices[0]));
+    await act(async () => { await result.current.triggerActivityEvent('Second'); });
+    expect(result.current.currentEvent.id).not.toBe(firstId);
+    expect(result.current.currentEvent.meta).toEqual(offer.meta);
+    expect(random).not.toHaveBeenCalled();
+  });
+
+  const cases = ['annual', 'activity'].flatMap(kind => ['resolve', 'reject'].flatMap(completion => ['resetLife', 'startLife', 'switch', 'signout', 'hydration', 'unmount'].map(boundary => ({ kind, completion, boundary }))));
+  it.each(cases)('ignores obsolete $kind $completion across $boundary while a newer request owns the lock', async ({ kind, completion, boundary }) => {
+    const boot = deferred();
+    if (boundary === 'signout') backend.auth.currentUser = user('guest', false);
+    let rendered;
+    if (boundary === 'hydration') {
+      backend.getDoc.mockReturnValueOnce(boot.promise);
+      rendered = await ready();
+    } else rendered = await loaded({ history: [{ age: 30, text: 'Origin history' }] });
+    const old = deferred(), current = deferred();
+    generateDynamicEvent.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const begin = () => kind === 'annual' ? rendered.result.current.ageUp() : rendered.result.current.triggerActivityEvent('Request');
+    let oldRequest, newRequest;
+    act(() => { oldRequest = begin(); });
+    if (boundary === 'startLife' || boundary === 'resetLife') act(() => rendered.result.current[boundary]('Replacement', 'Female', 'US'));
+    if (boundary === 'hydration') await act(async () => boot.resolve(snapshot(savedLife('Replacement'))));
+    if (boundary === 'switch') {
+      backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Replacement')));
+      backend.signInWithEmailAndPassword.mockResolvedValueOnce({ user: user('other', false) });
+      await act(async () => { await rendered.result.current.signInWithEmail('other@example.com', 'fixture-password', 'signin'); });
+    }
+    if (boundary === 'signout') await act(async () => { await rendered.result.current.signOutAccount(); });
+    if (boundary === 'unmount') {
+      rendered.unmount();
+      backend.getDoc.mockResolvedValueOnce(snapshot(savedLife('Replacement')));
+      rendered = await ready();
+      await waitFor(() => expect(rendered.result.current.character?.name).toBe('Replacement'));
+    }
+    await act(async () => {}); // Flush any authorized replacement write before observing obsolete continuations.
+    act(() => { newRequest = begin(); });
+    const before = { character: rendered.result.current.character, age: rendered.result.current.age, history: rendered.result.current.history, bank: rendered.result.current.bank, education: rendered.result.current.education };
+    backend.setDoc.mockClear();
+    console.error.mockClear();
+    await act(async () => {
+      if (completion === 'resolve') old.resolve({ description: 'Obsolete choice', choices: [{ text: 'Old', effects: {} }] });
+      else old.reject(new Error('private obsolete failure'));
+      await oldRequest;
+    });
+    expect(rendered.result.current).toMatchObject(before);
+    expect(rendered.result.current.currentEvent).toBeNull();
+    expect(rendered.result.current.isAging).toBe(true);
+    expect(rendered.result.current.lastContinuitySave).toBeNull();
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
+    act(() => {
+      expect(rendered.result.current.chooseCareer('barista').result.code).toBe('action_locked');
+      expect(rendered.result.current.consumeYearlyActivity('test', 'blocked', 1)).toBe(false);
+      rendered.result.current.enrollInDegree('bachelor');
+    });
+    expect(rendered.result.current.education).toEqual(before.education);
+    expect(backend.setDoc).not.toHaveBeenCalled();
+    await act(async () => { current.resolve(offer); await newRequest; });
+    expect(rendered.result.current.currentEvent).toMatchObject({ version: 1, source: kind, description: offer.description });
+    expect(rendered.result.current.isAging).toBe(false);
+    expect(backend.setDoc).toHaveBeenCalledTimes(1);
+    expect(backend.setDoc.mock.calls[0][0]).toBe(`users/${boundary === 'switch' ? 'other' : boundary === 'signout' ? 'fresh-guest' : 'guest'}/saves/currentLife`);
+    expect(backend.setDoc.mock.calls[0][1].currentEvent).toEqual(rendered.result.current.currentEvent);
+    expect(backend.setDoc.mock.calls[0][1].history.some(entry => entry.text === 'Origin history')).toBe(false);
   });
 });

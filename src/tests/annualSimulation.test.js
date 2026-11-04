@@ -22,6 +22,25 @@ const rolls = (...values) => vi.fn(() => {
 });
 
 describe('annual simulation boundary', () => {
+  it('keeps the age-30 request input unchanged while calculating post-tick arrays and marked decay', () => {
+    const input = freezeTree(life({
+      age: 30, bank: 12000, history: [{ age: 30, text: 'Prior memory' }],
+      relationships: [{ id: 'friend', name: 'Alex', age: 30, status: 'friend', relation: 60, isAlive: true }],
+      pets: [{ id: 'pet', speciesId: 'dog', name: 'Pup', age: 1, isAlive: true }],
+      activitiesThisYear: { rel_interact__friend: 1 },
+    }));
+    const randomFn = rolls(.999, .999, .999, .999, .999);
+    const year = advanceLifeYear(input, { randomFn });
+    expect(year.state).toMatchObject({ age: 31, bank: 10700, stats: { health: 79, happiness: 85 } });
+    expect(year.state.relationships[0]).toMatchObject({ age: 31, relation: 60 });
+    expect(year.state.pets[0]).toMatchObject({ age: 2, isAlive: true });
+    expect(input.relationships[0].age).toBe(30);
+    expect(input.pets[0].age).toBe(1);
+    expect(input.history).toEqual([{ age: 30, text: 'Prior memory' }]);
+    expect(year.history.map(entry => entry.text.split(':')[0])).toEqual(['Lifestyle', 'Education', 'Pets']);
+    expect(randomFn).toHaveBeenCalledTimes(5);
+  });
+
   it('retains a restored positive interaction for annual decay while the same unmarked friend loses two points', () => {
     const relationship = { id: 'friend', name: 'Alex', age: 30, status: 'friend', relation: 60, isAlive: true };
     const marked = advanceLifeYear(life({ relationships: [relationship], activitiesThisYear: { rel_interact__friend: 1 } }), { randomFn: () => .999 });

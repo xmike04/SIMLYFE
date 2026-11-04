@@ -1,5 +1,5 @@
 import { useCloudAccount } from './cloud/useCloudAccount';
-import { restoreLifeContinuity } from './lifeContinuity';
+import { preparePendingEvent, restoreLifeContinuity } from './lifeContinuity';
 import { advanceLifeYear } from './annual/advanceLifeYear';
 import { checkCareerEligibility as evaluateCareerEligibility } from './mechanics/careers';
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -338,7 +338,8 @@ export function useGameState() {
   };
 
   const ageUp = useCallback(async () => {
-    if (isDead || currentEvent || isAging || agingInFlightRef.current) return;
+    const snap = lifeSnapshotRef.current;
+    if (snap.isDead || currentEventRef.current || agingInFlightRef.current) return;
 
     const request = { revision: lifeRevisionRef.current };
     activeEventRequestRef.current = request;
@@ -350,15 +351,12 @@ export function useGameState() {
       operationId: transitionOperationId,
       status: 'started',
       durationMs: 0,
-      fromAge: age,
-      toAge: age + 1,
+      fromAge: snap.age,
+      toAge: snap.age + 1,
     });
 
     try {
-      const annual = advanceLifeYear({
-        age, stats, bank, career, economyCycle, education, character, careerMeta,
-        networking, belongings, properties, relationships, pets, activitiesThisYear,
-      }, { careersData });
+      const annual = advanceLifeYear(snap, { careersData });
       const {
         age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer,
         careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy,
@@ -366,6 +364,8 @@ export function useGameState() {
         properties: nextProperties, belongings: nextBelongings, pets: petUpdates,
       } = annual.state;
 
+      // Commit eagerly for same-tick readers, without a pre-inference cloud checkpoint.
+      lifeSnapshotRef.current = { ...snap, ...annual.state, activitiesThisYear: {}, currentEvent: null };
       setAge(nextAge);
       setStats(nextStats);
       setBank(nextBank);
@@ -381,81 +381,43 @@ export function useGameState() {
       setRelationships(nextRelationships);
 
       const died = checkDeath(nextStats, nextAge);
-
-      let updatedHistory = [...history];
       if (died) {
+        const updatedHistory = [...snap.history, { age: nextAge, text: `You passed away peacefully at age ${nextAge}.` }];
         setIsDead(true);
-        updatedHistory.push({ age: nextAge, text: `You passed away peacefully at age ${nextAge}.` });
         setHistory(updatedHistory);
-        persistLife({
-          age: nextAge,
-          stats: nextStats,
-          bank: nextBank,
-          isDead: true,
-          activitiesThisYear: {},
-          history: updatedHistory,
-          belongings: nextBelongings,
-          properties: nextProperties,
-          career: nextCareer,
-          careerMeta: nextCareerMeta,
-          networking: nextNetworking,
-          economyCycle: nextEconomy,
-          education: nextEducation,
-          relationships: nextRelationships,
-          pets: petUpdates,
-        });
+        setCurrentEvent(null);
+        persistContinuity({ ...annual.state, isDead: true, activitiesThisYear: {}, currentEvent: null, history: updatedHistory }, 'year');
         emitDiagnostic('age_transition', {
           operationId: transitionOperationId,
           status: 'death',
           durationMs: diagnosticNow() - transitionStartedAt,
-          fromAge: age,
+          fromAge: snap.age,
           toAge: nextAge,
         });
         return;
       }
 
-      let eventTriggered = false;
       const dynamicEvent = await generateDynamicEvent({
-        character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: updatedHistory,
-        narrativeMode, relationships, pets, city: getCityById(character?.city)?.name ?? null, education: nextEducation,
+        character: snap.character, age: nextAge, stats: nextStats, bank: nextBank, career: nextCareer, history: snap.history,
+        // Preserve the existing request timing: family/pets and history precede their annual tick.
+        narrativeMode, relationships: snap.relationships, pets: snap.pets, city: getCityById(snap.character?.city)?.name ?? null, education: nextEducation,
         economyPhase: nextEconomy?.phase,
       });
-
       if (!ownsEventRequest(request)) return;
 
-      if (dynamicEvent && dynamicEvent.description && dynamicEvent.choices) {
-        // Re-map format if necessary to ensure stability with UI
-        const safeEvent = {
-          description: dynamicEvent.description,
-          choices: dynamicEvent.choices.map(c => ({
-            text: c.text || "Continue",
-            effects: c.effects || {}
-          }))
-        };
-        setCurrentEvent(safeEvent);
-        eventTriggered = true;
-      } else {
-        setCurrentEvent({
-          description: 'LLM ERROR: Dynamic event generation returned no event.',
-          choices: [{ text: 'Understood', effects: {} }],
-        });
-        eventTriggered = true;
-      }
-
-      if (!eventTriggered) {
-        updatedHistory.push({ age: nextAge, text: `Age ${nextAge}: An uneventful year passed.` });
-      }
-
-      updatedHistory.push(...annual.history);
-
+      const event = preparePendingEvent(dynamicEvent || {
+        description: 'LLM ERROR: Dynamic event generation returned no event.',
+        choices: [{ text: 'Understood', effects: {} }],
+      }, { id: createDiagnosticId('pending-event'), age: nextAge, source: 'annual', relationships: nextRelationships });
+      const updatedHistory = [...snap.history, ...annual.history];
+      setCurrentEvent(event);
       setHistory(updatedHistory);
-
-      persistLife({ age: nextAge, activitiesThisYear: {}, stats: nextStats, bank: nextBank, career: nextCareer, careerMeta: nextCareerMeta, networking: nextNetworking, economyCycle: nextEconomy, education: nextEducation, history: updatedHistory, relationships: nextRelationships, properties: nextProperties, belongings: nextBelongings, pets: petUpdates });
+      persistContinuity({ ...annual.state, activitiesThisYear: {}, currentEvent: event, history: updatedHistory }, 'year');
       emitDiagnostic('age_transition', {
         operationId: transitionOperationId,
         status: 'completed',
         durationMs: diagnosticNow() - transitionStartedAt,
-        fromAge: age,
+        fromAge: snap.age,
         toAge: nextAge,
       });
     } catch (error) {
@@ -464,8 +426,8 @@ export function useGameState() {
         operationId: transitionOperationId,
         status: 'failed',
         durationMs: diagnosticNow() - transitionStartedAt,
-        fromAge: age,
-        toAge: age + 1,
+        fromAge: snap.age,
+        toAge: snap.age + 1,
         errorClass: getErrorClass(error),
       });
       throw error;
@@ -476,7 +438,7 @@ export function useGameState() {
         setIsAging(false);
       }
     }
-  }, [age, stats, bank, isDead, currentEvent, career, careerMeta, networking, economyCycle, education, history, checkDeath, persistLife, isAging, character, relationships, properties, belongings, careersData, pets, activitiesThisYear, narrativeMode, setCurrentEvent, ownsEventRequest]);
+  }, [checkDeath, persistContinuity, careersData, narrativeMode, setCurrentEvent, ownsEventRequest]);
 
   // ─── Career expansion helpers ────────────────────────────────────────────────
 
@@ -984,30 +946,32 @@ export function useGameState() {
     activeEventRequestRef.current = request;
     agingInFlightRef.current = true;
     setIsAging(true);
+    const installOffer = raw => {
+      const snap = lifeSnapshotRef.current;
+      const event = preparePendingEvent(raw, {
+        id: createDiagnosticId('pending-event'), age: snap.age, source: 'activity', relationships: snap.relationships,
+      });
+      setCurrentEvent(event);
+      persistContinuity({ currentEvent: event }, 'event_offered');
+    };
     try {
-      const cityName = getCityById(character?.city)?.name ?? null;
       const snap = lifeSnapshotRef.current;
       const stateDump = {
         character: snap.character, age: snap.age, bank: snap.bank, stats: snap.stats,
         career: snap.career, history: snap.history, narrativeMode, relationships: snap.relationships,
-        pets: snap.pets, city: cityName, education: snap.education, economyPhase: snap.economyCycle?.phase,
+        pets: snap.pets, city: getCityById(snap.character?.city)?.name ?? null, education: snap.education, economyPhase: snap.economyCycle?.phase,
       };
       const parsed = await generateDynamicEvent(stateDump, context);
-
       if (!ownsEventRequest(request)) return;
 
-      if (parsed && parsed.choices && parsed.description) {
-        setCurrentEvent(parsed);
-      } else {
-        setCurrentEvent({
-          description: 'LLM ERROR: Dynamic activity event generation returned no event.',
-          choices: [{ text: 'Understood', effects: {} }],
-        });
-      }
+      installOffer(parsed || {
+        description: 'LLM ERROR: Dynamic activity event generation returned no event.',
+        choices: [{ text: 'Understood', effects: {} }],
+      });
     } catch {
       if (!ownsEventRequest(request)) return;
       emitLlmDiagnostic({ type: 'failure', code: 'service' });
-      setCurrentEvent({
+      installOffer({
         description: 'LLM ERROR: Dynamic activity event generation failed. Please try again.',
         choices: [{ text: 'Understood', effects: {} }],
       });

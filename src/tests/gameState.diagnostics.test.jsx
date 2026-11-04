@@ -25,6 +25,8 @@ describe('game state diagnostics safeguards', () => {
 
     expect(rejectedWith).toBe(failure);
     expect(result.current.isAging).toBe(false);
+    expect(result.current.currentEvent).toBeNull();
+    expect(result.current.lastContinuitySave).toBeNull();
     const failureRecord = diagnosticError.mock.calls
       .map(([, record]) => record)
       .find(record => record?.event === 'age_transition' && record.status === 'failed');
@@ -55,6 +57,8 @@ describe('game state diagnostics safeguards', () => {
     });
 
     expect(result.current.isAging).toBe(false);
+    expect(result.current.currentEvent).toMatchObject({ version: 1, id: expect.any(String), age: 0, source: 'activity' });
+    await waitFor(() => expect(result.current.lastContinuitySave).toMatchObject({ kind: 'event_offered', saveStatus: 'skipped', operationId: expect.any(String) }));
     expect(result.current.currentEvent.choices).toEqual([
       { text: 'Understood', effects: {} },
     ]);

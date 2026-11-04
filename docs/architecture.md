@@ -142,21 +142,23 @@ App Check initialization is optional and controlled by [appCheck.js](../src/conf
 
 ## Annual transition and action locking
 
-`ageUp` composes the annual calculation, commits the resulting state, checks death, then requests one event for a surviving life. The annual modules keep domain calculations separate from React setters and the asynchronous event request. The order of calculations matters: for example, tuition precedes income tax, while lifestyle costs use the balance after income.
+`ageUp` calculates from the latest eager snapshot, commits the resulting state locally, checks death, then requests one event for a surviving life. The annual modules keep domain calculations separate from React setters and the asynchronous event request. The order of calculations matters: for example, tuition precedes income tax, while lifestyle costs use the balance after income.
 
 While `isAging` is true or an event is open:
 
 - Mutating commands return through the action lock, except `handleChoice`, which resolves the event.
 - MainGame hides open sheets and disables action tabs, Age, and narrative-mode controls.
-- The annual save contains the calculated fields explicitly, protecting them from a stale React closure after the request resolves.
+- The annual save contains the calculated fields, annual history, empty yearly counters, and the same versioned pending event together. There is no extra cloud checkpoint before inference. Death requests its single final save with no event and empty counters, without inference.
 
 The gameplay rules and timing belong in [game mechanics](./game-mechanics.md#core-loop). Extraction must preserve calculation order, random draws, event timing, and save boundaries unless a behavior change is explicitly included and tested.
 
 Annual and activity requests carry one active request token and the originating life revision. Start, reset, hydration, account clearing, and unmount invalidate ownership. After an await, obsolete success/error results cannot mutate or save, and obsolete cleanup cannot unlock a newer request.
 
-`lastContinuitySave` is transient and cleared with the same lifecycle boundary as career feedback. `ContinuitySaveStatus` renders one polite progress announcement in MainGame when no event is open, or inside EventModal while a choice is open. It distinguishes pending, acknowledged saved, failed, and unavailable saves; failure copy preserves session progress and explains that reload may restore an older save. The selected continuity writers will populate this feedback as their coherent save boundaries are integrated; unrelated commands retain their existing feedback behavior.
+`lastContinuitySave` is transient and cleared with the same lifecycle boundary as career feedback. `ContinuitySaveStatus` renders one polite progress announcement in MainGame when no event is open, or inside EventModal while a choice is open. It distinguishes pending, acknowledged saved, failed, and unavailable saves; failure copy preserves session progress and explains that reload may restore an older save. Counter/base-effect commits use kind `activity`; annual outcomes use `year`; generated activity offers use `event_offered`. Each offer requests one save, including zero-cost activities and sanitized service-error events. Unrelated commands retain their existing feedback behavior.
 
-The annual event request currently receives the pre-tick relationship and pet arrays, while most other request fields use the calculated next state. The saved life receives the updated arrays. This existing request timing is preserved by the extraction.
+The annual event request receives the captured pre-tick relationship and pet arrays and prior history, while most other request fields use the calculated next state. The canonical saved life receives post-tick arrays and appended annual history. Activity requests read the latest snapshot after base effects and counter consumption. Both entry points prepare the pending event through `preparePendingEvent`, retain allowlisted provider metadata, and create instance IDs through the diagnostic ID facility without drawing gameplay randomness. Unexpected annual rejections retain their failure diagnostic and propagate; unexpected activity rejections retain their visible no-effect error offer. Each request releases only its own lock.
+
+The reload guarantee begins with an acknowledged cloud snapshot containing the offered event: hydration restores that event without generating it again. Reload during inference or before save acknowledgment restores the latest acknowledged snapshot and does not resume generation. An activity cost already acknowledged before generation can survive even when its offer has not been acknowledged. There is no persisted generation marker, automatic inference retry, offline durability, cross-device arbitration, or safe mixed-version writing guarantee.
 
 ## Generated event contract
 
