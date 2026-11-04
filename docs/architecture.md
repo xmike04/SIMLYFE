@@ -65,14 +65,21 @@ The current life is stored at `users/{uid}/saves/currentLife`. [lifeSave.js](../
 ```text
 character, age, stats, bank, history, isDead, flags,
 career, careerMeta, relationships, belongings, properties,
-education, networking, economyCycle, pets, will
+education, networking, economyCycle, pets, will,
+currentEvent, activitiesThisYear
 ```
 
 `buildLifeSave` emits every key, including intentional nulls and empty arrays. It supplies defaults; it is not a full validator or migration engine. [stateValidation.js](../src/engine/stateValidation.js) observes loaded saves and emits warnings containing field paths and codes. It does not reject, coerce, or migrate the document.
 
-Transient state includes `currentEvent`, `isAging`, `activitiesThisYear`, `narrativeMode`, cloud connection status, account summary, and the loaded career catalog. These fields are not part of current life writes. The validation and Firestore allowlists also tolerate specific legacy fields; tolerating a field does not make it part of the current save contract.
+The continuity defaults are `flags: []`, `activitiesThisYear: {}`, and `currentEvent: null`. Default collections are fresh for every payload. Supplied continuity fields are retained by the builder; normalization belongs at the hydration boundary.
 
-One preserved hydration gap is explicit: `flags` is written in the save payload, but `hydrateFromSave` currently does not restore it. Treat correcting that behavior as a separate tested change rather than assuming the refactor fixed it.
+[lifeContinuity.js](../src/engine/lifeContinuity.js) provides pure preparation, validation, and restoration of these three fields. It filters/deduplicates lowercase flags and retains own counter keys with nonnegative safe-integer values, excluding reserved prototype keys. Version-1 pending events retain instance ID, saved age, source, description, choices, bounded effects, and projected safe metadata. Unversioned valid events receive a caller-supplied instance ID and `legacy` source. Custody events additionally retain the ex/child references and exactly the three canonical outcome/effect pairs. Invalid semantic events become a fixed, explicit recovery choice that applies no outcome; missing events remain null. Dead or blank lives restore no event or yearly counters. No helper changes the loaded save, generates IDs, draws randomness, requests AI, or writes storage.
+
+`validateHydratedSave` observes these continuity checks and reports bounded field/code warnings while discarding normalized output. Other save validation remains observational; the helpers do not repair malformed core life state. Missing/null optional continuity fields are compatible defaults. The existing Firestore allowlist already permits both newly canonical names; this contract adds no permissions.
+
+Transient state includes `isAging`, `narrativeMode`, cloud connection status, account summary, and the loaded career catalog. These fields are not part of current life writes. The validation and Firestore allowlists also tolerate specific legacy fields; tolerating a field does not make it part of the current save contract.
+
+The contract helpers are established before hook integration: `hydrateFromSave` currently does not invoke continuity restoration, so restoring flags, counters, and pending choices through the hook remains a separate tested change.
 
 ### Cloud sync modes
 
